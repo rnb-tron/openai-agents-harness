@@ -2,6 +2,9 @@
 venv/
 .venv/
 
+# Backup directories
+app_backup/
+
 # Python cache
 .pycache/
 __pycache__/
@@ -15,6 +18,7 @@ __pycache__/
 .idea/
 *.swp
 *.swo
+.qoder/
 
 # OS
 .DS_Store
@@ -25,8 +29,10 @@ app/logs/
 *.log
 
 # Environment files
-config/*.env
+.env
+.env.*
 !.env.example
+config/*.env
 config/*.env.local
 
 # Test and temporary files
