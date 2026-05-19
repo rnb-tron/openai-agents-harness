@@ -1,0 +1,117 @@
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request
+
+from app.api.routers import chat as chat_router
+from app.api.routers import health as health_router
+from app.api.routers import memory as memory_router
+from app.core.database import close_database, init_database
+from app.core.http_client import close_http_client, get_http_client
+from app.core.kafka_producer import close_kafka_producer, init_kafka_producer
+from app.core.logging import bind_log_context, get_rid, reset_log_context, reset_rid, set_rid, setup_logger
+from app.core.redis_client import close_redis, init_redis
+from app.settings import current_settings
+
+logger = setup_logger("app.main")
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    initialized = {"http": False, "redis": False, "kafka": False, "database": False, "memory": False}
+
+    if current_settings.database_enabled and current_settings.database_url:
+        await init_database(current_settings.database_url, echo=current_settings.debug)
+        initialized["database"] = True
+
+    if current_settings.redis_enabled:
+        await init_redis(current_settings.redis_url, current_settings.redis_slave_url)
+        initialized["redis"] = True
+
+    if current_settings.kafka_enabled:
+        await init_kafka_producer(
+            bootstrap_servers=current_settings.kafka_bootstrap_servers,
+            topic=current_settings.kafka_topic,
+            enabled=True,
+        )
+        initialized["kafka"] = True
+
+    if current_settings.http_client_enabled:
+        await get_http_client()
+        initialized["http"] = True
+
+    # Initialize Memory System (if enabled)
+    if current_settings.memory_enabled:
+        try:
+            from app.capabilities.memory.manager import MemoryManager
+            from app.capabilities.memory.tasks import memory_scheduler
+            from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+            
+            # 创建专用数据库会话 (用于Memory系统)
+            memory_engine = create_async_engine(
+                current_settings.database_url,
+                pool_pre_ping=True,
+                pool_size=5,
+                max_overflow=10,
+            )
+            memory_session_factory = async_sessionmaker(memory_engine, expire_on_commit=False)
+            
+            async with memory_session_factory() as memory_session:
+                memory_manager = MemoryManager(current_settings, memory_session)
+                await memory_manager.init()
+                app.state.memory_manager = memory_manager
+                initialized["memory"] = True
+                logger.info("Memory system initialized successfully")
+                
+                # 启动定时任务
+                await memory_scheduler.start(memory_manager)
+                logger.info("Memory task scheduler started")
+                
+        except Exception as e:
+            logger.error(f"Failed to initialize memory system: {e}", exc_info=True)
+            # Memory系统初始化失败不影响主流程
+
+    yield
+
+    if initialized["memory"]:
+        try:
+            from app.capabilities.memory.tasks import memory_scheduler
+            await memory_scheduler.stop()
+            await app.state.memory_manager.close()
+        except Exception as e:
+            logger.error(f"Failed to close memory system: {e}", exc_info=True)
+    
+    if initialized["http"]:
+        await close_http_client()
+    if initialized["kafka"]:
+        await close_kafka_producer()
+    if initialized["redis"]:
+        await close_redis()
+    if initialized["database"]:
+        await close_database()
+
+    logger.info("Application shutdown complete")
+
+
+app = FastAPI(title=current_settings.app_name, lifespan=lifespan)
+
+
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    rid_token = set_rid(request.headers.get("X-Request-ID"))
+    context_token = bind_log_context(
+        method=request.method,
+        path=request.url.path,
+        client=request.client.host if request.client else None,
+    )
+    try:
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = get_rid() or ""
+        return response
+    finally:
+        reset_log_context(context_token)
+        reset_rid(rid_token)
+
+
+app.include_router(health_router.router)
+app.include_router(chat_router.router)
+app.include_router(memory_router.router)

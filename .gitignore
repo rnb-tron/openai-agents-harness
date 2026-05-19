@@ -1,0 +1,39 @@
+# Python virtual environment
+venv/
+.venv/
+
+# Python cache
+.pycache/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+*.pyc
+*.pyo
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+app/logs/
+*.log
+
+# Environment files
+config/*.env
+!.env.example
+config/*.env.local
+
+# Test and temporary files
+test_*.py
+*_test.py
+MEMORY_SYSTEM_TEST_REPORT.md
+
+# Documentation build
+docs/_build/
+*.md.bak
