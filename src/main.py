@@ -2,6 +2,9 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 
+from src.api.middleware import middleware_registry
+from src.api.middleware.auth.plugin import AuthPlugin
+from src.api.middleware.rate_limit.plugin import RateLimitPlugin
 from src.api.routers import chat as chat_router
 from src.api.routers import health as health_router
 from src.api.routers import memory as memory_router
@@ -83,7 +86,18 @@ async def lifespan(_: FastAPI):
             logger.error(f"Failed to initialize memory system: {e}", exc_info=True)
             # Memory系统初始化失败不影响主流程
 
+    # Setup protocol-layer middleware plugins (Auth/RateLimit)
+    try:
+        await middleware_registry.setup_all()
+    except Exception as e:
+        logger.error(f"middleware setup failed: {e}", exc_info=True)
+
     yield
+
+    try:
+        await middleware_registry.teardown_all()
+    except Exception as e:
+        logger.error(f"middleware teardown failed: {e}", exc_info=True)
 
     if initialized["observability"]:
         try:
@@ -114,6 +128,17 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title=current_settings.app_name, lifespan=lifespan)
+
+# Register protocol-layer plugins.
+# Order matters: Auth first so RateLimit can read request.state.principal.
+# (MiddlewareRegistry handles FastAPI's LIFO stack internally.)
+_auth_plugin = AuthPlugin.from_settings(current_settings)
+if _auth_plugin.is_enabled():
+    middleware_registry.register(_auth_plugin)
+_rl_plugin = RateLimitPlugin.from_settings(current_settings)
+if _rl_plugin.is_enabled():
+    middleware_registry.register(_rl_plugin)
+middleware_registry.install_all(app)
 
 
 @app.middleware("http")

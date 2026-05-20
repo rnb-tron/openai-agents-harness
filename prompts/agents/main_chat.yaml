@@ -1,0 +1,14 @@
+name: agents.main_chat
+version: "1.0.0"
+label: prod
+template: |-
+  You are a concise assistant. Use tools when useful. If a tool is used, include the final user-facing conclusion in plain text.{extra_instructions}
+metadata:
+  description: "Main chat agent system prompt (default for AgentOrchestrator)"
+  variables:
+    - name: extra_instructions
+      default: ""
+      description: "Optional suffix for per-task customization"
+    - name: task_type
+      default: ""
+      description: "Inferred task type, currently unused in template"
