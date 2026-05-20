@@ -16,6 +16,11 @@ __pycache__/
 *.pyc
 *.pyo
 
+# Python build / packaging
+*.egg-info/
+build/
+dist/
+
 # IDE
 .vscode/
 .idea/
@@ -41,7 +46,6 @@ config/*.env.local
 
 # Test and temporary files
 *_test.py
-MEMORY_SYSTEM_TEST_REPORT.md
 
 # Documentation build
 docs/_build/

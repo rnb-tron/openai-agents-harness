@@ -5,12 +5,12 @@ from fastapi import FastAPI, Request
 from src.api.routers import chat as chat_router
 from src.api.routers import health as health_router
 from src.api.routers import memory as memory_router
-from src.core.database import close_database, init_database
-from src.core.http_client import close_http_client, get_http_client
-from src.core.kafka_producer import close_kafka_producer, init_kafka_producer
 from src.core.logging import bind_log_context, get_rid, reset_log_context, reset_rid, set_rid, setup_logger
-from src.core.redis_client import close_redis, init_redis
 from src.core.config import current_settings
+from src.infrastructure.database import close_database, init_database
+from src.infrastructure.http_client import close_http_client, get_http_client
+from src.infrastructure.kafka_producer import close_kafka_producer, init_kafka_producer
+from src.infrastructure.redis_client import close_redis, init_redis
 
 logger = setup_logger("src.main")
 
