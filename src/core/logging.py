@@ -10,7 +10,7 @@ from typing import Any
 
 from src.core.config import current_settings
 
-_log_dir = os.getenv("MATRIX_APPLOGS_DIR", "app/logs")
+_log_dir = os.getenv("MATRIX_APPLOGS_DIR", "data/logs")
 os.makedirs(_log_dir, exist_ok=True)
 
 _rid_var: ContextVar[str | None] = ContextVar("rid", default=None)
