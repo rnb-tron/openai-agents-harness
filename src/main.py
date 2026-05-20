@@ -17,7 +17,20 @@ logger = setup_logger("src.main")
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    initialized = {"http": False, "redis": False, "kafka": False, "database": False, "memory": False}
+    initialized = {"http": False, "redis": False, "kafka": False, "database": False, "memory": False, "observability": False}
+
+    # Initialize Observability System (if enabled)
+    if current_settings.observability_enabled:
+        try:
+            from src.capabilities.observability import init_observability
+            
+            await init_observability()
+            initialized["observability"] = True
+            logger.info("Observability system initialized successfully")
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize observability system: {e}", exc_info=True)
+            # 可观测系统初始化失败不影响主流程
 
     if current_settings.database_enabled and current_settings.database_url:
         await init_database(current_settings.database_url, echo=current_settings.debug)
@@ -72,6 +85,14 @@ async def lifespan(_: FastAPI):
 
     yield
 
+    if initialized["observability"]:
+        try:
+            from src.capabilities.observability import shutdown_observability
+            await shutdown_observability()
+            logger.info("Observability system shutdown complete")
+        except Exception as e:
+            logger.error(f"Failed to shutdown observability system: {e}", exc_info=True)
+    
     if initialized["memory"]:
         try:
             from src.capabilities.memory.tasks import memory_scheduler

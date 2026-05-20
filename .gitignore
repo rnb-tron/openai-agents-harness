@@ -2,6 +2,9 @@
 venv/
 .venv/
 
+# Tests (optional - if you want to keep them in git)
+# tests/
+
 # Backup directories
 app_backup/
 
@@ -25,7 +28,8 @@ __pycache__/
 Thumbs.db
 
 # Logs
-app/logs/
+data/logs/
+logs/
 *.log
 
 # Environment files
@@ -36,7 +40,6 @@ config/*.env
 config/*.env.local
 
 # Test and temporary files
-test_*.py
 *_test.py
 MEMORY_SYSTEM_TEST_REPORT.md
 

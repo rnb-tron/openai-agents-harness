@@ -49,6 +49,9 @@ class Settings:
     memory_retrieval_top_k: int
     memory_importance_threshold: float
     memory_forgetting_enabled: bool
+    
+    # Observability System Configuration
+    observability_enabled: bool
 
     @property
     def is_smoke(self) -> bool:
@@ -90,6 +93,8 @@ def get_settings() -> Settings:
         memory_retrieval_top_k=int(os.getenv("MEMORY_RETRIEVAL_TOP_K", "3")),
         memory_importance_threshold=float(os.getenv("MEMORY_IMPORTANCE_THRESHOLD", "0.3")),
         memory_forgetting_enabled=os.getenv("MEMORY_FORGETTING_ENABLED", "true").lower() == "true",
+        # Observability Configuration
+        observability_enabled=os.getenv("LANGFUSE_ENABLED", "false").lower() == "true",
     )
 
 
