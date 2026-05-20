@@ -4,6 +4,7 @@ from typing import Any, Callable
 
 from src.capabilities.model_routing.config import ResilienceConfig
 from src.capabilities.model_routing.runner import ExecutionMetrics, ResilientModelRunner
+from src.capabilities.model_routing.specs import get_input_budget
 
 
 class ModelRouter:
@@ -29,6 +30,15 @@ class ModelRouter:
         if task_type == "reasoning":
             return self.reasoning_model
         return self.default_model
+
+    def get_input_budget(self, model: str | None = None, safety_ratio: float = 0.9) -> int:
+        """获取输入 tokens 预算
+
+        Args:
+            model: 显式指定模型, 缺省时用 ``default_model``
+            safety_ratio: 安全比例
+        """
+        return get_input_budget(model or self.default_model, safety_ratio)
 
     def infer_task_type(self, user_input: str) -> str | None:
         """推断任务类型"""

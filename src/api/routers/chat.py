@@ -1,8 +1,10 @@
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from src.api.middleware.auth.base import Principal
+from src.api.middleware.auth.deps import get_current_principal
 from src.application.orchestration.agent_runtime import AgentOrchestrator, AgentSession
 from src.capabilities.memory.store import MemoryStore
 from src.capabilities.model_routing.router import ModelRouter
@@ -75,9 +77,19 @@ class ChatRequest(BaseModel):
 
 
 @router.post("")
-async def chat(request: ChatRequest):
+async def chat(
+    request: ChatRequest,
+    principal: Principal = Depends(get_current_principal),
+):
+    # Authenticated identity wins; body.user_id only used as fallback when
+    # AuthPlugin is disabled (anonymous principal).
+    if principal.is_anonymous:
+        user_id = request.user_id
+    else:
+        user_id = principal.user_id
+
     session_id = request.session_id or str(uuid.uuid4())
-    session = AgentSession(session_id=session_id, user_id=request.user_id)
+    session = AgentSession(session_id=session_id, user_id=user_id)
     try:
         result = await _orchestrator.run(session=session, user_input=request.message)
     except RuntimeError as exc:

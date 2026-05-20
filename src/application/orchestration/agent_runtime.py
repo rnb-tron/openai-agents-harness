@@ -98,7 +98,26 @@ class AgentOrchestrator:
             )
         )
 
-        # 2) 高级能力 (可选)
+        # 2) 上下文压缩 (默认关, compression_enabled 开启后在 Memory 之后压缩)
+        if current_settings.compression_enabled:
+            from src.capabilities.context_compression import ContextCompressionCapability
+
+            self.registry.register(
+                ContextCompressionCapability.from_settings(
+                    current_settings,
+                    model_router=model_router,
+                )
+            )
+
+        # 3) Prompt 管理 (默认关, prompt_enabled 开启后从 lazy 工厂取 manager)
+        if current_settings.prompt_enabled:
+            from src.capabilities.prompt import PromptCapability
+
+            pc = PromptCapability.from_settings(current_settings)
+            if pc.is_enabled():
+                self.registry.register(pc)
+
+        # 4) 高级能力 (可选)
         self.handoff_mgr: HandoffManager | None = None
         if ADVANCED_AGENTS_AVAILABLE:
             if hitl_config is not None and ApprovalManager is not None and HITLCapability is not None:
@@ -148,12 +167,40 @@ class AgentOrchestrator:
             client_kwargs["base_url"] = current_settings.openai_base_url
         client = AsyncOpenAI(**client_kwargs)
 
+        # 默认 instructions: 与历史硬编码语义保持一致 (作为 prompt 失败时的兜底)
+        instructions = (
+            "You are a concise assistant. Use tools when useful. "
+            "If a tool is used, include the final user-facing conclusion in plain text."
+        )
+        # prompt_enabled 时, 从 PromptManager 取 prompt; 失败走兜底
+        if current_settings.prompt_enabled:
+            try:
+                from src.capabilities.prompt.factory import get_prompt_manager
+
+                mgr = get_prompt_manager()
+                if mgr is not None:
+                    rendered = await mgr.get(
+                        "agents.main_chat",
+                        task_type=task_type,
+                        extra_instructions="",
+                    )
+                    instructions = rendered.text
+                    ctx.metadata["prompt"] = rendered.to_metadata()
+            except Exception as exc:
+                logger.warning(
+                    "prompt_get_failed_using_fallback",
+                    extra={
+                        "prompt_name": "agents.main_chat",
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    },
+                )
+                if not current_settings.prompt_fail_open:
+                    raise
+
         agent = Agent(
             name="MinimalChatAgent",
-            instructions=(
-                "You are a concise assistant. Use tools when useful. "
-                "If a tool is used, include the final user-facing conclusion in plain text."
-            ),
+            instructions=instructions,
             model=OpenAIChatCompletionsModel(model=selected_model, openai_client=client),
             tools=self.tool_registry.list_agent_tools(),
         )

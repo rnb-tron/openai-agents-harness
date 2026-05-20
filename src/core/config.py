@@ -15,6 +15,10 @@ def _load_env_file() -> str:
     return env_type
 
 
+def _split_csv(raw: str) -> list[str]:
+    return [s.strip() for s in raw.split(",") if s.strip()]
+
+
 @dataclass
 class Settings:
     env_type: str
@@ -52,6 +56,45 @@ class Settings:
     
     # Observability System Configuration
     observability_enabled: bool
+
+    # Protocol-layer security (default disabled, zero overhead when off)
+    auth_enabled: bool = False
+    auth_strict: bool = False
+    auth_jwt_algorithm: str = "HS256"
+    auth_jwt_secret: str = ""
+    auth_jwt_public_key: str = ""
+    auth_jwt_issuer: Optional[str] = None
+    auth_jwt_audience: Optional[str] = None
+    auth_jwt_leeway_sec: int = 30
+    auth_skip_paths: list = None  # type: ignore[assignment]
+
+    rate_limit_enabled: bool = False
+    rate_limit_backend: str = "redis"  # redis / memory
+    rate_limit_default_limit: int = 60
+    rate_limit_default_window_sec: int = 60
+    rate_limit_default_burst: int = 10
+    rate_limit_key_strategy: str = "principal_or_ip"
+    rate_limit_routes: str = ""  # JSON string: {"/chat": {"limit": 5, "window_sec": 60, "burst": 1}}
+    rate_limit_skip_paths: list = None  # type: ignore[assignment]
+
+    # Context Compression Capability (default disabled, zero overhead when off)
+    compression_enabled: bool = False
+    compression_strategy: str = "token_budget"  # token_budget | rolling_summary | hybrid
+    compression_safety_ratio: float = 0.9
+    compression_keep_recent_turns: int = 4
+    compression_summary_model: str = ""  # empty -> reuse agent_model_default
+    compression_summary_max_tokens: int = 512
+    compression_cache_ttl_sec: int = 3600
+    compression_fail_open: bool = True
+
+    # Prompt Management Capability (default disabled, zero overhead when off)
+    prompt_enabled: bool = False
+    prompt_backend: str = "composite"  # composite | langfuse | yaml
+    prompt_local_dir: str = "prompts"
+    prompt_default_label: str = "prod"
+    prompt_cache_ttl_sec: int = 300
+    prompt_warmup_names: str = ""  # CSV of prompt names to warm at startup
+    prompt_fail_open: bool = True
 
     @property
     def is_smoke(self) -> bool:
@@ -95,6 +138,42 @@ def get_settings() -> Settings:
         memory_forgetting_enabled=os.getenv("MEMORY_FORGETTING_ENABLED", "true").lower() == "true",
         # Observability Configuration
         observability_enabled=os.getenv("LANGFUSE_ENABLED", "false").lower() == "true",
+        # Protocol-layer Auth
+        auth_enabled=os.getenv("AUTH_ENABLED", "false").lower() == "true",
+        auth_strict=os.getenv("AUTH_STRICT", "false").lower() == "true",
+        auth_jwt_algorithm=os.getenv("AUTH_JWT_ALGORITHM", "HS256"),
+        auth_jwt_secret=os.getenv("AUTH_JWT_SECRET", ""),
+        auth_jwt_public_key=os.getenv("AUTH_JWT_PUBLIC_KEY", ""),
+        auth_jwt_issuer=os.getenv("AUTH_JWT_ISSUER", "") or None,
+        auth_jwt_audience=os.getenv("AUTH_JWT_AUDIENCE", "") or None,
+        auth_jwt_leeway_sec=int(os.getenv("AUTH_JWT_LEEWAY_SEC", "30")),
+        auth_skip_paths=_split_csv(os.getenv("AUTH_SKIP_PATHS", "/health,/docs,/redoc,/openapi.json")),
+        # Protocol-layer Rate Limit
+        rate_limit_enabled=os.getenv("RATE_LIMIT_ENABLED", "false").lower() == "true",
+        rate_limit_backend=os.getenv("RATE_LIMIT_BACKEND", "redis"),
+        rate_limit_default_limit=int(os.getenv("RATE_LIMIT_DEFAULT_LIMIT", "60")),
+        rate_limit_default_window_sec=int(os.getenv("RATE_LIMIT_DEFAULT_WINDOW_SEC", "60")),
+        rate_limit_default_burst=int(os.getenv("RATE_LIMIT_DEFAULT_BURST", "10")),
+        rate_limit_key_strategy=os.getenv("RATE_LIMIT_KEY_STRATEGY", "principal_or_ip"),
+        rate_limit_routes=os.getenv("RATE_LIMIT_ROUTES", ""),
+        rate_limit_skip_paths=_split_csv(os.getenv("RATE_LIMIT_SKIP_PATHS", "/health,/docs,/redoc,/openapi.json")),
+        # Context Compression
+        compression_enabled=os.getenv("COMPRESSION_ENABLED", "false").lower() == "true",
+        compression_strategy=os.getenv("COMPRESSION_STRATEGY", "token_budget"),
+        compression_safety_ratio=float(os.getenv("COMPRESSION_SAFETY_RATIO", "0.9")),
+        compression_keep_recent_turns=int(os.getenv("COMPRESSION_KEEP_RECENT_TURNS", "4")),
+        compression_summary_model=os.getenv("COMPRESSION_SUMMARY_MODEL", ""),
+        compression_summary_max_tokens=int(os.getenv("COMPRESSION_SUMMARY_MAX_TOKENS", "512")),
+        compression_cache_ttl_sec=int(os.getenv("COMPRESSION_CACHE_TTL_SEC", "3600")),
+        compression_fail_open=os.getenv("COMPRESSION_FAIL_OPEN", "true").lower() == "true",
+        # Prompt Management
+        prompt_enabled=os.getenv("PROMPT_ENABLED", "false").lower() == "true",
+        prompt_backend=os.getenv("PROMPT_BACKEND", "composite"),
+        prompt_local_dir=os.getenv("PROMPT_LOCAL_DIR", "prompts"),
+        prompt_default_label=os.getenv("PROMPT_DEFAULT_LABEL", "prod"),
+        prompt_cache_ttl_sec=int(os.getenv("PROMPT_CACHE_TTL_SEC", "300")),
+        prompt_warmup_names=os.getenv("PROMPT_WARMUP_NAMES", ""),
+        prompt_fail_open=os.getenv("PROMPT_FAIL_OPEN", "true").lower() == "true",
     )
 
 

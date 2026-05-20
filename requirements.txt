@@ -11,10 +11,16 @@ pydantic~=2.12.2
 openai-agents>=0.8.0
 openai>=2.26.0
 
+# Protocol-layer security
+PyJWT>=2.8.0
+
 # Memory System Dependencies
 elasticsearch>=8.0.0
 tiktoken>=0.7.0
 apscheduler>=3.10.0
+
+# Prompt Management (LocalYamlStore)
+PyYAML>=6.0
 
 # Observability System Dependencies
 langfuse>=2.50.0
