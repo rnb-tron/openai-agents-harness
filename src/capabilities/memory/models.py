@@ -20,7 +20,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.ext.asyncio import AsyncAttrs
 
-from src.core.database import Base
+from src.infrastructure.database import Base
 
 
 class MemoryRecord(AsyncAttrs, Base):

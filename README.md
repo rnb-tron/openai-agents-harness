@@ -13,6 +13,20 @@
 - ✅ **易于拓展**: 新增能力不影响现有代码
 - ✅ **最佳实践**: 遵循 Python 和 FastAPI 标准
 
+## 📚 快速导航
+
+### 🚀 快速开始
+- [**快速入门指南**](./docs/QUICKSTART.md) - 5 分钟上手 (新!)
+- [**项目文档索引**](./docs/PROJECT_DOCUMENTATION.md) - 所有文档导航 (新!)
+
+### 📖 核心文档
+- [**AgentOrchestrator 使用指南**](./docs/AGENT_ORCHESTRATOR_USAGE.md) - 三种模式详解 (新!)
+- [**高级能力指南**](./docs/ADVANCED_AGENTS_GUIDE.md) - HITL/Checkpoint/Handoff (新!)
+- [**架构设计**](./docs/ARCHITECTURE_DESIGN.md) - 六层架构详解
+- [**记忆系统**](./docs/MEMORY_SYSTEM.md) - 短期/长期记忆
+- [**模型弹性指南**](./docs/MODEL_RESILIENCE_GUIDE.md) - 降级/重试/超时
+- [**可观测性指南**](./docs/OBSERVABILITY_GUIDE.md) - Langfuse 集成
+
 ## 🏗️ 架构设计
 
 ### 六层架构

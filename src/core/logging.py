@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import uuid
+from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime
 from logging.handlers import TimedRotatingFileHandler
@@ -15,6 +16,15 @@ os.makedirs(_log_dir, exist_ok=True)
 
 _rid_var: ContextVar[str | None] = ContextVar("rid", default=None)
 _log_context_var: ContextVar[dict[str, Any]] = ContextVar("log_context", default={})
+
+# 敏感字段列表 (自动脱敏)
+SENSITIVE_FIELDS = {
+    "api_key", "secret", "password", "token", "authorization",
+    "access_token", "refresh_token", "secret_key", "private_key",
+    "credit_card", "card_number", "cvv",
+    "phone", "mobile", "email", "id_card", "id_number",
+    "bank_account", "account_number"
+}
 
 
 def new_rid() -> str:
@@ -41,6 +51,36 @@ def bind_log_context(**fields: Any):
 
 def reset_log_context(token) -> None:
     _log_context_var.reset(token)
+
+
+def _sanitize_value(field: str, value: Any) -> Any:
+    """脱敏敏感字段值"""
+    if field.lower() in SENSITIVE_FIELDS:
+        if isinstance(value, str):
+            if len(value) <= 8:
+                return "***"
+            return value[:4] + "***" + value[-4:]
+        return "***"
+    return value
+
+
+def _sanitize_dict(data: dict[str, Any]) -> dict[str, Any]:
+    """递归脱敏字典中的所有敏感字段"""
+    if not isinstance(data, dict):
+        return data
+    
+    sanitized = {}
+    for key, value in data.items():
+        if isinstance(value, dict):
+            sanitized[key] = _sanitize_dict(value)
+        elif isinstance(value, (list, tuple)):
+            sanitized[key] = [
+                _sanitize_dict(item) if isinstance(item, dict) else item
+                for item in value
+            ]
+        else:
+            sanitized[key] = _sanitize_value(key, value)
+    return sanitized
 
 
 class RequestContextFilter(logging.Filter):
@@ -95,17 +135,30 @@ class JsonLogFormatter(logging.Formatter):
             "function": record.funcName,
             "line": record.lineno,
         }
-        context = getattr(record, "context", None)
-        if context:
-            payload["context"] = _log_safe(context)
+        
+        # 添加事件信息
         event = getattr(record, "event", None)
         if event:
             payload["event"] = event
+        
+        # 添加结构化字段 (自动脱敏)
         fields = getattr(record, "structured_fields", None)
         if fields:
-            payload["fields"] = _log_safe(fields)
+            payload["fields"] = _sanitize_dict(_log_safe(fields))
+        
+        # 添加异常信息 (结构化)
         if record.exc_info:
-            payload["exc_info"] = _single_line_text(self.formatException(record.exc_info))
+            payload["exc_info"] = {
+                "type": record.exc_info[0].__name__ if record.exc_info[0] else "Unknown",
+                "message": str(record.exc_info[1]) if record.exc_info[1] else "",
+            }
+        
+        # 添加元数据
+        payload["metadata"] = {
+            "app_version": os.getenv("APP_VERSION", "unknown"),
+            "env": current_settings.env_type,
+        }
+        
         return _compact_json(payload)
 
 
@@ -157,7 +210,23 @@ def setup_logger(name: str, log_file: str | None = None) -> logging.Logger:
 
 
 def log_event(logger: logging.Logger, event: str, level: int = logging.INFO, **fields: Any) -> None:
+    """记录结构化事件日志 (便捷函数)"""
     logger.log(level, event, extra={"event": event, "structured_fields": _log_safe(fields)})
+
+
+@contextmanager
+def log_context(session_id: str | None = None, user_id: str | None = None, **fields):
+    """日志上下文管理器
+    
+    Example:
+        with log_context(session_id="session-001", user_id="user-123"):
+            service_logger.info("处理请求")  # 自动包含 session_id 和 user_id
+    """
+    token = bind_log_context(session_id=session_id, user_id=user_id, **fields)
+    try:
+        yield
+    finally:
+        reset_log_context(token)
 
 
 api_logger = setup_logger("api")
