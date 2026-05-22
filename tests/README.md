@@ -1,47 +1,26 @@
 # 测试模块
 
-## 测试文件说明
+## 目录结构
 
-### Agent 功能测试
-- `test_agent_full.py` - 完整的 Agent 功能测试 (5个测试用例)
-  - 简单 Agent 对话
-  - 带工具的 Agent
-  - 多 Agent 协作
-  - Trace 分组
-  - 复杂任务
-
-### Langfuse 可观测性测试
-- `test_langfuse.py` - 完整的 Langfuse 集成测试 (4个测试用例)
-  - Langfuse 连接测试
-  - 简单 Agent 追踪
-  - 工具执行追踪
-  - Trace 分组
-  
-- `test_langfuse_simple.py` - Langfuse 连接快速测试
-
-### Memory 系统测试
-- `test_memory_system.py` - Memory 系统功能测试
-
-### 其他测试
-- `test_model_name.py` - 模型名称在 Langfuse 中的显示测试
+- `unit/` - 快速单元测试，默认回归入口。
+- `integration/` - 本地集成测试，不依赖真实外部模型服务。
+- `e2e/` - 端到端和外部服务测试；OpenAI/Langfuse 类测试默认跳过，设置 `RUN_EXTERNAL_TESTS=true` 后运行。
 
 ## 运行测试
 
+推荐使用仓库根目录的 Makefile:
+
 ```bash
-# 激活虚拟环境
-source venv/bin/activate
-
-# 运行单个测试
-python tests/test_langfuse_simple.py
-
-# 运行所有测试
-python tests/test_agent_full.py
-python tests/test_langfuse.py
-
-# 使用 pytest (如果安装了)
-pytest tests/ -v
+make test
+make test-integration
+make test-e2e
+make test-all
 ```
 
 ## 测试配置
 
-所有测试使用 `config/test.env` 中的配置。
+外部服务测试使用 `config/test.env` 中的配置，并需要显式开启:
+
+```bash
+RUN_EXTERNAL_TESTS=true make test-e2e
+```

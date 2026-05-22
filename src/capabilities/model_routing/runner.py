@@ -108,9 +108,11 @@ class ResilientModelRunner:
             
             logger.info(
                 "execution_succeeded",
-                model=self.metrics.success_model,
-                duration_ms=int(self.metrics.total_duration * 1000),
-                fallback_count=self.metrics.fallback_count
+                extra={
+                    "model": self.metrics.success_model,
+                    "duration_ms": int(self.metrics.total_duration * 1000),
+                    "fallback_count": self.metrics.fallback_count,
+                },
             )
             
             return result
@@ -123,9 +125,11 @@ class ResilientModelRunner:
             
             logger.error(
                 "execution_failed",
-                duration_ms=int(self.metrics.total_duration * 1000),
-                error_type=type(e).__name__,
-                error_message=self.metrics.error
+                extra={
+                    "duration_ms": int(self.metrics.total_duration * 1000),
+                    "error_type": type(e).__name__,
+                    "error_message": self.metrics.error,
+                },
             )
             raise
     

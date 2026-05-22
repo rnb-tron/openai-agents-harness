@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import time
+from typing import TYPE_CHECKING
 from typing import Any
 
 from src.capabilities.context_compression.base import (
@@ -23,6 +24,10 @@ from src.capabilities.context_compression.token_utils import count_tokens
 from src.capabilities.model_routing.router import ModelRouter
 from src.capabilities.plugin import Capability, RunContext
 from src.core.logging import setup_logger
+from src.harness.manifest import CapabilityKind, CapabilityManifest
+
+if TYPE_CHECKING:
+    from src.capabilities.prompt.manager import PromptManager
 
 logger = setup_logger("capabilities.context_compression.capability")
 
@@ -34,6 +39,14 @@ _STRATEGY_HYBRID = "hybrid"
 
 class ContextCompressionCapability(Capability):
     name = "context_compression"
+    manifest = CapabilityManifest(
+        name="context_compression",
+        kind=CapabilityKind.RUNTIME,
+        config_section="compression",
+        depends_on=("model_router", "conversation_context"),
+        provides=("compressed_context",),
+        install_order=30,
+    )
 
     def __init__(
         self,
@@ -55,12 +68,19 @@ class ContextCompressionCapability(Capability):
         cls,
         settings,
         model_router: ModelRouter,
+        prompt_manager: "PromptManager | None" = None,
     ) -> "ContextCompressionCapability":
         strategy_name = (settings.compression_strategy or _STRATEGY_TOKEN_BUDGET).lower()
         if strategy_name == _STRATEGY_HYBRID:
-            strategy: CompressionStrategy = HybridStrategy.from_settings(settings)
+            strategy: CompressionStrategy = HybridStrategy.from_settings(
+                settings,
+                prompt_manager=prompt_manager,
+            )
         elif strategy_name == _STRATEGY_ROLLING_SUMMARY:
-            strategy = RollingSummary.from_settings(settings)
+            strategy = RollingSummary.from_settings(
+                settings,
+                prompt_manager=prompt_manager,
+            )
         else:
             strategy = TokenBudgetTruncate()
 

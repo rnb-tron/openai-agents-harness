@@ -1,25 +1,37 @@
 # Agent Harness Makefile
 
-.PHONY: help install dev run test clean format lint
+PYTHON ?= venv/bin/python
+PIP ?= venv/bin/pip
+
+.PHONY: help install dev run test test-integration test-e2e test-all clean format lint
 
 help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'
 
 install: ## Install dependencies
-	pip install -r requirements.txt
-	pip install -e .
+	$(PIP) install -r requirements.txt
+	$(PIP) install -e .
 
 dev: ## Install development dependencies
-	pip install -e ".[dev]"
+	$(PIP) install -e ".[dev]"
 
 run: ## Run the application
-	ENVTYPE=test python -m uvicorn src.main:app --host 0.0.0.0 --port 8080 --reload
+	ENVTYPE=test $(PYTHON) -m uvicorn src.main:app --host 0.0.0.0 --port 8080 --reload
 
-test: ## Run tests
-	python -m pytest tests/ -v
+test: ## Run unit tests
+	$(PYTHON) -m pytest tests/unit -v
+
+test-integration: ## Run local integration tests
+	$(PYTHON) -m pytest tests/integration -v
+
+test-e2e: ## Run e2e tests; external checks are skipped unless RUN_EXTERNAL_TESTS=true
+	$(PYTHON) -m pytest tests/e2e -v
+
+test-all: ## Run unit, integration, and e2e tests
+	$(PYTHON) -m pytest tests/unit tests/integration tests/e2e -v
 
 test-cov: ## Run tests with coverage
-	python -m pytest tests/ -v --cov=src --cov-report=html
+	$(PYTHON) -m pytest tests/unit -v --cov=src --cov-report=html
 
 format: ## Format code
 	black src/ tests/

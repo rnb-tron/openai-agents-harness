@@ -4,15 +4,21 @@ import sys
 from pathlib import Path
 
 # Add project root to Python path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parents[2]))
 
 import asyncio
 import os
+import pytest
 from dotenv import load_dotenv
 
 # Load config
-env_file = Path(__file__).parent.parent / "config" / "test.env"
+env_file = Path(__file__).parents[2] / "config" / "test.env"
 load_dotenv(env_file, override=True)
+
+pytestmark = pytest.mark.skipif(
+    os.getenv("RUN_EXTERNAL_TESTS", "false").lower() != "true",
+    reason="requires external OpenAI-compatible model service; set RUN_EXTERNAL_TESTS=true",
+)
 
 from agents import Agent, AsyncOpenAI, OpenAIChatCompletionsModel, Runner
 from src.capabilities.model_routing import (

@@ -6,6 +6,10 @@ from src.capabilities.model_routing.config import (
     RetryConfig,
     TimeoutConfig,
 )
+from src.capabilities.model_routing.capabilities import (
+    ModelResilienceCapability,
+    ModelRouterCapability,
+)
 from src.capabilities.model_routing.fallback import ModelFallback, ModelFallbackError
 from src.capabilities.model_routing.retry import MaxRetriesExceededError, RetryExecutor
 from src.capabilities.model_routing.router import ModelRouter
@@ -18,6 +22,8 @@ __all__ = [
     "FallbackConfig",
     "RetryConfig",
     "TimeoutConfig",
+    "ModelRouterCapability",
+    "ModelResilienceCapability",
     # 执行器
     "ModelRouter",
     "ResilientModelRunner",

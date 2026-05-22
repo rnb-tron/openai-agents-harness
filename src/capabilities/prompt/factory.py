@@ -57,6 +57,11 @@ def get_prompt_manager() -> "PromptManager | None":
     return _prompt_manager
 
 
+def build_prompt_manager(settings) -> "PromptManager":
+    """Build a fresh PromptManager from explicit settings."""
+    return _build_from_settings(settings)
+
+
 def reset_prompt_manager() -> None:
     """重置全局单例 (单测用)"""
     global _prompt_manager

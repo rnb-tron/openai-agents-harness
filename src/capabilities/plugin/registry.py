@@ -63,7 +63,10 @@ class CapabilityRegistry:
 
     @property
     def enabled(self) -> list[Capability]:
-        return [c for c in self._capabilities if c.is_enabled()]
+        return sorted(
+            [c for c in self._capabilities if c.is_enabled()],
+            key=lambda c: (c.manifest.install_order, c.name),
+        )
 
     def get(self, name: str) -> Capability | None:
         for c in self._capabilities:

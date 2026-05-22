@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from src.harness.manifest import CapabilityKind, CapabilityManifest
+
 
 class RunPhase(str, Enum):
     """Agent 一次执行内的钩子触发阶段"""
@@ -55,6 +57,10 @@ class Capability(ABC):
 
     #: 能力唯一名称,建议使用 snake_case,如 ``"memory"``、``"hitl"``
     name: str = "capability"
+    manifest: CapabilityManifest = CapabilityManifest(
+        name="capability",
+        kind=CapabilityKind.RUNTIME,
+    )
 
     def is_enabled(self) -> bool:
         """是否启用。返回 ``False`` 时 Registry 会跳过该能力的所有钩子。

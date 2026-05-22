@@ -14,7 +14,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # 加载配置
-env_file = Path(__file__).parent.parent / "config" / "test.env"
+env_file = Path(__file__).parents[2] / "config" / "test.env"
 load_dotenv(env_file)
 
 from agents import Agent, Runner, trace, function_tool

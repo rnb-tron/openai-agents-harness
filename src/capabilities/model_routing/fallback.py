@@ -80,8 +80,7 @@ class ModelFallback:
                 if idx > 0:
                     logger.info(
                         "fallback_model_success",
-                        model=model,
-                        fallback_index=idx
+                        extra={"model": model, "fallback_index": idx},
                     )
                 
                 return result
@@ -94,17 +93,21 @@ class ModelFallback:
                 if self._should_fallback(e):
                     logger.warning(
                         "model_fallback_triggered",
-                        model=model,
-                        error_type=type(e).__name__,
-                        error_message=str(e)
+                        extra={
+                            "model": model,
+                            "error_type": type(e).__name__,
+                            "error_message": str(e),
+                        },
                     )
                 else:
                     # 不应该降级的异常,直接抛出
                     logger.error(
                         "non_recoverable_error",
-                        model=model,
-                        error_type=type(e).__name__,
-                        error_message=str(e)
+                        extra={
+                            "model": model,
+                            "error_type": type(e).__name__,
+                            "error_message": str(e),
+                        },
                     )
                     raise
         
@@ -115,10 +118,12 @@ class ModelFallback:
         )
         logger.error(
             "all_models_failed",
-            models_count=len(self.config.models),
-            models_tried=self.config.models,
-            last_error_type=type(last_error).__name__,
-            last_error_message=str(last_error)
+            extra={
+                "models_count": len(self.config.models),
+                "models_tried": self.config.models,
+                "last_error_type": type(last_error).__name__,
+                "last_error_message": str(last_error),
+            },
         )
         
         raise ModelFallbackError(error_msg, self._fallback_errors)

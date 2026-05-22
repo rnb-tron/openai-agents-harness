@@ -104,12 +104,14 @@ class ApprovalManager:
         
         logger.info(
             "approval_requested",
-            request_id=request_id,
-            tool_name=tool_name,
-            tool_args=tool_args,
-            session_id=session_id,
-            user_id=user_id,
-            reason=reason,
+            extra={
+                "request_id": request_id,
+                "tool_name": tool_name,
+                "tool_args": tool_args,
+                "session_id": session_id,
+                "user_id": user_id,
+                "reason": reason,
+            },
         )
         
         return request
@@ -140,9 +142,11 @@ class ApprovalManager:
         
         logger.info(
             "approval_approved",
-            request_id=request_id,
-            reviewer=reviewer,
-            comment=comment,
+            extra={
+                "request_id": request_id,
+                "reviewer": reviewer,
+                "comment": comment,
+            },
         )
         return True
     
@@ -172,9 +176,11 @@ class ApprovalManager:
         
         logger.info(
             "approval_rejected",
-            request_id=request_id,
-            reviewer=reviewer,
-            reason=reason,
+            extra={
+                "request_id": request_id,
+                "reviewer": reviewer,
+                "reason": reason,
+            },
         )
         return True
     
@@ -199,8 +205,10 @@ class ApprovalManager:
             request.status = ApprovalStatus.TIMEOUT
             logger.warning(
                 "approval_timeout",
-                request_id=request_id,
-                timeout=timeout,
+                extra={
+                    "request_id": request_id,
+                    "timeout": timeout,
+                },
             )
             return False
     

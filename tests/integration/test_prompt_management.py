@@ -14,7 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -269,7 +269,7 @@ def test_main_chat_fallback_when_get_fails() -> None:
     """集成: agent_runtime 中 prompt 失败时 instructions 走硬编码 fallback,
     主流程不挂。
 
-    通过 mock get_prompt_manager 返回一个会抛错的 mgr, 调用 orchestrator.run()
+    通过注入一个会抛错的 mgr, 调用 orchestrator.run()
     并 mock Runner.run, 验证 fallback 文本生效。
     """
     reset_prompt_manager()
@@ -295,7 +295,6 @@ def test_main_chat_fallback_when_get_fails() -> None:
         memory_enabled=False,
     )
     with patch.object(ar_mod, "current_settings", full_settings), \
-         patch("src.capabilities.prompt.factory.get_prompt_manager", return_value=failing_mgr), \
          patch.object(ar_mod, "Runner") as MockRunner, \
          patch.object(ar_mod, "Agent") as MockAgent, \
          patch.object(ar_mod, "AsyncOpenAI") as MockClient, \
@@ -314,6 +313,7 @@ def test_main_chat_fallback_when_get_fails() -> None:
             tool_registry=ToolRegistry(),
             memory_store=MemoryStore(),
             model_router=ModelRouter(),
+            prompt_manager=failing_mgr,
         )
         session = ar_mod.AgentSession(session_id="s1")
         result = asyncio.run(orch.run(session, "hello"))

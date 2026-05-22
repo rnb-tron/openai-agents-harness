@@ -1,8 +1,10 @@
 """可观测能力 - 统一入口"""
 
 from src.capabilities.observability.config import ObservabilityConfig
+from src.capabilities.observability.capability import ObservabilityCapability
 from src.capabilities.observability.decorators import measure_time, observe
 from src.capabilities.observability.middleware import observability_middleware
+from src.capabilities.observability.plugin import ObservabilityPlugin
 from src.capabilities.observability.tracer import TracerManager
 
 # 全局实例
@@ -80,6 +82,8 @@ def get_config() -> ObservabilityConfig | None:
 
 __all__ = [
     "ObservabilityConfig",
+    "ObservabilityCapability",
+    "ObservabilityPlugin",
     "TracerManager",
     "init_observability",
     "shutdown_observability",

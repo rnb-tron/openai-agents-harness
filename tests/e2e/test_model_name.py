@@ -3,9 +3,15 @@
 import os
 from pathlib import Path
 from dotenv import load_dotenv
+import pytest
 
-env_file = Path(__file__).parent.parent / "config" / "test.env"
+env_file = Path(__file__).parents[2] / "config" / "test.env"
 load_dotenv(env_file, override=True)
+
+pytestmark = pytest.mark.skipif(
+    os.getenv("RUN_EXTERNAL_TESTS", "false").lower() != "true",
+    reason="requires external OpenAI/Langfuse services; set RUN_EXTERNAL_TESTS=true",
+)
 
 import asyncio
 from agents import Agent, Runner, trace

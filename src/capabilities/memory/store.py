@@ -3,10 +3,16 @@ Short-Term Memory Store
 短期记忆存储 - Redis增强版
 """
 
+from __future__ import annotations
+
 import json
 from datetime import datetime
+from typing import Any
 
-import redis.asyncio as redis
+try:
+    import redis.asyncio as redis
+except ImportError:  # pragma: no cover - optional when Redis capability is disabled
+    redis = Any
 
 from src.core.logging import service_logger
 
@@ -183,10 +189,18 @@ class MemoryStore:
     def get(self, session_id: str) -> list[dict[str, str]]:
         return self._memory.get(session_id, [])
 
+    def clear(self, session_id: str) -> None:
+        self._memory.pop(session_id, None)
+
+    def stats(self) -> dict:
+        return {
+            "sessions": len(self._memory),
+            "messages": sum(len(items) for items in self._memory.values()),
+        }
+
     def render_context(self, session_id: str, max_turns: int = 6) -> str:
         turns = self.get(session_id)[-max_turns:]
         if not turns:
             return ""
         lines = [f"{item['role']}: {item['content']}" for item in turns]
         return "\n".join(lines)
-

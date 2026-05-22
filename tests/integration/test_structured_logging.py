@@ -14,7 +14,7 @@ import json
 from pathlib import Path
 
 # 添加项目根目录到 Python 路径
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parents[2]))
 
 from src.core.logging import (
     service_logger,
@@ -160,7 +160,7 @@ def test_event_parsing():
         ("tool_called", "tool", "called"),
         ("memory_retrieved", "memory", "retrieved"),
         ("model_fallback_triggered", "model", "fallback_triggered"),
-        ("approval_requested", "hitl", "requested"),
+        ("approval_requested", "approval", "requested"),
         ("checkpoint_saved", "checkpoint", "saved"),
         ("error", "general", "error"),
     ]

@@ -1,447 +1,282 @@
-# 🏗️ Agent Harness 工程脚手架 - 目录结构设计
+# 🏗️ Agent Harness 架构设计
 
-## 📐 设计原则
+本文档描述当前仓库的实际架构。目标不是描述一个理想蓝图，而是说明当前代码如何支持企业级 Agent Harness、可插拔能力和未来脚手架生成。
 
-1. **分层清晰**: 严格按照职责分层,每层职责单一
-2. **可插拔**: 能力模块独立,支持按需启用/禁用
-3. **易拓展**: 新增能力不影响现有代码
-4. **标准化**: 遵循 Python 和 FastAPI 最佳实践
-5. **可维护**: 文件组织清晰,易于理解和维护
+## 🎯 架构目标
 
----
+Agent Harness 的目标是提供一个可复用的工程底座，让业务团队可以在平台勾选能力后生成可运行 Agent 工程。
 
-## 📁 推荐目录结构
+核心目标：
 
-```
-openai-agent-sdk/
-├── 📦 .github/                          # GitHub 配置
-│   ├── workflows/                       #   CI/CD 工作流
-│   │   ├── ci.yml                       #     持续集成
-│   │   ├── cd.yml                       #     持续部署
-│   │   └── codeql.yml                   #     安全扫描
-│   ├── ISSUE_TEMPLATE/                  #   Issue 模板
-│   └── PULL_REQUEST_TEMPLATE.md         #   PR 模板
-│
-├── 📁 config/                           # 配置文件
-│   ├── settings/                        #   配置模块
-│   │   ├── __init__.py
-│   │   ├── base.py                      #     基础配置
-│   │   ├── development.py               #     开发环境
-│   │   ├── production.py                #     生产环境
-│   │   └── test.py                      #     测试环境
-│   ├── .env.example                     #   环境变量模板
-│   └── migrations/                      #   数据库迁移
-│       └── memory_migration.sql
-│
-├── 📁 src/                              # 源代码 (核心)
-│   ├── 📁 api/                          # API 层
-│   │   ├── __init__.py
-│   │   ├── middleware/                  #   中间件
-│   │   │   ├── __init__.py
-│   │   │   ├── auth.py                  #     认证中间件
-│   │   │   ├── logging.py               #     日志中间件
-│   │   │   ├── rate_limit.py            #     限流中间件
-│   │   │   └── cors.py                  #     CORS 中间件
-│   │   ├── routers/                     #   路由
-│   │   │   ├── __init__.py
-│   │   │   ├── chat.py                  #     聊天接口
-│   │   │   ├── health.py                #     健康检查
-│   │   │   ├── memory.py                #     记忆管理
-│   │   │   └── tools.py                 #     工具管理
-│   │   ├── schemas/                     #   请求/响应模型
-│   │   │   ├── __init__.py
-│   │   │   ├── chat.py                  #     聊天相关
-│   │   │   ├── memory.py                #     记忆相关
-│   │   │   └── common.py                #     通用模型
-│   │   └── dependencies.py              #   依赖注入
-│   │
-│   ├── 📁 application/                  # 应用层
-│   │   ├── __init__.py
-│   │   ├── orchestration/               #   编排层
-│   │   │   ├── __init__.py
-│   │   │   ├── agent_orchestrator.py    #     Agent 编排器
-│   │   │   ├── workflow.py              #     工作流引擎
-│   │   │   └── pipeline.py              #     处理管道
-│   │   ├── services/                    #   服务层
-│   │   │   ├── __init__.py
-│   │   │   ├── chat_service.py          #     聊天服务
-│   │   │   ├── memory_service.py        #     记忆服务
-│   │   │   └── tool_service.py          #     工具服务
-│   │   └── dtos/                        #   数据传输对象
-│   │       ├── __init__.py
-│   │       ├── chat_dto.py
-│   │       └── memory_dto.py
-│   │
-│   ├── 📁 capabilities/                 # 原子能力层 (可插拔)
-│   │   ├── __init__.py
-│   │   ├── memory/                      #   记忆系统
-│   │   │   ├── __init__.py
-│   │   │   ├── manager.py               #     统一管理器
-│   │   │   ├── short_term.py            #     短期记忆
-│   │   │   ├── long_term.py             #     长期记忆
-│   │   │   ├── context_manager.py       #     上下文管理
-│   │   │   ├── vector_store.py          #     向量存储
-│   │   │   ├── repository.py            #     数据访问
-│   │   │   ├── lifecycle.py             #     生命周期管理
-│   │   │   ├── models.py                #     数据模型
-│   │   │   ├── embedding.py             #     嵌入模型
-│   │   │   └── tasks.py                 #     定时任务
-│   │   ├── tools/                       #   工具系统
-│   │   │   ├── __init__.py
-│   │   │   ├── registry.py              #     工具注册中心
-│   │   │   ├── base.py                  #     工具基类
-│   │   │   ├── builtin/                 #     内置工具
-│   │   │   │   ├── web_search.py
-│   │   │   │   ├── calculator.py
-│   │   │   │   └── code_executor.py
-│   │   │   └── custom/                  #     自定义工具
-│   │   ├── model_routing/               #   模型路由
-│   │   │   ├── __init__.py
-│   │   │   ├── router.py                #     路由器
-│   │   │   ├── strategies.py            #     路由策略
-│   │   │   └── fallback.py              #     降级策略
-│   │   └── plugin/                      #   插件系统
-│   │       ├── __init__.py
-│   │       ├── base.py                  #     插件基类
-│   │       ├── loader.py                #     插件加载器
-│   │       └── manager.py               #     插件管理器
-│   │
-│   ├── 📁 domain/                       # 领域层
-│   │   ├── __init__.py
-│   │   ├── entities/                    #   实体
-│   │   │   ├── __init__.py
-│   │   │   ├── agent.py                 #     Agent 实体
-│   │   │   ├── session.py               #     会话实体
-│   │   │   └── memory.py                #     记忆实体
-│   │   ├── value_objects/               #   值对象
-│   │   │   ├── __init__.py
-│   │   │   ├── message.py               #     消息
-│   │   │   └── context.py               #     上下文
-│   │   ├── repositories/                #   仓储接口
-│   │   │   ├── __init__.py
-│   │   │   ├── memory_repository.py
-│   │   │   └── session_repository.py
-│   │   └── services/                    #   领域服务
-│   │       ├── __init__.py
-│   │       └── agent_service.py
-│   │
-│   ├── 📁 infrastructure/               # 基础设施层
-│   │   ├── __init__.py
-│   │   ├── database/                    #   数据库
-│   │   │   ├── __init__.py
-│   │   │   ├── connection.py            #     连接管理
-│   │   │   ├── models.py                #     ORM 模型
-│   │   │   └── repositories/            #     仓储实现
-│   │   │       ├── memory_repo_impl.py
-│   │   │       └── session_repo_impl.py
-│   │   ├── cache/                       #   缓存
-│   │   │   ├── __init__.py
-│   │   │   ├── redis.py                 #     Redis 客户端
-│   │   │   └── decorators.py            #     缓存装饰器
-│   │   ├── message_queue/               #   消息队列
-│   │   │   ├── __init__.py
-│   │   │   ├── kafka.py                 #     Kafka 客户端
-│   │   │   └── rabbitmq.py              #     RabbitMQ 客户端
-│   │   ├── storage/                     #   对象存储
-│   │   │   ├── __init__.py
-│   │   │   ├── s3.py                    #     AWS S3
-│   │   │   └── minio.py                 #     MinIO
-│   │   └── external/                    #   外部服务
-│   │       ├── __init__.py
-│   │       ├── openai_client.py         #     OpenAI 客户端
-│   │       └── embedding_client.py      #     嵌入模型客户端
-│   │
-│   ├── 📁 agents/                       # Agent 定义层
-│   │   ├── __init__.py
-│   │   ├── base/                        #   基础 Agent
-│   │   │   ├── __init__.py
-│   │   │   ├── base_agent.py            #     Agent 基类
-│   │   │   └── agent_factory.py         #     Agent 工厂
-│   │   ├── chat/                        #   对话 Agent
-│   │   │   ├── __init__.py
-│   │   │   ├── chat_agent.py            #     聊天 Agent
-│   │   │   └── prompts.py               #     提示词
-│   │   ├── assistant/                   #   助手 Agent
-│   │   │   ├── __init__.py
-│   │   │   └── assistant_agent.py
-│   │   └── custom/                      #   自定义 Agent
-│   │       └── README.md
-│   │
-│   ├── 📁 core/                         # 核心工具层
-│   │   ├── __init__.py
-│   │   ├── config.py                    #   配置管理
-│   │   ├── logging.py                   #   日志系统
-│   │   ├── exceptions.py                #   异常定义
-│   │   ├── decorators.py                #   装饰器
-│   │   ├── validators.py                #   验证器
-│   │   ├── converters.py                #   转换器
-│   │   ├── snowflake.py                 #   ID 生成器
-│   │   ├── event_bus.py                 #   事件总线
-│   │   ├── rate_limiter.py              #   限流器
-│   │   ├── http_client.py               #   HTTP 客户端
-│   │   └── security.py                  #   安全工具
-│   │
-│   ├── 📁 utils/                        # 通用工具
-│   │   ├── __init__.py
-│   │   ├── string_utils.py
-│   │   ├── time_utils.py
-│   │   ├── json_utils.py
-│   │   └── response.py
-│   │
-│   └── main.py                          # 应用入口
-│
-├── 📁 tests/                            # 测试
-│   ├── __init__.py
-│   ├── conftest.py                      #   Pytest 配置
-│   ├── fixtures/                        #   测试夹具
-│   │   ├── database.py
-│   │   └── mock_data.py
-│   ├── unit/                            #   单元测试
-│   │   ├── test_api/
-│   │   ├── test_services/
-│   │   ├── test_capabilities/
-│   │   └── test_agents/
-│   ├── integration/                     #   集成测试
-│   │   ├── test_chat_flow.py
-│   │   └── test_memory_flow.py
-│   └── e2e/                             #   端到端测试
-│       └── test_full_pipeline.py
-│
-├── 📁 docs/                             # 文档
-│   ├── architecture/                    #   架构文档
-│   │   ├── overview.md
-│   │   ├── memory_system.md
-│   │   └── deployment.md
-│   ├── api/                             #   API 文档
-│   │   └── openapi.yaml
-│   ├── guides/                          #   使用指南
-│   │   ├── getting_started.md
-│   │   ├── configuration.md
-│   │   ├── capabilities.md
-│   │   └── development.md
-│   └── changelog.md
-│
-├── 📁 scripts/                          # 脚本
-│   ├── setup.sh                         #   环境初始化
-│   ├── run.sh                           #   启动脚本
-│   ├── test.sh                          #   测试脚本
-│   └── deploy.sh                        #   部署脚本
-│
-├── 📁 docker/                           # Docker 配置
-│   ├── Dockerfile
-│   ├── docker-compose.yml
-│   ├── docker-compose.dev.yml
-│   └── docker-compose.prod.yml
-│
-├── .gitignore
-├── .env.example                         # 环境变量模板
-├── pyproject.toml                       # Python 项目配置
-├── requirements.txt                     # 依赖文件
-├── requirements-dev.txt                 # 开发依赖
-├── Makefile                             # Make 命令
-├── README.md                            # 项目说明
-├── LICENSE                              # 开源协议
-└── CHANGELOG.md                         # 变更日志
+- **可插拔**：能力可以按配置启用或关闭。
+- **可裁剪**：脚手架生成时可以按能力组合裁剪目录、依赖和配置。
+- **可维护**：`API`、`Runtime`、`Capability`、`Infrastructure` 边界清晰。
+- **可观测**：请求、运行时、模型调用和工具调用具备追踪入口。
+- **可测试**：能力抽象可被单元测试验证，完整链路可由集成测试覆盖。
+- **贴合 OpenAI Agents SDK**：Runtime 主路径基于 `Agent`、`Runner`、`function_tool`。
+
+## 🧭 分层设计
+
+```mermaid
+flowchart TD
+    A["API 层<br/>HTTP 路由 / 中间件 / Schemas"] --> B["Harness 装配层<br/>Builder / Context / Manifest"]
+    B --> C["运行时层<br/>AgentOrchestrator"]
+    C --> D["Capability 层<br/>Memory / Prompt / Tools / Model Router / Compression"]
+    A --> E["协议能力<br/>Auth / RateLimit / Observability"]
+    D --> F["基础设施层<br/>DB / Redis / Kafka / HTTP Client"]
 ```
 
----
+### API 层
 
-## 🎯 核心分层说明
+位置：`src/api`
 
-### 1. **API 层** (`src/api/`)
-- **职责**: HTTP 接口、请求验证、响应格式化
-- **包含**: 路由、中间件、Schemas
-- **依赖**: 只依赖 Application 层
+职责：
 
-### 2. **Application 层** (`src/application/`)
-- **职责**: 业务编排、用例实现、事务管理
-- **包含**: 编排器、服务、DTOs
-- **依赖**: 依赖 Domain 层和 Capabilities 层
+- 暴露 HTTP API。
+- 从 FastAPI app state 获取 `Harness`。
+- 不直接创建 `Runtime`，不直接判断能力组合。
+- 安装协议层中间件，例如 Auth、RateLimit、Observability。
 
-### 3. **Capabilities 层** (`src/capabilities/`)
-- **职责**: 可插拔的原子能力
-- **包含**: Memory、Tools、Model Routing、Plugins
-- **特点**: 每个能力独立,支持热插拔
+代表模块：
 
-### 4. **Domain 层** (`src/domain/`)
-- **职责**: 核心业务逻辑、领域模型
-- **包含**: 实体、值对象、仓储接口、领域服务
-- **特点**: 不依赖任何外部框架
+- `src/api/routers/chat.py`
+- `src/api/routers/health.py`
+- `src/api/routers/memory.py`
+- `src/api/middleware/*`
 
-### 5. **Infrastructure 层** (`src/infrastructure/`)
-- **职责**: 技术实现细节
-- **包含**: 数据库、缓存、消息队列、外部服务
-- **特点**: 实现 Domain 层定义的接口
+### Harness 装配层
 
-### 6. **Agents 层** (`src/agents/`)
-- **职责**: Agent 定义和配置
-- **包含**: Agent 实现、提示词、工具绑定
-- **特点**: 基于 OpenAI Agents SDK
+位置：`src/harness`
 
----
+职责：
 
-## 📊 依赖关系
+- 读取 settings。
+- 构建 `ToolRegistry`、`ModelRouter`、`MemoryManager`、`PromptManager` 等资源。
+- 注册基础 capability marker。
+- 生成 `HarnessContext`。
+- 管理能力资源生命周期。
 
-```
-API 层
-  ↓
-Application 层
-  ↓
-┌─────────────────────────────────┐
-│ Domain 层  ←  Capabilities 层    │
-└─────────────────────────────────┘
-  ↓
-Infrastructure 层
-```
+代表模块：
 
-**依赖规则**:
-- 上层可以依赖下层
-- 同层之间不能相互依赖
-- Domain 层不依赖任何外部库
-- Capabilities 层可被任何层调用
+- `src/harness/builder.py`
+- `src/harness/context.py`
+- `src/harness/manifest.py`
+- `src/harness/config.py`
 
----
+### 运行时层
 
-## 🔌 可插拔设计
+位置：`src/application/orchestration`
 
-### 能力注册机制
+职责：
 
-```python
-# src/capabilities/__init__.py
-from .registry import CapabilityRegistry
+- 选择模型。
+- 构造 `RunContext`。
+- 触发 capability 生命周期钩子。
+- 调用 OpenAI Agents SDK `Runner.run()`。
+- 返回统一结果。
 
-registry = CapabilityRegistry()
+`Runtime` 不负责直接创建具体资源，资源由 `HarnessBuilder` 注入。
 
-# 注册能力
-registry.register("memory", MemoryManager)
-registry.register("tools", ToolRegistry)
-registry.register("model_routing", ModelRouter)
+### Capability 层
 
-# 启用/禁用能力
-registry.enable("memory")
-registry.disable("tools")
-```
+位置：`src/capabilities`
 
-### 配置文件控制
+职责：
 
-```python
-# config/settings/base.py
-CAPABILITIES = {
-    "memory": {
-        "enabled": True,
-        "config": {...}
-    },
-    "tools": {
-        "enabled": False,
-        "config": {...}
+- 提供可插拔能力。
+- 通过 `Capability` 协议接入运行生命周期。
+- 通过 `CapabilityManifest` 暴露生成器可读的元信息。
+
+当前能力包括：
+
+- Tools
+- Model Routing
+- Memory
+- Prompt
+- Context Compression
+- Observability
+- Auth
+- RateLimit
+- HITL / Checkpoint / Handoff
+
+### 基础设施层
+
+位置：`src/infrastructure`
+
+职责：
+
+- 封装数据库、Redis、Kafka、HTTP Client 等基础设施。
+- 不感知业务 Agent。
+- 被 Harness 或 Capability 按需使用。
+
+## 🧩 Capability 抽象
+
+核心接口位于 `src/capabilities/plugin`。
+
+能力通过两个维度描述：
+
+1. **运行接口**：是否参与 `setup`、`before_run`、`after_run`、`on_error`、`teardown`。
+2. **生成元数据**：能力名称、类型、依赖、产物、安装顺序。
+
+```mermaid
+classDiagram
+    class Capability {
+        +name
+        +manifest
+        +is_enabled()
+        +setup()
+        +before_run(ctx)
+        +after_run(ctx)
+        +on_error(ctx, error)
+        +teardown()
     }
-}
+
+    class CapabilityManifest {
+        +name
+        +kind
+        +config_section
+        +depends_on
+        +provides
+        +install_order
+        +tags
+    }
+
+    Capability --> CapabilityManifest
 ```
 
----
+示例：
 
-## 📝 命名规范
-
-### 目录命名
-- 使用 **小写字母 + 下划线**: `capabilities/`, `model_routing/`
-- 复数形式表示集合: `routers/`, `services/`
-
-### 文件命名
-- 模块文件: `snake_case.py`
-- 测试文件: `test_<module>.py`
-- 配置文件: `*.yaml` 或 `*.py`
-
-### 类命名
-- 类名: `PascalCase` (如 `MemoryManager`)
-- 抽象类: 前缀 `Abstract` 或 `Base` (如 `BaseAgent`)
-- 接口: 前缀 `I` (如 `IMemoryRepository`)
-
-### 函数/变量命名
-- 函数/方法: `snake_case` (如 `get_context()`)
-- 常量: `UPPER_CASE` (如 `MAX_RETRIES`)
-- 私有变量: 前缀 `_` (如 `_cache`)
-
----
-
-## 🚀 快速开始
-
-### 1. 添加新的能力模块
-
-```bash
-# 创建能力目录
-mkdir -p src/capabilities/new_capability
-
-# 创建必要文件
-touch src/capabilities/new_capability/__init__.py
-touch src/capabilities/new_capability/manager.py
-touch src/capabilities/new_capability/config.py
-
-# 注册能力
-# 在 capabilities/__init__.py 中添加
-registry.register("new_capability", NewCapabilityManager)
+```python
+CapabilityManifest(
+    name="prompt",
+    kind=CapabilityKind.RUNTIME,
+    config_section="prompt",
+    provides=("prompt_manager", "prompt_rendering"),
+    install_order=10,
+)
 ```
 
-### 2. 添加新的 Agent
+## 🔄 运行时执行流程
 
-```bash
-# 创建 Agent 目录
-mkdir -p src/agents/custom/my_agent
+```mermaid
+sequenceDiagram
+    participant API as API Router
+    participant Runtime as AgentOrchestrator
+    participant Registry as CapabilityRegistry
+    participant SDK as OpenAI Agents SDK
 
-# 创建 Agent 实现
-touch src/agents/custom/my_agent/__init__.py
-touch src/agents/custom/my_agent/agent.py
-touch src/agents/custom/my_agent/prompts.py
+    API->>Runtime: run(session, user_input)
+    Runtime->>Registry: dispatch(BEFORE_RUN)
+    Registry-->>Runtime: 注入上下文和元数据
+    Runtime->>SDK: Runner.run(agent, enriched_input)
+    SDK-->>Runtime: RunResult
+    Runtime->>Registry: dispatch(AFTER_RUN)
+    Registry-->>Runtime: 写入记忆/检查点等结果
+    Runtime-->>API: 标准响应
 ```
 
-### 3. 添加新的 API 端点
+## 🧬 能力依赖图
 
-```bash
-# 创建路由文件
-touch src/api/routers/new_feature.py
+```mermaid
+flowchart TD
+    Tool["tool_registry"]
+    Model["model_router"]
+    Resilience["model_resilience"]
+    MemorySession["memory_session"]
+    LongMemory["long_term_memory"]
+    Vector["vector_search"]
+    Prompt["prompt"]
+    Compression["context_compression"]
+    Auth["auth"]
+    Rate["rate_limit"]
+    Obs["observability"]
 
-# 在 __init__.py 中注册
-from .new_feature import router as new_feature_router
+    Model --> Resilience
+    MemorySession --> Compression
+    Model --> Compression
+    LongMemory --> Vector
+    Prompt --> Compression
+    Auth --> Rate
 ```
 
----
+说明：
 
-## 📋 迁移指南
+- `model_router` 是模型选择和弹性运行的基础。
+- `memory_session` 提供对话上下文，`context_compression` 在其后运行。
+- `prompt` 可以为主 Agent 和摘要策略提供模板，但关闭时使用内置兜底文本。
+- `auth` 和 `rate_limit` 属于协议层能力，不进入 Agent `RunContext` 主链路。
+- `observability` 同时管理中间件和 Langfuse/OpenTelemetry 生命周期。
 
-### 当前结构 → 新结构
+## 🧱 HarnessBuilder 装配策略
 
-| 当前路径 | 新路径 | 说明 |
-|---------|--------|------|
-| `app/api/` | `src/api/` | API 层 |
-| `app/application/` | `src/application/` | 应用层 |
-| `app/capabilities/` | `src/capabilities/` | 能力层 |
-| `app/core/` | `src/core/` | 核心工具 |
-| `app/models/` | `src/infrastructure/database/models.py` | 数据模型 |
-| `app/routers/` | `src/api/routers/` | 路由 |
-| `app/shared/` | 分散到各层 | 共享代码 |
-| `app/utils/` | `src/utils/` | 通用工具 |
+`HarnessBuilder` 是当前架构中最关键的组合点。
 
----
+它负责：
 
-## ✨ 优势总结
+- 创建 `ToolRegistry` 并注册默认工具。
+- 创建 `ModelRouter` 和模型弹性配置。
+- 创建 `MemoryStore`。
+- 按需创建 `MemoryManager`。
+- 按需创建 `PromptManager`。
+- 注册 capability marker。
+- 创建 `AgentOrchestrator` 并注入依赖。
+- 校验能力依赖。
 
-1. **清晰的分层**: 每层职责明确,易于理解
-2. **可插拔设计**: 能力模块独立,按需启用
-3. **易于测试**: 分层清晰,单元测试简单
-4. **便于维护**: 文件组织合理,易于定位问题
-5. **支持拓展**: 新增功能不影响现有代码
-6. **标准化**: 遵循行业最佳实践
-7. **团队协作**: 多人开发不易冲突
+这种方式让 `Runtime` 不再依赖全局单例，也让脚手架生成器可以围绕 `Builder` 做模板裁剪。
 
----
+## 🧰 OpenAI Agents SDK 适配
 
-## 🎯 下一步
+当前主路径：
 
-1. **逐步迁移**: 从现有结构逐步迁移到新结构
-2. **保持兼容**: 迁移过程中保持 API 兼容
-3. **补充测试**: 为新结构添加完整的测试
-4. **更新文档**: 同步更新架构文档
+- 工具通过 `ToolRegistry.list_agent_tools()` 转为 SDK 可消费工具。
+- `Runtime` 创建 `Agent`。
+- `Runtime` 使用 `OpenAIChatCompletionsModel` 注入模型。
+- `Runtime` 通过 `Runner.run()` 执行。
+- 模型降级、重试、超时由 `ModelRouter.run_with_resilience()` 包裹。
 
----
+原则：
 
-*设计时间: 2026-05-19*
-*版本: v1.0*
+- 不重新实现 Agent 执行引擎。
+- Harness 只负责企业工程能力和上下文装配。
+- SDK 的 Agent、Runner、Tool 仍是核心抽象。
+
+## 🏭 脚手架生成适配
+
+脚手架生成器可以读取 `CapabilityManifest` 完成以下工作：
+
+| 生成步骤 | 使用字段 |
+| --- | --- |
+| 能力选择 | `name` |
+| 能力分类 | `kind` |
+| 配置生成 | `config_section` |
+| 依赖校验 | `depends_on` / `provides` |
+| 注册顺序 | `install_order` |
+| 模板标签 | `tags` |
+
+推荐生成流程：
+
+```mermaid
+flowchart LR
+    A["用户勾选能力"] --> B["加载 manifest"]
+    B --> C["解析依赖"]
+    C --> D["生成配置"]
+    D --> E["裁剪目录和依赖"]
+    E --> F["生成 HarnessBuilder"]
+    F --> G["运行测试"]
+```
+
+## ✅ 当前已解决的问题
+
+- `Runtime` 不再在 API 路由中全局实例化。
+- Memory、Prompt、Observability 已迁移到 Harness 或插件装配。
+- Capability graph 已可通过 `/health/capabilities` 查看。
+- 测试已拆分为 `unit`、`integration`、`e2e`。
+- README 和文档索引已按当前实现更新。
+
+## ⚠️ 后续演进重点
+
+- 将 `vector_search` 从 marker 推进到完整资源实现。
+- 将 HITL 对齐 OpenAI Agents SDK 原生中断/恢复机制。
+- 增加 scaffold generator 原型。
+- 输出能力依赖矩阵和模板裁剪规则。
+- 继续清理历史方案文档中与当前实现不一致的表述。

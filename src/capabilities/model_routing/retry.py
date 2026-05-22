@@ -61,8 +61,10 @@ class RetryExecutor:
                 if attempt > 0:
                     logger.info(
                         "retry_attempt",
-                        attempt=attempt,
-                        max_retries=self.config.max_retries
+                        extra={
+                            "attempt": attempt,
+                            "max_retries": self.config.max_retries,
+                        },
                     )
                 
                 result = await func(**kwargs)
@@ -70,7 +72,7 @@ class RetryExecutor:
                 if attempt > 0:
                     logger.info(
                         "retry_succeeded",
-                        attempt=attempt
+                        extra={"attempt": attempt},
                     )
                 
                 return result
@@ -82,8 +84,10 @@ class RetryExecutor:
                 if not self._should_retry(e):
                     logger.error(
                         "non_recoverable_error",
-                        error_type=type(e).__name__,
-                        error_message=str(e)
+                        extra={
+                            "error_type": type(e).__name__,
+                            "error_message": str(e),
+                        },
                     )
                     raise
                 
@@ -94,10 +98,12 @@ class RetryExecutor:
                 # 指数退避等待
                 logger.warning(
                     "retry_attempt_failed",
-                    attempt=attempt + 1,
-                    error_type=type(e).__name__,
-                    error_message=str(e),
-                    retry_delay=delay
+                    extra={
+                        "attempt": attempt + 1,
+                        "error_type": type(e).__name__,
+                        "error_message": str(e),
+                        "retry_delay": delay,
+                    },
                 )
                 await asyncio.sleep(delay)
                 
@@ -112,9 +118,11 @@ class RetryExecutor:
         )
         logger.error(
             "max_retries_exceeded",
-            max_retries=self.config.max_retries,
-            last_error_type=type(last_error).__name__,
-            last_error_message=str(last_error)
+            extra={
+                "max_retries": self.config.max_retries,
+                "last_error_type": type(last_error).__name__,
+                "last_error_message": str(last_error),
+            },
         )
         
         raise MaxRetriesExceededError(error_msg, self.config.max_retries + 1, last_error)

@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from src.capabilities.plugin import Capability, RunContext
+from src.harness.manifest import CapabilityKind, CapabilityManifest
 
 from .checkpoint import CheckpointManager
 from .config import AgentState
@@ -22,6 +23,13 @@ class CheckpointCapability(Capability):
     """
 
     name = "checkpoint"
+    manifest = CapabilityManifest(
+        name="checkpoint",
+        kind=CapabilityKind.RUNTIME,
+        config_section="checkpoint",
+        provides=("run_checkpoints",),
+        install_order=40,
+    )
 
     def __init__(self, manager: CheckpointManager) -> None:
         self._manager = manager
@@ -69,6 +77,14 @@ class HITLCapability(Capability):
     """
 
     name = "hitl"
+    manifest = CapabilityManifest(
+        name="hitl",
+        kind=CapabilityKind.RUNTIME,
+        config_section="hitl",
+        depends_on=("tool_registry",),
+        provides=("approval_requests",),
+        install_order=50,
+    )
 
     def __init__(self, manager: ApprovalManager) -> None:
         self._manager = manager

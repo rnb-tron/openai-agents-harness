@@ -12,9 +12,12 @@
 from .base import Capability, RunContext, RunPhase
 from .hooks import HookCapability
 from .registry import CapabilityRegistry
+from src.harness.manifest import CapabilityKind, CapabilityManifest
 
 __all__ = [
     "Capability",
+    "CapabilityKind",
+    "CapabilityManifest",
     "RunContext",
     "RunPhase",
     "CapabilityRegistry",
