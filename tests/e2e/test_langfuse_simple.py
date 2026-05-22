@@ -5,7 +5,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # 先加载环境变量
-env_file = Path(__file__).parent.parent / "config" / "test.env"
+env_file = Path(__file__).parents[2] / "config" / "test.env"
 load_dotenv(env_file, override=True)
 
 print("=" * 60)

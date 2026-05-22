@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from typing import TYPE_CHECKING
 
 from src.capabilities.context_compression.base import (
     CompressionResult,
@@ -16,6 +17,9 @@ from src.capabilities.context_compression.token_budget import TokenBudgetTruncat
 from src.capabilities.context_compression.token_utils import count_tokens
 from src.capabilities.plugin import RunContext
 from src.core.logging import setup_logger
+
+if TYPE_CHECKING:
+    from src.capabilities.prompt.manager import PromptManager
 
 logger = setup_logger("capabilities.context_compression.hybrid")
 
@@ -34,9 +38,13 @@ class HybridStrategy(CompressionStrategy):
         self._truncate = truncate
 
     @classmethod
-    def from_settings(cls, settings) -> "HybridStrategy":
+    def from_settings(
+        cls,
+        settings,
+        prompt_manager: "PromptManager | None" = None,
+    ) -> "HybridStrategy":
         return cls(
-            summary=RollingSummary.from_settings(settings),
+            summary=RollingSummary.from_settings(settings, prompt_manager=prompt_manager),
             truncate=TokenBudgetTruncate(),
         )
 

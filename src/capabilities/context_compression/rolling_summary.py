@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import time
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from openai import AsyncOpenAI
 
@@ -25,6 +26,9 @@ from src.capabilities.context_compression.token_budget import _split_history_and
 from src.capabilities.context_compression.token_utils import count_tokens
 from src.capabilities.plugin import RunContext
 from src.core.logging import setup_logger
+
+if TYPE_CHECKING:
+    from src.capabilities.prompt.manager import PromptManager
 
 logger = setup_logger("capabilities.context_compression.rolling_summary")
 
@@ -56,12 +60,21 @@ class RollingSummary(CompressionStrategy):
 
     name = "rolling_summary"
 
-    def __init__(self, config: _SummaryConfig) -> None:
+    def __init__(
+        self,
+        config: _SummaryConfig,
+        prompt_manager: "PromptManager | None" = None,
+    ) -> None:
         self._cfg = config
+        self._prompt_manager = prompt_manager
 
     # 工厂方法, 与 Capability.from_settings 配套
     @classmethod
-    def from_settings(cls, settings) -> "RollingSummary":
+    def from_settings(
+        cls,
+        settings,
+        prompt_manager: "PromptManager | None" = None,
+    ) -> "RollingSummary":
         cfg = _SummaryConfig(
             summary_model=settings.compression_summary_model or settings.agent_model_default,
             summary_max_tokens=settings.compression_summary_max_tokens,
@@ -70,7 +83,7 @@ class RollingSummary(CompressionStrategy):
             openai_api_key=settings.openai_api_key,
             openai_base_url=settings.openai_base_url,
         )
-        return cls(cfg)
+        return cls(cfg, prompt_manager=prompt_manager)
 
     async def compress(
         self,
@@ -190,21 +203,17 @@ class RollingSummary(CompressionStrategy):
             logger.warning("rolling_summary_cache_write_failed", extra={"error": str(exc)})
 
     async def _summarize(self, old_block: str) -> str:
-        # 默认走模块级 _SYSTEM_PROMPT (历史硬编码, 作为兜底)
         system_prompt = _SYSTEM_PROMPT
-        # prompt_enabled 时通过 PromptManager 取 (lazy 工厂, 与 redis_client 同模式)
-        try:
-            from src.capabilities.prompt.factory import get_prompt_manager
-
-            mgr = get_prompt_manager()
-            if mgr is not None:
+        if self._prompt_manager is not None:
+            try:
+                mgr = self._prompt_manager
                 rendered = await mgr.get("capabilities.summary")
                 system_prompt = rendered.text
-        except Exception as exc:
-            logger.warning(
-                "summary_prompt_get_failed_using_fallback",
-                extra={"error_type": type(exc).__name__, "error": str(exc)},
-            )
+            except Exception as exc:
+                logger.warning(
+                    "summary_prompt_get_failed_using_fallback",
+                    extra={"error_type": type(exc).__name__, "error": str(exc)},
+                )
 
         client_kwargs: dict = {"api_key": self._cfg.openai_api_key}
         if self._cfg.openai_base_url:

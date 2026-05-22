@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from src.capabilities.plugin import Capability, RunContext
 from src.core.logging import setup_logger
+from src.harness.manifest import CapabilityKind, CapabilityManifest
 
 logger = setup_logger("capabilities.prompt.capability")
 
@@ -21,6 +22,13 @@ class PromptCapability(Capability):
     """Prompt 管理 Capability (轻量生命周期挂钩)"""
 
     name = "prompt"
+    manifest = CapabilityManifest(
+        name="prompt",
+        kind=CapabilityKind.RUNTIME,
+        config_section="prompt",
+        provides=("prompt_manager", "prompt_rendering"),
+        install_order=10,
+    )
 
     def __init__(
         self,

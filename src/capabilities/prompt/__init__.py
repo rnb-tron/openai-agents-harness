@@ -22,7 +22,7 @@ from src.capabilities.prompt.errors import (
     PromptFetchError,
     PromptNotFoundError,
 )
-from src.capabilities.prompt.factory import get_prompt_manager, reset_prompt_manager
+from src.capabilities.prompt.factory import build_prompt_manager, get_prompt_manager, reset_prompt_manager
 from src.capabilities.prompt.langfuse_store import LangfuseStore
 from src.capabilities.prompt.local_yaml_store import LocalYamlStore
 from src.capabilities.prompt.manager import PromptManager
@@ -32,6 +32,7 @@ __all__ = [
     "PromptCapability",
     "PromptManager",
     "get_prompt_manager",
+    "build_prompt_manager",
     "reset_prompt_manager",
     # Stores
     "PromptStore",

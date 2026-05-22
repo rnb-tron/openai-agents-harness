@@ -64,7 +64,7 @@ class MemoryRepository:
                 role=role,
                 content=content,
                 embedding_id=embedding_id,
-                metadata=metadata,
+                extra_metadata=metadata,
                 importance_score=importance_score,
                 access_count=0,
                 is_deleted=0,

@@ -29,6 +29,11 @@ class Checkpoint:
     description: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
 
+    @property
+    def context(self) -> dict[str, Any]:
+        """Backward-compatible shortcut for tests and older callers."""
+        return self.state.context
+
 
 class CheckpointManager:
     """Checkpoint 检查点管理器"""

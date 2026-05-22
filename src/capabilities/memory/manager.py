@@ -126,6 +126,7 @@ class MemoryManager:
                 # await self.vector_store.upsert(...)
                 service_logger.debug(f"Vector storage pending for memory_id={record.id}")
 
+            await self.db_session.commit()
             service_logger.info(f"Memory added: session={session_id}, user={user_id}, role={role}")
             return True
 
@@ -209,6 +210,7 @@ class MemoryManager:
 
             # 软删除长期记忆
             await self.repository.batch_delete_by_session(session_id)
+            await self.db_session.commit()
 
             service_logger.info(f"Session memory cleared: {session_id}")
             return True

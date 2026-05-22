@@ -56,9 +56,15 @@ def reset_log_context(token) -> None:
 def _sanitize_value(field: str, value: Any) -> Any:
     """脱敏敏感字段值"""
     if field.lower() in SENSITIVE_FIELDS:
+        if field.lower() in {"password", "secret", "secret_key", "private_key", "cvv"}:
+            return "***"
         if isinstance(value, str):
             if len(value) <= 8:
                 return "***"
+            if field.lower() in {"phone", "mobile"}:
+                return value[:3] + "***" + value[-4:]
+            if field.lower() == "email":
+                return value[:3] + "***" + value[-4:]
             return value[:4] + "***" + value[-4:]
         return "***"
     return value

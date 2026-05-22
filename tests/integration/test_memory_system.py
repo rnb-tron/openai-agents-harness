@@ -7,11 +7,13 @@ import asyncio
 import sys
 from pathlib import Path
 
-# 添加项目路径
-sys.path.insert(0, str(Path(__file__).parent))
+import pytest
 
-from app.capabilities.memory.store import ShortTermMemory
-from app.capabilities.memory.models import MemoryRecord
+# 添加项目路径
+sys.path.insert(0, str(Path(__file__).parents[2]))
+
+from src.capabilities.memory.store import ShortTermMemory
+from src.capabilities.memory.models import MemoryRecord
 
 
 async def test_short_term_memory():
@@ -83,10 +85,10 @@ async def test_context_manager_import():
     print("-" * 50)
     
     try:
-        from app.capabilities.memory.context_manager import ContextManager
-        from app.capabilities.memory.lifecycle import MemoryLifecycleManager
-        from app.capabilities.memory.vector_store import ElasticsearchVectorStore
-        from app.capabilities.memory.manager import MemoryManager
+        from src.capabilities.memory.context_manager import ContextManager
+        from src.capabilities.memory.lifecycle import MemoryLifecycleManager
+        from src.capabilities.memory.vector_store import ElasticsearchVectorStore
+        from src.capabilities.memory.manager import MemoryManager
         
         print("✅ ContextManager 导入成功")
         print("✅ MemoryLifecycleManager 导入成功")
@@ -101,6 +103,7 @@ async def test_context_manager_import():
 
 async def test_api_endpoints():
     """测试API端点"""
+    pytest.skip("requires a running FastAPI server at localhost:8080")
     print("🧪 测试 4: API 端点可用性")
     print("-" * 50)
     

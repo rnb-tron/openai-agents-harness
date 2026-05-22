@@ -11,6 +11,7 @@ from src.capabilities.memory.manager import MemoryManager
 from src.capabilities.memory.store import MemoryStore
 from src.capabilities.plugin import Capability, RunContext
 from src.core.logging import setup_logger
+from src.harness.manifest import CapabilityKind, CapabilityManifest
 
 logger = setup_logger("capabilities.memory.capability")
 
@@ -18,7 +19,14 @@ logger = setup_logger("capabilities.memory.capability")
 class MemoryCapability(Capability):
     """记忆能力适配器, 统一短期 / 长期记忆的注入与写入"""
 
-    name = "memory"
+    name = "memory_session"
+    manifest = CapabilityManifest(
+        name="memory_session",
+        kind=CapabilityKind.RUNTIME,
+        config_section="memory",
+        provides=("conversation_context", "memory_session"),
+        install_order=20,
+    )
 
     def __init__(
         self,
@@ -107,3 +115,50 @@ class MemoryCapability(Capability):
     def store(self) -> MemoryStore:
         """暴露底层 store, 供 Orchestrator 读取 memory_size 等指标"""
         return self._store
+
+
+class LongTermMemoryCapability(Capability):
+    """Marker capability for persistent long-term memory.
+
+    Runtime reads/writes still happen inside ``MemoryCapability`` for now. This
+    marker makes the capability graph explicit for scaffold generation without
+    forcing a larger storage refactor in this step.
+    """
+
+    name = "long_term_memory"
+    manifest = CapabilityManifest(
+        name="long_term_memory",
+        kind=CapabilityKind.RUNTIME,
+        config_section="memory",
+        depends_on=("database", "memory_manager"),
+        provides=("long_term_memory",),
+        install_order=21,
+        tags=("marker",),
+    )
+
+    def __init__(self, enabled: bool) -> None:
+        self._enabled = enabled
+
+    def is_enabled(self) -> bool:
+        return self._enabled
+
+
+class VectorSearchCapability(Capability):
+    """Marker capability for vector-backed memory search."""
+
+    name = "vector_search"
+    manifest = CapabilityManifest(
+        name="vector_search",
+        kind=CapabilityKind.RUNTIME,
+        config_section="memory",
+        depends_on=("long_term_memory",),
+        provides=("vector_search",),
+        install_order=22,
+        tags=("marker", "partial"),
+    )
+
+    def __init__(self, enabled: bool) -> None:
+        self._enabled = enabled
+
+    def is_enabled(self) -> bool:
+        return self._enabled
