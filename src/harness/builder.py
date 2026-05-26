@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
-
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.middleware.capabilities import AuthCapability, RateLimitCapability
 from src.application.orchestration.agent_runtime import AgentOrchestrator
@@ -25,6 +23,7 @@ from src.capabilities.prompt.manager import PromptManager
 from src.capabilities.tools.registry import ToolRegistry
 from src.core.config import Settings, current_settings
 from src.core.logging import setup_logger
+from src.infrastructure.database import DatabaseConfig, DatabaseResource
 from src.harness.config import HarnessConfig
 from src.harness.context import HarnessContext
 
@@ -40,7 +39,7 @@ class Harness:
     memory_store: MemoryStore
     memory_manager: MemoryManager | None = None
     prompt_manager: PromptManager | None = None
-    _memory_engine: Any = None
+    database_resource: DatabaseResource | None = None
     _memory_session: AsyncSession | None = None
     _setup_done: bool = False
 
@@ -66,10 +65,8 @@ class Harness:
         self._setup_done = True
 
     async def teardown(self) -> None:
-        if not self._setup_done:
-            return
-
-        await self.runtime.teardown()
+        if self._setup_done:
+            await self.runtime.teardown()
 
         scheduler = self.context.get_resource("memory_scheduler")
         if scheduler is not None:
@@ -85,8 +82,10 @@ class Harness:
             await self.memory_manager.close()
         if self._memory_session is not None:
             await self._memory_session.close()
-        if self._memory_engine is not None:
-            await self._memory_engine.dispose()
+            self._memory_session = None
+        if self.database_resource is not None:
+            await self.database_resource.close()
+            self.database_resource = None
 
         self._setup_done = False
 
@@ -136,12 +135,13 @@ class HarnessBuilder:
             capability_registry=capability_registry,
         )
         context.add_provides("tool_registry")
-        if self.settings.database_enabled or self.settings.database_url:
-            context.add_provides("database")
+        database_resource = self._build_database_resource()
+        if database_resource is not None:
+            context.set_resource("database", database_resource)
 
         memory_store = MemoryStore()
         context.set_resource("memory_store", memory_store)
-        memory_manager, memory_engine, memory_session = self._build_memory_manager()
+        memory_manager, memory_session = self._build_memory_manager(database_resource)
         if memory_manager is not None:
             context.set_resource("memory_manager", memory_manager)
             if memory_manager.embedding_provider is not None:
@@ -173,26 +173,32 @@ class HarnessBuilder:
             memory_store=memory_store,
             memory_manager=memory_manager,
             prompt_manager=prompt_manager,
-            _memory_engine=memory_engine,
+            database_resource=database_resource,
             _memory_session=memory_session,
         )
 
-    def _build_memory_manager(self) -> tuple[MemoryManager | None, Any, AsyncSession | None]:
-        if not self.settings.memory_enabled:
-            return None, None, None
+    def _build_database_resource(self) -> DatabaseResource | None:
+        needs_database = self.settings.database_enabled or self.settings.memory_enabled
+        if not needs_database:
+            return None
         if not self.settings.database_url:
-            logger.warning("memory_enabled_without_database_url")
-            return None, None, None
+            if self.settings.database_enabled:
+                raise ValueError("DATABASE_ENABLED=true requires DATABASE_URL")
+            return None
+        return DatabaseResource(DatabaseConfig.from_settings(self.settings))
 
-        engine = create_async_engine(
-            self.settings.database_url,
-            pool_pre_ping=True,
-            pool_size=5,
-            max_overflow=10,
-        )
-        session_factory = async_sessionmaker(engine, expire_on_commit=False)
-        session = session_factory()
-        return MemoryManager(self.settings, session), engine, session
+    def _build_memory_manager(
+        self,
+        database_resource: DatabaseResource | None,
+    ) -> tuple[MemoryManager | None, AsyncSession | None]:
+        if not self.settings.memory_enabled:
+            return None, None
+        if database_resource is None:
+            logger.warning("memory_enabled_without_database_url")
+            return None, None
+
+        session = database_resource.session()
+        return MemoryManager(self.settings, session), session
 
     def _build_prompt_manager(self) -> PromptManager | None:
         if not self.settings.prompt_enabled:

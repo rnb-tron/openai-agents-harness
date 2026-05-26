@@ -39,6 +39,15 @@ class Settings:
     port: int
     log_level: str
     http_client_enabled: bool
+    http_timeout_seconds: float
+    http_connect_timeout_seconds: float
+    http_read_timeout_seconds: float
+    http_write_timeout_seconds: float
+    http_max_connections: int
+    http_max_keepalive_connections: int
+    http_keepalive_expiry_seconds: float
+    http_follow_redirects: bool
+    http_verify_tls: bool
     redis_enabled: bool
     kafka_enabled: bool
     database_enabled: bool
@@ -47,6 +56,11 @@ class Settings:
     kafka_bootstrap_servers: str
     kafka_topic: str
     database_url: str
+    database_pool_size: int
+    database_max_overflow: int
+    database_pool_timeout_seconds: float
+    database_pool_recycle_seconds: int
+    database_pool_pre_ping: bool
     openai_api_key: str
     openai_base_url: str | None
     agent_model_default: str
@@ -103,6 +117,7 @@ class Settings:
     rate_limit_default_window_sec: int = 60
     rate_limit_default_burst: int = 10
     rate_limit_key_strategy: str = "principal_or_ip"
+    rate_limit_fail_open: bool = False
     rate_limit_routes: str = ""  # JSON string: {"/chat": {"limit": 5, "window_sec": 60, "burst": 1}}
     rate_limit_skip_paths: list = None  # type: ignore[assignment]
 
@@ -142,6 +157,15 @@ def get_settings() -> Settings:
         port=int(os.getenv("PORT", "8080")),
         log_level=os.getenv("LOG_LEVEL", "INFO"),
         http_client_enabled=os.getenv("HTTP_CLIENT_ENABLED", "true").lower() == "true",
+        http_timeout_seconds=float(os.getenv("HTTP_TIMEOUT_SECONDS", "30")),
+        http_connect_timeout_seconds=float(os.getenv("HTTP_CONNECT_TIMEOUT_SECONDS", "10")),
+        http_read_timeout_seconds=float(os.getenv("HTTP_READ_TIMEOUT_SECONDS", "20")),
+        http_write_timeout_seconds=float(os.getenv("HTTP_WRITE_TIMEOUT_SECONDS", "10")),
+        http_max_connections=int(os.getenv("HTTP_MAX_CONNECTIONS", "100")),
+        http_max_keepalive_connections=int(os.getenv("HTTP_MAX_KEEPALIVE_CONNECTIONS", "20")),
+        http_keepalive_expiry_seconds=float(os.getenv("HTTP_KEEPALIVE_EXPIRY_SECONDS", "30")),
+        http_follow_redirects=os.getenv("HTTP_FOLLOW_REDIRECTS", "true").lower() == "true",
+        http_verify_tls=os.getenv("HTTP_VERIFY_TLS", "true").lower() == "true",
         redis_enabled=os.getenv("REDIS_ENABLED", "false").lower() == "true",
         kafka_enabled=os.getenv("KAFKA_ENABLED", "false").lower() == "true",
         database_enabled=os.getenv("DATABASE_ENABLED", "false").lower() == "true",
@@ -150,6 +174,11 @@ def get_settings() -> Settings:
         kafka_bootstrap_servers=os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092"),
         kafka_topic=os.getenv("KAFKA_TOPIC", "agent_events"),
         database_url=os.getenv("DATABASE_URL", ""),
+        database_pool_size=int(os.getenv("DATABASE_POOL_SIZE", "10")),
+        database_max_overflow=int(os.getenv("DATABASE_MAX_OVERFLOW", "20")),
+        database_pool_timeout_seconds=float(os.getenv("DATABASE_POOL_TIMEOUT_SECONDS", "30")),
+        database_pool_recycle_seconds=int(os.getenv("DATABASE_POOL_RECYCLE_SECONDS", "1800")),
+        database_pool_pre_ping=os.getenv("DATABASE_POOL_PRE_PING", "true").lower() == "true",
         openai_api_key=os.getenv("OPENAI_API_KEY", ""),
         openai_base_url=os.getenv("OPENAI_BASE_URL", "") or None,
         agent_model_default=os.getenv("AGENT_MODEL_DEFAULT", "gpt-4o-mini"),
@@ -202,6 +231,7 @@ def get_settings() -> Settings:
         rate_limit_default_window_sec=int(os.getenv("RATE_LIMIT_DEFAULT_WINDOW_SEC", "60")),
         rate_limit_default_burst=int(os.getenv("RATE_LIMIT_DEFAULT_BURST", "10")),
         rate_limit_key_strategy=os.getenv("RATE_LIMIT_KEY_STRATEGY", "principal_or_ip"),
+        rate_limit_fail_open=os.getenv("RATE_LIMIT_FAIL_OPEN", "false").lower() == "true",
         rate_limit_routes=os.getenv("RATE_LIMIT_ROUTES", ""),
         rate_limit_skip_paths=_split_csv(os.getenv("RATE_LIMIT_SKIP_PATHS", "/health,/docs,/redoc,/openapi.json")),
         # Context Compression

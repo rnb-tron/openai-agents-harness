@@ -1,294 +1,114 @@
-"""
-高级 Agent 能力底层组件示例
+"""高级 Agent 能力的组件级演示。
 
-展示如何使用:
-- ApprovalManager 人工审批状态管理
-- Checkpoint 检查点管理
-- Handoff 目标注册
+本文件不调用远程模型，用于理解 manager 层行为。HTTP 应用的主接入路径是：
 
-注意:
-- 本文件用于验证底层 manager，可在本地独立运行。
-- 正式应用中的 HITL 主路径是 SDK 原生 ``interruptions`` +
-  ``POST /chat/resume``，参见 README 与架构设计文档。
+- HITL: Harness 配置受控工具，由 ``POST /chat/resume`` 恢复 SDK 中断。
+- Checkpoint: capability 按 ``CHECKPOINT_AUTO_SAVE`` 在运行边界保存摘要。
+- Handoff: ``HANDOFF_AGENTS_JSON`` 生成 SDK 原生 ``Agent.handoffs`` 目标。
 """
+
+from __future__ import annotations
 
 import asyncio
 import sys
 from pathlib import Path
 
-# 添加项目根目录到 Python 路径
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from agents import AsyncOpenAI, OpenAIChatCompletionsModel
 
 from src.capabilities.advanced_agents import (
+    AgentState,
     ApprovalManager,
+    CheckpointConfig,
     CheckpointManager,
+    HandoffConfig,
     HandoffManager,
     HITLConfig,
-    CheckpointConfig,
-    HandoffConfig,
-    AgentState,
 )
 
 
-# ============================================================
-# 示例 1: HITL 人工审批
-# ============================================================
+def build_demo_model() -> OpenAIChatCompletionsModel:
+    """创建类型正确的 SDK model；构建 handoff 目标不会请求服务。"""
+    client = AsyncOpenAI(api_key="example-not-used")
+    return OpenAIChatCompletionsModel(model="example-model", openai_client=client)
 
-async def example_hitl_approval():
-    """示例 1: 人工审批流程"""
-    print("\n" + "="*80)
-    print("示例 1: HITL 人工审批")
-    print("="*80)
-    
-    # 配置 HITL
-    config = HITLConfig(
-        enabled=True,
-        approval_timeout=30.0,
-        require_approval_tools=["delete_user", "send_notification"],
-        auto_approve_tools=["query_user", "get_status"],
-    )
-    
-    manager = ApprovalManager(config)
-    
-    # 模拟工具调用 - 需要审批
-    tool_name = "delete_user"
-    if manager.requires_approval(tool_name):
-        print(f"\n🔧 工具 '{tool_name}' 需要人工审批")
-        
-        # 创建审批请求
-        request = await manager.request_approval(
-            tool_name="delete_user",
-            tool_args={"user_id": "user-123"},
-            session_id="session-001",
-            user_id="admin-001",
-            reason="删除违规用户",
+
+async def example_hitl_policy() -> None:
+    """演示进程内审批记录；真实执行中中断由 SDK 产生。"""
+    print("\n示例 1: HITL 审批记录")
+    manager = ApprovalManager(
+        HITLConfig(
+            enabled=True,
+            require_approval_tools=["delete_user"],
+            auto_approve_tools=["query_user"],
         )
-        
-        # 在实际应用中,这里会等待 UI 或人工审批
-        # 这里模拟自动批准
-        await asyncio.sleep(1)
-        approved = await manager.approve(request.id, reviewer="admin-manager")
-        
-        if approved:
-            print("✅ 审批通过,继续执行删除操作")
-            # await delete_user("user-123")
-        else:
-            print("❌ 审批拒绝,取消操作")
-    
-    # 模拟工具调用 - 自动审批
-    tool_name = "query_user"
-    if not manager.requires_approval(tool_name):
-        print(f"\n🔧 工具 '{tool_name}' 自动审批,直接执行")
-        # result = await query_user("user-123")
-    
+    )
+
+    assert manager.requires_approval("delete_user")
+    request = await manager.request_approval(
+        tool_name="delete_user",
+        tool_args={"user_id": "user-123"},
+        session_id="session-001",
+        user_id="reviewer-demo",
+        reason="敏感操作演示",
+    )
+    await manager.approve(request.id, reviewer="demo-reviewer")
+    print(f"- delete_user: {request.status.value}")
+    print(f"- query_user requires approval: {manager.requires_approval('query_user')}")
     manager.cleanup()
 
 
-# ============================================================
-# 示例 2: Checkpoint 检查点管理
-# ============================================================
-
-async def example_checkpoint():
-    """示例 2: Checkpoint 检查点"""
-    print("\n" + "="*80)
-    print("示例 2: Checkpoint 检查点管理")
-    print("="*80)
-    
-    config = CheckpointConfig(
-        enabled=True,
-        max_checkpoints=5,
-        save_on_tool_call=True,
+async def example_checkpoint_snapshot() -> None:
+    """演示可回看的内存摘要，不将其表述为 SDK RunState 恢复。"""
+    print("\n示例 2: Checkpoint 运行摘要")
+    manager = CheckpointManager(
+        CheckpointConfig(enabled=True, max_checkpoints=5, auto_save=True)
     )
-    
-    manager = CheckpointManager(config)
-    session_id = "session-001"
-    
-    # Step 1: 保存初始状态
-    state1 = AgentState(
-        session_id=session_id,
+    state = AgentState(
+        session_id="session-001",
         conversation_history=[{"role": "user", "content": "你好"}],
-        current_model="qwen3.5-plus",
+        current_model="example-model",
         tool_calls=[],
         context={"user_id": "user-123"},
     )
-    cp1 = await manager.save(session_id, state1, "初始状态")
-    
-    # Step 2: 执行一些操作后保存
-    state2 = AgentState(
-        session_id=session_id,
-        conversation_history=[
-            {"role": "user", "content": "你好"},
-            {"role": "assistant", "content": "你好!有什么可以帮你的?"},
-        ],
-        current_model="qwen3.5-plus",
-        tool_calls=[{"tool": "greet", "result": "success"}],
-        context={"user_id": "user-123", "greeted": True},
-    )
-    cp2 = await manager.save(session_id, state2, "完成问候")
-    
-    # Step 3: 列出所有检查点
-    print(f"\n📜 检查点历史:")
-    checkpoints = manager.list_checkpoints(session_id)
-    for i, cp in enumerate(checkpoints, 1):
-        print(f"  {i}. [{cp.id[:8]}...] {cp.description}")
-    
-    # Step 4: 恢复到之前的检查点
-    print(f"\n🔄 恢复到检查点 1...")
-    restored_state = await manager.restore(cp1)
-    if restored_state:
-        print(f"✅ 恢复成功!")
-        print(f"   对话历史: {len(restored_state.conversation_history)} 条")
-        print(f"   上下文: {restored_state.context}")
-    
+    checkpoint_id = await manager.save("session-001", state, "运行开始摘要")
+    restored = await manager.restore(checkpoint_id)
+    print(f"- snapshot id: {checkpoint_id[:8]}...")
+    print(f"- restored turns: {len(restored.conversation_history) if restored else 0}")
+    print("- boundary: snapshot is not SDK RunState persistence")
     manager.cleanup()
 
 
-# ============================================================
-# 示例 3: Handoff Agent 协作
-# ============================================================
-
-async def example_handoff():
-    """示例 3: Handoff Agent 协作"""
-    print("\n" + "="*80)
-    print("示例 3: Handoff Agent 协作")
-    print("="*80)
-    
-    config = HandoffConfig(
-        enabled=True,
-        default_agent="general",
-    )
-    
-    manager = HandoffManager(config)
-    
-    # 注册专业 Agent
-    manager.register_agent(
-        name="tech_support",
-        display_name="技术支持 Agent",
-        description="处理技术问题",
-        instructions="你是一名技术支持专家。",
-    )
-    
-    manager.register_agent(
-        name="billing",
-        display_name="账单 Agent",
-        description="处理账单问题",
-        instructions="你是一名账单专家。",
-    )
-    
-    # 检查 Agent 可用性
-    print(f"\n🔍 检查 Agent 可用性:")
-    print(f"   tech_support: {manager.is_agent_available('tech_support')}")
-    print(f"   billing: {manager.is_agent_available('billing')}")
-    print(f"   unknown: {manager.is_agent_available('unknown')}")
-    
-    # 获取所有可用 Agent
-    print(f"\n📋 已注册 Agent:")
-    for name, info in manager.get_registry().items():
-        print(f"   - {name}: {info['display_name']}")
-    
-    manager.cleanup()
-
-
-# ============================================================
-# 示例 4: 组合使用所有能力
-# ============================================================
-
-async def example_combined():
-    """示例 4: 组合使用所有能力"""
-    print("\n" + "="*80)
-    print("示例 4: 组合使用所有能力")
-    print("="*80)
-    
-    # 初始化所有管理器
-    hitl_mgr = ApprovalManager(HITLConfig(
-        enabled=True,
-        require_approval_tools=["delete_data"],
-    ))
-    
-    checkpoint_mgr = CheckpointManager(CheckpointConfig(
-        enabled=True,
-        max_checkpoints=10,
-    ))
-    
-    handoff_mgr = HandoffManager(HandoffConfig(
-        enabled=True,
-        default_agent="general",
-    ))
-    
-    session_id = "session-combined"
-    
-    # Step 1: 保存初始状态
-    state = AgentState(
-        session_id=session_id,
-        conversation_history=[],
-        current_model="qwen3.5-plus",
-        tool_calls=[],
-        context={"user_id": "user-001"},
-    )
-    cp_id = await checkpoint_mgr.save(session_id, state, "初始状态")
-    print(f"💾 检查点已保存: {cp_id[:8]}...")
-    
-    # Step 2: 注册 Agent
-    handoff_mgr.register_agent(
-        "data_processor",
-        "数据处理 Agent",
-        "处理数据操作",
-    )
-    
-    # Step 3: 尝试敏感操作 (需要审批)
-    if hitl_mgr.requires_approval("delete_data"):
-        print(f"\n🔧 敏感操作需要审批...")
-        request = await hitl_mgr.request_approval(
-            tool_name="delete_data",
-            tool_args={"data_id": "data-123"},
-            session_id=session_id,
-            user_id="user-001",
+def example_configured_handoffs() -> None:
+    """演示和 Harness 一致的配置驱动 SDK handoff 装配。"""
+    print("\n示例 3: 配置驱动 Handoff")
+    manager = HandoffManager(
+        HandoffConfig(
+            enabled=True,
+            agents={
+                "billing": {
+                    "description": "处理账单问题",
+                    "instructions": "仅处理账单与退款咨询。",
+                },
+                "support": {
+                    "description": "处理技术支持",
+                    "instructions": "仅处理技术故障排查。",
+                },
+            },
         )
-        
-        # 模拟审批
-        await asyncio.sleep(1)
-        await hitl_mgr.approve(request.id, reviewer="admin")
-    
-    # Step 4: 保存最终状态
-    final_state = AgentState(
-        session_id=session_id,
-        conversation_history=[
-            {"role": "system", "content": "所有操作完成"},
-        ],
-        current_model="qwen3.5-plus",
-        tool_calls=[{"tool": "delete_data", "result": "success"}],
-        context={"user_id": "user-001", "completed": True},
     )
-    await checkpoint_mgr.save(session_id, final_state, "完成")
-    
-    print(f"\n✅ 所有能力组合使用成功!")
-    
-    # 清理
-    hitl_mgr.cleanup()
-    checkpoint_mgr.cleanup()
-    handoff_mgr.cleanup()
+    targets = manager.build_configured_handoffs(build_demo_model())
+    for target in targets:
+        print(f"- {target.name}: {target.handoff_description}")
+    manager.cleanup()
 
 
-# ============================================================
-# 运行所有示例
-# ============================================================
-
-async def main():
-    """运行所有示例"""
-    try:
-        await example_hitl_approval()
-        await example_checkpoint()
-        await example_handoff()
-        await example_combined()
-        
-        print("\n" + "="*80)
-        print("🎉 所有示例运行完成!")
-        print("="*80 + "\n")
-    except Exception as e:
-        print(f"\n❌ 示例运行失败: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+async def main() -> None:
+    await example_hitl_policy()
+    await example_checkpoint_snapshot()
+    example_configured_handoffs()
+    print("\n组件演示完成。运行中的 Harness 请使用配置开关与 HTTP API。")
 
 
 if __name__ == "__main__":

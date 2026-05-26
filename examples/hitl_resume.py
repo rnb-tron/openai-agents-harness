@@ -13,11 +13,16 @@ from __future__ import annotations
 import argparse
 import json
 from typing import Any
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
-def post_json(url: str, payload: dict[str, Any], token: str | None) -> dict[str, Any]:
+def post_json(
+    url: str,
+    payload: dict[str, Any],
+    token: str | None,
+    timeout: float,
+) -> dict[str, Any]:
     headers = {"Content-Type": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -28,11 +33,13 @@ def post_json(url: str, payload: dict[str, Any], token: str | None) -> dict[str,
         method="POST",
     )
     try:
-        with urlopen(request) as response:
+        with urlopen(request, timeout=timeout) as response:
             body = json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
         detail = exc.read().decode("utf-8")
         raise RuntimeError(f"HTTP {exc.code}: {detail}") from exc
+    except URLError as exc:
+        raise RuntimeError(f"无法连接 Harness API: {exc.reason}") from exc
     return body["data"]
 
 
@@ -52,6 +59,7 @@ def main() -> None:
     parser.add_argument("--session-id", default="example-hitl-session")
     parser.add_argument("--user-id", default="example-user")
     parser.add_argument("--token", default=None, help="启用 Auth 时使用的 Bearer Token")
+    parser.add_argument("--timeout", type=float, default=30.0, help="HTTP 请求超时秒数")
     choice = parser.add_mutually_exclusive_group()
     choice.add_argument("--approve", action="store_true", help="直接批准中断")
     choice.add_argument("--reject", action="store_true", help="直接拒绝中断")
@@ -65,6 +73,7 @@ def main() -> None:
             "user_id": args.user_id,
         },
         args.token,
+        args.timeout,
     )
     if not initial.get("interrupted"):
         print("本次调用未发生工具审批中断。")
@@ -94,10 +103,14 @@ def main() -> None:
         f"{args.base_url}/chat/resume",
         resume_payload,
         args.token,
+        args.timeout,
     )
     print("恢复后的响应：")
     print(json.dumps(resumed, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except RuntimeError as exc:
+        raise SystemExit(f"调用失败: {exc}") from None

@@ -1,4 +1,4 @@
-"""MiddlewareRegistry: centralized registration for protocol-layer plugins."""
+"""对外协议插件的集中注册与生命周期管理。"""
 
 from __future__ import annotations
 
@@ -6,14 +6,14 @@ from typing import List
 
 from fastapi import FastAPI
 
-from src.api.middleware.base import MiddlewarePlugin
+from src.api.middleware.base import ProtocolPlugin
 from src.core.logging import setup_logger
 
 logger = setup_logger("api.middleware.registry")
 
 
-class MiddlewareRegistry:
-    """Holds protocol-layer plugins and dispatches lifecycle calls.
+class ProtocolPluginRegistry:
+    """持有对外协议插件，并分派安装和生命周期调用。
 
     Note on FastAPI middleware ordering:
         FastAPI builds the middleware stack in LIFO order (last registered
@@ -26,24 +26,24 @@ class MiddlewareRegistry:
     """
 
     def __init__(self) -> None:
-        self._plugins: List[MiddlewarePlugin] = []
+        self._plugins: List[ProtocolPlugin] = []
         self._installed: bool = False
 
-    def register(self, plugin: MiddlewarePlugin) -> None:
+    def register(self, plugin: ProtocolPlugin) -> None:
         if self._installed:
-            raise RuntimeError("middleware_registry already installed; cannot register more plugins")
+            raise RuntimeError("protocol registry already installed; cannot register more plugins")
         self._plugins.append(plugin)
         logger.info(
-            "middleware_plugin_registered",
+            "protocol_plugin_registered",
             extra={"plugin": plugin.name, "enabled": plugin.is_enabled()},
         )
 
     @property
-    def plugins(self) -> List[MiddlewarePlugin]:
+    def plugins(self) -> List[ProtocolPlugin]:
         return list(self._plugins)
 
     @property
-    def enabled(self) -> List[MiddlewarePlugin]:
+    def enabled(self) -> List[ProtocolPlugin]:
         return [p for p in self._plugins if p.is_enabled()]
 
     def install_all(self, app: FastAPI) -> None:
@@ -56,7 +56,7 @@ class MiddlewareRegistry:
             return
         for plugin in reversed(self.enabled):
             plugin.install(app)
-            logger.info("middleware_plugin_installed", extra={"plugin": plugin.name})
+            logger.info("protocol_plugin_installed", extra={"plugin": plugin.name})
         self._installed = True
 
     async def setup_all(self) -> None:
@@ -65,7 +65,7 @@ class MiddlewareRegistry:
                 await plugin.setup()
             except Exception as e:
                 logger.error(
-                    "middleware_plugin_setup_failed",
+                    "protocol_plugin_setup_failed",
                     extra={"plugin": plugin.name, "error": str(e)},
                     exc_info=True,
                 )
@@ -77,7 +77,7 @@ class MiddlewareRegistry:
                 await plugin.teardown()
             except Exception as e:
                 logger.warning(
-                    "middleware_plugin_teardown_failed",
+                    "protocol_plugin_teardown_failed",
                     extra={"plugin": plugin.name, "error": str(e)},
                 )
 
@@ -87,5 +87,6 @@ class MiddlewareRegistry:
         self._installed = False
 
 
-# Global singleton (used by main.py); tests can build their own instances.
-middleware_registry = MiddlewareRegistry()
+# 兼容旧导入；新 app factory 为每个应用创建独立 registry。
+MiddlewareRegistry = ProtocolPluginRegistry
+middleware_registry = ProtocolPluginRegistry()

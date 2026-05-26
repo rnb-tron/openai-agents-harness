@@ -7,7 +7,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from agents import AsyncOpenAI, OpenAIChatCompletionsModel
+
 from src.capabilities.advanced_agents import HandoffConfig, HandoffManager
+
+
+def build_demo_model() -> OpenAIChatCompletionsModel:
+    """构造 SDK 模型对象；本示例不会实际发起模型请求。"""
+    client = AsyncOpenAI(api_key="example-not-used")
+    return OpenAIChatCompletionsModel(model="example-model", openai_client=client)
 
 
 def main() -> None:
@@ -30,8 +38,7 @@ def main() -> None:
     )
     manager = HandoffManager(config)
 
-    # 示例不调用模型；占位模型足以观察 SDK Agent 目标的声明结构。
-    targets = manager.build_configured_handoffs("example-model")
+    targets = manager.build_configured_handoffs(build_demo_model())
 
     print("配置驱动生成的 handoff 目标：")
     for target in targets:

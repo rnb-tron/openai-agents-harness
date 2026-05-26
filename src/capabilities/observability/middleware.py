@@ -60,8 +60,7 @@ async def observability_middleware(request: Request, call_next: Callable) -> Res
             span.set_attribute("http.status_code", response.status_code)
             span.set_attribute("http.duration_ms", duration_ms)
             
-            # 添加响应头
-            response.headers["X-Request-ID"] = request_id
+            # Request ID 由基础请求上下文统一维护，这里只暴露 Trace ID。
             response.headers["X-Trace-ID"] = str(span.get_span_context().trace_id)
             
             # 设置状态

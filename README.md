@@ -19,15 +19,7 @@
 
 ## 🧭 架构总览
 
-```mermaid
-flowchart TD
-    A["API 层<br/>routers / middleware / schemas"] --> B["Harness 装配层<br/>HarnessBuilder / HarnessContext / Manifest"]
-    B --> C["运行时层<br/>AgentOrchestrator + OpenAI Agents SDK Runner"]
-    C --> D["能力层<br/>Memory / Tools / Model Router / Prompt / Compression"]
-    A --> E["协议能力<br/>Auth / RateLimit / Observability Middleware"]
-    D --> F["基础设施层<br/>Database / Redis / Kafka / HTTP Client"]
-    B --> G["脚手架生成输入<br/>CapabilityManifest / Config / Resources"]
-```
+![Agent Harness Architecture](docs/assets/agent-harness-architecture-cn-v5.png)
 
 核心原则：
 
@@ -36,6 +28,8 @@ flowchart TD
 - **可裁剪**：能力依赖和资源边界可被脚手架生成器读取。
 - **可测试**：单元、集成、端到端测试分层，默认测试不依赖外部服务。
 - **可维护**：`API`、`Runtime`、`Capability`、`Infrastructure` 边界清晰。
+
+当前 `CapabilityManifest` 已可支持能力目录与组合校验，但运行时装配仍由 `HarnessBuilder` 和 `AgentOrchestrator` 显式实现；本仓库是可演进的工程底座，而不是已完成的全动态生成平台。
 
 ## 🧩 能力体系
 
@@ -74,7 +68,7 @@ CapabilityManifest(
 | `context_compression` | runtime | ✅ 已实现 | 支持 token budget、rolling summary、hybrid |
 | `auth` | protocol | ✅ 已实现 | JWT 中间件插件 |
 | `rate_limit` | protocol | ✅ 已实现 | Redis/内存限流中间件插件 |
-| `observability` | resource | ✅ 已实现 | Langfuse/OpenTelemetry 生命周期和 HTTP Trace |
+| `observability` | resource | ✅ 已实现 | Langfuse/OpenTelemetry 生命周期，并向 HTTP 链路贡献追踪入口 |
 | `hitl` | runtime | 🟡 部分实现 | 配置驱动装配，已接入 SDK 原生中断与 `POST /chat/resume` |
 | `checkpoint` | runtime | 🟡 部分实现 | 配置驱动的进程内执行快照，不等同于 SDK `RunState` 存储 |
 | `handoff` | runtime | 🟡 部分实现 | 配置驱动装配，主 Agent 已接入 SDK 原生 `handoffs` |
@@ -84,7 +78,8 @@ CapabilityManifest(
 ```text
 src/
 ├── api/
-│   ├── middleware/          # 协议层插件：Auth / RateLimit
+│   ├── app.py               # FastAPI app factory 与接入层装配
+│   ├── middleware/          # ProtocolPlugin、Auth / RateLimit / 请求上下文
 │   ├── routers/             # HTTP 路由：chat / health / memory
 │   └── schemas/             # API 请求/响应模型
 ├── application/
@@ -102,7 +97,7 @@ src/
 ├── harness/                 # HarnessBuilder / Context / Manifest / FastAPI deps
 ├── infrastructure/          # DB / Redis / Kafka / HTTP Client
 ├── utils/
-└── main.py                  # FastAPI 应用入口
+└── main.py                  # 仅导出 ASGI app
 
 tests/
 ├── unit/                    # 快速单元测试
@@ -165,7 +160,7 @@ sequenceDiagram
 | 依赖解析 | `depends_on` / `provides` 描述能力依赖图 |
 | 安装顺序 | `install_order` 控制能力注册和运行顺序 |
 | 配置生成 | `config_section` 映射环境变量和配置段 |
-| 资源装配 | `HarnessBuilder` 统一构建 manager、registry、router |
+| 资源装配 | `HarnessBuilder` 统一构建 manager 与共享数据库资源；`api.app` 组装 HTTP 接入 |
 | 代码裁剪 | 能力目录边界清晰，`API` 和 `Runtime` 不直接硬编码具体后端 |
 | 测试生成 | `tests/unit`、`tests/integration`、`tests/e2e` 已分层 |
 | 目录读取 | `/health/capability-catalog` 输出能力与依赖矩阵 |
@@ -224,11 +219,11 @@ make test-all
 当前本地测试状态：
 
 ```text
-make test      -> 69 passed
-make test-all  -> 136 passed, 10 skipped
+make test      -> 74 passed
+make test-all  -> 146 passed, 10 skipped
 ```
 
-外部模型和 Langfuse 相关测试默认跳过。如需显式运行：
+依赖外部模型服务的 E2E 测试默认跳过；`tests/e2e/test_langfuse.py` 当前会随全量测试执行。如需显式运行外部模型用例：
 
 ```bash
 RUN_EXTERNAL_TESTS=true make test-all
@@ -249,6 +244,22 @@ RATE_LIMIT_ENABLED=false
 LANGFUSE_ENABLED=false
 MODEL_RESILIENCE_ENABLED=false
 ```
+
+基础资源参数具备默认值，通常无需配置；部署容量或外呼策略变化时可覆盖：
+
+```bash
+HTTP_TIMEOUT_SECONDS=30
+HTTP_CONNECT_TIMEOUT_SECONDS=10
+HTTP_MAX_CONNECTIONS=100
+HTTP_MAX_KEEPALIVE_CONNECTIONS=20
+DATABASE_POOL_SIZE=10
+DATABASE_MAX_OVERFLOW=20
+DATABASE_POOL_TIMEOUT_SECONDS=30
+DATABASE_POOL_RECYCLE_SECONDS=1800
+RATE_LIMIT_FAIL_OPEN=false
+```
+
+通用 HTTP Client 默认允许使用但采用懒加载，不会因未被能力或工具使用而在启动阶段创建连接。数据库由 Harness 统一持有一套共享连接池，Memory 不再建立独立 pool。使用 Redis 限流时必须同时启用 Redis；限流启动探活或请求阶段后端失败默认阻止服务/返回 `503`，仅在显式设置 `RATE_LIMIT_FAIL_OPEN=true` 时降级放行。
 
 模型弹性：
 
@@ -304,7 +315,9 @@ MEMORY_EMBEDDING_MODEL=text-embedding-3-small
 MEMORY_VECTOR_DIMENSION=1536
 ```
 
-首次启用前执行 `config/memory_postgres_pgvector_migration.sql`。`MemoryManager` 在启用 `MEMORY_EMBEDDING_PROVIDER=openai` 后自动生成 embedding，并向 pgvector 写入/查询向量；关闭 provider 时只保留关系长期记忆，不产生外部 embedding 调用。
+首次启用前执行 `config/memory_postgres_pgvector_migration.sql`。`MemoryManager` 在启用 `MEMORY_EMBEDDING_PROVIDER=openai` 后自动生成 embedding，并向 pgvector 写入/查询向量；关闭 provider 时只保留关系记忆，不产生外部 embedding 调用。
+
+注意：只要 `MEMORY_ENABLED=true` 且数据库资源已可用，当前实现就会写入关系记忆记录；`MEMORY_LONG_TERM_ENABLED` 主要控制向量化和语义检索。基础会话记忆仍是进程内存储，尚未接入 Redis。
 
 能力目录与依赖矩阵：
 
@@ -362,8 +375,9 @@ venv/bin/python examples/handoff.py
 - HITL 已支持配置驱动的 SDK 原生工具审批和 HTTP 恢复，审批状态当前仅保存在进程内，持久化与审计闭环仍待完善。
 - `checkpoint` 当前是进程内执行摘要快照，不承担 SDK 中断状态持久化或灾难恢复职责。
 - `handoff` 当前支持静态专家目标接入 SDK 原生转交，动态专家注册与专家工具集仍待后续评估。
+- `/chat` 与 `/memory/*` 还没有按认证主体或租户绑定会话/记忆资源，生产部署前需要补齐对象级授权。
 - 部分历史文档仍记录旧阶段设计，已通过文档索引标注用途，后续会逐步收敛。
-- 外部模型和 Langfuse 测试默认跳过，需要显式开启。
+- 依赖外部模型服务的 E2E 测试默认跳过，需要显式开启；Langfuse E2E 用例当前默认执行。
 
 ## 🧭 下一步建议
 

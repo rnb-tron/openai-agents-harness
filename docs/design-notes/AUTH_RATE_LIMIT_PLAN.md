@@ -2,6 +2,8 @@
 
 > 文档类型：设计记录。当前能力开关与装配状态以代码及架构设计文档为准。
 >
+> 更新说明：当前实现已将抽象名称收敛为 `ProtocolPlugin` / `ProtocolPluginRegistry`，由 `src/api/app.py` 装配；Redis 限流默认 fail-closed，以下早期 fail-open 描述仅保留决策演进背景。
+>
 > 状态: **已实施**(分支 `refactor/arch-cleanup-p0-p1-p2` 之上的协议层增强)
 > 范围: 仅"消费方 JWT 认证 + Token-Bucket 限流",不含登录会话/Token 颁发
 > 兼容性: 默认关闭、配置即启用(零开销 + 向后兼容)

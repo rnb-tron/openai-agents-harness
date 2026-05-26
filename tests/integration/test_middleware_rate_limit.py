@@ -7,6 +7,10 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -15,9 +19,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.api.middleware.rate_limit.base import RateLimitKey
+from src.api.middleware.rate_limit.base import RateLimitError, RateLimitKey
 from src.api.middleware.rate_limit.memory_backend import MemoryRateLimiter
 from src.api.middleware.rate_limit.plugin import RateLimitPlugin
+from src.api.middleware.rate_limit.redis_backend import RedisRateLimiter
 
 
 def _build_app(plugin: RateLimitPlugin) -> FastAPI:
@@ -182,6 +187,61 @@ def test_memory_backend_direct():
 
     asyncio.run(run())
     print("OK test_memory_backend_direct")
+
+
+class _UnavailableBackend(MemoryRateLimiter):
+    async def check(self, key, *, limit, window_sec, burst):
+        raise RateLimitError("unavailable")
+
+
+def test_backend_failure_is_fail_closed_by_default():
+    app = _build_app(
+        RateLimitPlugin(enabled=True, backend=_UnavailableBackend())
+    )
+
+    response = TestClient(app).get("/chat")
+
+    assert response.status_code == 503
+    assert response.json()["error"] == "rate_limit_unavailable"
+
+
+def test_backend_failure_can_be_explicitly_fail_open():
+    app = _build_app(
+        RateLimitPlugin(enabled=True, backend=_UnavailableBackend(), fail_open=True)
+    )
+
+    assert TestClient(app).get("/chat").status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_redis_backend_setup_requires_available_client():
+    backend = RedisRateLimiter(get_client=lambda: None)
+
+    with pytest.raises(RuntimeError, match="initialized Redis"):
+        await backend.setup()
+
+
+@pytest.mark.asyncio
+async def test_redis_backend_setup_pings_and_loads_lua_script():
+    client = AsyncMock()
+    client.script_load.return_value = "sha"
+    backend = RedisRateLimiter(get_client=lambda: client)
+
+    await backend.setup()
+
+    client.ping.assert_awaited_once()
+    client.script_load.assert_awaited_once()
+
+
+def test_redis_rate_limit_requires_redis_resource_at_assembly_time():
+    with pytest.raises(ValueError, match="REDIS_ENABLED=true"):
+        RateLimitPlugin.from_settings(
+            SimpleNamespace(
+                rate_limit_enabled=True,
+                rate_limit_backend="redis",
+                redis_enabled=False,
+            )
+        )
 
 
 def main():

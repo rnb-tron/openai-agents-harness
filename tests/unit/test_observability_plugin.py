@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from src.capabilities.observability import ObservabilityConfig, ObservabilityPlugin
+from src.api.middleware.request_context import install_request_context
 
 
 class _FakeTracer:
@@ -32,6 +33,7 @@ def test_observability_plugin_installs_request_trace_headers():
     )
 
     plugin.install(app)
+    install_request_context(app)
 
     @app.get("/ping")
     async def ping():

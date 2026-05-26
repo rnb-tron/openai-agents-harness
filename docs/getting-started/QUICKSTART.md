@@ -1,568 +1,195 @@
-# Agent Harness 快速入门指南
+# Agent Harness 快速入门
 
-欢迎使用 **Agent Harness** - 一个基于 OpenAI Agents SDK 的可插拔 Agent 工程脚手架!
+本项目是基于 OpenAI Agents SDK 的可组合 Agent 工程底座，用于验证运行时装配、能力目录和脚手架生成路径。
 
-> 状态：入门指南。高级能力的推荐主路径以 [架构设计](../architecture/ARCHITECTURE_DESIGN.md) 中的 SDK 原生中断恢复和 Handoff 说明为准。
+> 状态：当前实现入门指南。生产化限制请同时阅读 [架构设计](../architecture/ARCHITECTURE_DESIGN.md)。
 
----
+## 当前主路径
 
-## 📋 目录
-
-- [什么是 Agent Harness](#什么是-agent-harness)
-- [快速开始](#快速开始)
-  - [环境要求](#环境要求)
-  - [安装依赖](#安装依赖)
-  - [配置环境变量](#配置环境变量)
-  - [启动服务](#启动服务)
-- [使用模式](#使用模式)
-  - [模式 1: 简单模式](#模式-1-简单模式)
-  - [模式 2: 中等模式](#模式-2-中等模式)
-  - [模式 3: 完整模式](#模式-3-完整模式)
-- [API 使用](#api-使用)
-- [高级能力](#高级能力)
-  - [HITL 人工审批](#hitl-人工审批)
-  - [Checkpoint 检查点](#checkpoint-检查点)
-  - [Handoff 多Agent协作](#handoff-多agent协作)
-- [配置指南](#配置指南)
-- [常见问题](#常见问题)
-- [更多文档](#更多文档)
-
----
-
-## 什么是 Agent Harness
-
-**Agent Harness** 是一个企业级的 Agent 工程脚手架,提供:
-
-✅ **可插拔架构** - 按需启用能力,零侵入设计  
-✅ **六层分层** - 清晰的架构设计,易于维护  
-✅ **OpenAI Agents SDK** - 基于最新的 Agent 框架  
-✅ **记忆系统** - 短期记忆 + 长期记忆  
-✅ **模型路由** - 智能选择最优模型  
-✅ **工具注册** - 灵活的工具管理  
-✅ **可观测性** - 集成 Langfuse  
-✅ **弹性设计** - 降级、重试、超时控制  
-
----
-
-## 快速开始
-
-### 环境要求
-
-- Python 3.11+
-- OpenAI API Key (或兼容的 API)
-- (可选) Redis - 用于短期记忆缓存
-- (可选) MySQL 或 PostgreSQL - 用于长期关系记忆
-- (可选) Elasticsearch 或 PostgreSQL + pgvector - 用于向量检索
-
-### 安装依赖
-
-```bash
-# 克隆项目
-git clone https://github.com/rnb-tron/openai-agent-sdk.git
-cd openai-agent-sdk
-
-# 创建虚拟环境
-python -m venv venv
-source venv/bin/activate  # macOS/Linux
-# 或
-venv\Scripts\activate     # Windows
-
-# 安装依赖
-pip install -r requirements.txt
+```text
+src.main:app
+  -> src.api.app.create_app(settings)
+     -> build_harness(settings)
+     -> build_protocol_registry(settings)
+     -> /chat, /chat/resume, /memory/*, /health/*
 ```
 
-### 配置环境变量
+- `src/main.py` 仅导出 ASGI `app`。
+- `HarnessBuilder` 创建 Runtime、工具注册表、模型路由和可选资源。
+- `ProtocolPluginRegistry` 装配 Auth、RateLimit 与 Observability 的 HTTP 入口。
+- `AgentOrchestrator` 使用 SDK `Agent`、`Runner`、原生 handoff 和审批恢复。
+
+## 准备环境
+
+要求 Python 3.11+。最小聊天调用需要可访问的模型服务和 API key。
 
 ```bash
-# 复制配置模板
+python3.11 -m venv venv
+source venv/bin/activate
+make install
 cp config/test.env.example config/test.env
-
-# 编辑配置文件
-vim config/test.env
 ```
 
-**必需配置**:
+最小配置：
+
 ```env
-# OpenAI API 配置
-OPENAI_API_KEY=your-api-key-here
-OPENAI_BASE_URL=https://your-api-endpoint.com/v1
-AGENT_MODEL_DEFAULT=qwen3.5-plus
+OPENAI_API_KEY=your-api-key
+AGENT_MODEL_DEFAULT=gpt-4o-mini
 ```
 
-**可选配置**:
+如使用兼容端点，可额外设置：
+
 ```env
-# 记忆系统
-MEMORY_ENABLED=true
-MEMORY_LONG_TERM_ENABLED=true
-DATABASE_URL=postgresql+asyncpg://agent:password@localhost:5432/agent_harness
-MEMORY_VECTOR_BACKEND=pgvector
-MEMORY_EMBEDDING_PROVIDER=openai
-MEMORY_EMBEDDING_MODEL=text-embedding-3-small
-
-# 可观测性
-LANGFUSE_ENABLED=true
-LANGFUSE_HOST=https://your-langfuse-host.com
-LANGFUSE_PUBLIC_KEY=pk-xxx
-LANGFUSE_SECRET_KEY=sk-xxx
+OPENAI_BASE_URL=https://your-api-endpoint.example/v1
 ```
 
-### 启动服务
+启动与验证：
 
 ```bash
-# 启动 FastAPI 服务
-uvicorn src.main:app --host 0.0.0.0 --port 8080 --reload
-
-# 访问文档
-open http://localhost:8080/docs
+make run
+curl http://localhost:8080/health/ok
+curl http://localhost:8080/health/capabilities
 ```
 
----
-
-## 使用模式
-
-Agent Harness 支持**三种使用模式**,根据业务需求选择:
-
-### 模式 1: 简单模式
-
-**适用场景**: 简单问答机器人,快速原型开发
-
-```python
-# main.py
-from src.application.orchestration.agent_runtime import AgentOrchestrator, AgentSession
-from src.capabilities.memory.store import MemoryStore
-from src.capabilities.model_routing.router import ModelRouter
-from src.capabilities.tools.registry import ToolRegistry
-
-# 初始化基础组件
-memory_store = MemoryStore()
-tool_registry = ToolRegistry()
-tool_registry.register_defaults()  # 注册默认工具
-model_router = ModelRouter()
-
-# 创建 Orchestrator (简单模式)
-orchestrator = AgentOrchestrator(
-    tool_registry=tool_registry,
-    memory_store=memory_store,
-    model_router=model_router,
-)
-
-# 使用
-session = AgentSession(session_id="session-001")
-result = await orchestrator.run(session, "你好,请帮我查询数据")
-print(result["output"])
-```
-
-**特点**:
-- ✅ 轻量级,启动快 (< 1秒)
-- ✅ 内存占用低 (~50MB)
-- ✅ 支持工具调用
-- ✅ 支持短期记忆
-- ❌ 无长期记忆
-- ❌ 无高级能力
-
----
-
-### 模式 2: 中等模式
-
-**适用场景**: 需要记住用户历史和偏好的应用
-
-```python
-from src.capabilities.memory.manager import MemoryManager
-from src.core.config import current_settings
-
-# 初始化长期记忆管理器
-memory_manager = MemoryManager(
-    redis_enabled=current_settings.memory_enabled,
-    es_enabled=current_settings.memory_long_term_enabled,
-)
-
-# 创建 Orchestrator (中等模式)
-orchestrator = AgentOrchestrator(
-    tool_registry=tool_registry,
-    memory_store=memory_store,
-    model_router=model_router,
-    memory_manager=memory_manager,  # 添加长期记忆
-)
-
-# 使用 - Agent 会记住上下文
-session = AgentSession(session_id="session-001", user_id="user-123")
-result1 = await orchestrator.run(session, "我喜欢科幻小说")
-result2 = await orchestrator.run(session, "推荐几本书")  # 会记住偏好
-```
-
-**特点**:
-- ✅ 包含简单模式所有功能
-- ✅ 支持长期记忆存储
-- ✅ 支持向量检索
-- ✅ 支持用户画像
-- ⚠️ 需要 Redis (可选)
-- ⚠️ 需要 Elasticsearch (可选)
-
----
-
-### 模式 3: 完整模式
-
-**适用场景**: 企业级应用,需要审批流程、状态管理
-
-```python
-from src.capabilities.advanced_agents import (
-    HITLConfig,
-    CheckpointConfig,
-    HandoffConfig,
-)
-
-# 配置高级能力
-hitl_config = HITLConfig(
-    enabled=True,
-    approval_timeout=300.0,  # 审批超时 5 分钟
-    require_approval_tools=["delete_data", "send_notification"],
-    auto_approve_tools=["query_data"],
-)
-
-checkpoint_config = CheckpointConfig(
-    enabled=True,
-    max_checkpoints=10,
-    save_on_tool_call=True,
-)
-
-# 创建 Orchestrator (完整模式)
-orchestrator = AgentOrchestrator(
-    tool_registry=tool_registry,
-    memory_store=memory_store,
-    model_router=model_router,
-    memory_manager=memory_manager,
-    hitl_config=hitl_config,
-    checkpoint_config=checkpoint_config,
-)
-
-# 使用 - 敏感操作会自动触发审批
-session = AgentSession(session_id="session-001", user_id="user-123")
-result = await orchestrator.run(session, "删除这些数据")  # 需要审批
-```
-
-**特点**:
-- ✅ 包含中等模式所有功能
-- ✅ 支持人工审批 (HITL)
-- ✅ 支持状态检查点 (Checkpoint)
-- ✅ 支持多Agent协作 (Handoff)
-- ✅ 支持错误恢复
-- ⚠️ 启动稍慢 (~2秒)
-
----
-
-## API 使用
-
-### 1. 发送消息
+## 聊天 API
 
 ```bash
 curl -X POST http://localhost:8080/chat \
-  -H "Content-Type: application/json" \
-  -d '{
-    "message": "你好,请帮我查询订单状态",
-    "session_id": "session-001",
-    "user_id": "user-123"
-  }'
+  -H 'Content-Type: application/json' \
+  -d '{"message":"北京天气如何？","session_id":"demo-session","user_id":"demo-user"}'
 ```
 
-**响应**:
-```json
-{
-  "code": 200,
-  "data": {
-    "session_id": "session-001",
-    "input": "你好,请帮我查询订单状态",
-    "output": "好的,我来帮你查询...",
-    "model": "qwen3.5-plus",
-    "tool_calls": [
-      {
-        "tool": "query_order",
-        "args": {"order_id": "ORD-123"}
-      }
-    ],
-    "memory_size": 2
-  }
-}
+`/chat` 会返回 `session_id`、`output`、实际使用的 `model`、工具调用以及当前内存会话消息数量。
+
+当前安全边界：
+
+- 未启用 Auth 时，`user_id` 与 `session_id` 来自请求体。
+- 启用 Auth 时，`/chat` 会优先使用认证主体的 `user_id`。
+- 当前尚未实现 session / memory 的资源归属授权校验；对外部署前应补充租户和会话隔离。
+
+## 通过配置启用能力
+
+推荐修改环境变量后重新构建应用，而不是在 router 中手动创建 `AgentOrchestrator`。
+
+### Prompt 与上下文压缩
+
+```env
+PROMPT_ENABLED=true
+PROMPT_BACKEND=yaml
+COMPRESSION_ENABLED=true
+COMPRESSION_STRATEGY=token_budget
 ```
 
-### 2. 健康检查
+### 长期 Memory 与向量检索
+
+```env
+MEMORY_ENABLED=true
+DATABASE_URL=postgresql+asyncpg://agent:password@localhost:5432/agent_harness
+
+# 可选语义检索
+MEMORY_LONG_TERM_ENABLED=true
+MEMORY_VECTOR_BACKEND=pgvector
+MEMORY_PGVECTOR_TABLE=memory_vectors
+MEMORY_EMBEDDING_PROVIDER=openai
+MEMORY_EMBEDDING_MODEL=text-embedding-3-small
+MEMORY_VECTOR_DIMENSION=1536
+```
+
+使用 `pgvector` 前先执行：
 
 ```bash
-curl http://localhost:8080/health
+psql "$DATABASE_URL" -f config/memory_postgres_pgvector_migration.sql
 ```
 
----
+说明：
 
-## 高级能力
+- 基础 `memory_session` 使用进程内 `MemoryStore`，始终参与 Runtime。
+- `MEMORY_ENABLED=true` 且提供 `DATABASE_URL` 时装配 `MemoryManager` 和关系长期记录。
+- `MEMORY_LONG_TERM_ENABLED=true`、向量后端和 embedding provider 都配置后，才会执行语义写入与检索。
+- 当前 Runtime 尚未把 Redis 注入短期会话存储；`REDIS_ENABLED` 主要供基础设施与 Redis 限流使用。
 
-### HITL 人工审批
-
-**场景**: 删除数据、发送通知等敏感操作需要人工确认
-
-```python
-# 配置需要审批的工具
-hitl_config = HITLConfig(
-    enabled=True,
-    require_approval_tools=["delete_ticket", "send_email"],
-)
-
-# 在 AgentOrchestrator 中自动生效
-# 当 Agent 调用需要审批的工具时,会自动创建审批请求
-# 实际应用中,这里会通过 UI 或消息队列等待人工审批
-```
-
-**工作流程**:
-```
-用户请求 → Agent 调用工具 → 检查是否需要审批
-  ↓
-需要审批 → 创建审批请求 → 等待人工审批
-  ↓
-审批通过 → 继续执行
-审批拒绝 → 回滚状态
-```
-
----
-
-### Checkpoint 检查点
-
-**场景**: 长时间任务、错误恢复、状态审计
-
-```python
-# 启用 Checkpoint
-checkpoint_config = CheckpointConfig(
-    enabled=True,
-    max_checkpoints=10,
-    save_on_tool_call=True,
-)
-
-# 自动保存检查点
-# 每次 Agent 调用前后都会保存状态
-# 发生错误时可以恢复到之前的状态
-```
-
-**使用示例**:
-```python
-# 查看检查点历史
-checkpoints = checkpoint_mgr.list_checkpoints(session_id)
-for cp in checkpoints:
-    print(f"{cp.description} - {cp.timestamp}")
-
-# 恢复到指定检查点
-restored_state = await checkpoint_mgr.restore(checkpoint_id)
-```
-
----
-
-### Handoff 多Agent协作
-
-**场景**: Triage Agent 智能路由到专业 Agent
-
-```python
-# 配置 Handoff
-handoff_config = HandoffConfig(
-    enabled=True,
-    default_agent="general",
-)
-
-# 注册专业 Agent
-handoff_mgr = HandoffManager(handoff_config)
-handoff_mgr.register_agent("tech_support", "技术支持", "处理技术问题")
-handoff_mgr.register_agent("billing", "账单专家", "处理账单问题")
-
-# 创建 Triage Agent
-triage_agent = handoff_mgr.create_triage_agent(
-    name="triage",
-    instructions="根据用户问题路由到合适的 Agent",
-    handoff_agents=["tech_support", "billing"],
-)
-```
-
----
-
-## 配置指南
-
-### 开发环境配置
+### HITL 审批恢复
 
 ```env
-# config/dev.env
-APP_PROFILE=development
-DEBUG=true
-LOG_LEVEL=DEBUG
-
-# OpenAI API
-OPENAI_API_KEY=your-dev-key
-OPENAI_BASE_URL=https://dev-api.com/v1
-AGENT_MODEL_DEFAULT=qwen3.5-plus
-
-# 开发环境不启用高级能力
-MEMORY_ENABLED=false
-LANGFUSE_ENABLED=false
+HITL_ENABLED=true
+HITL_REQUIRE_APPROVAL_TOOLS=get_weather
+HITL_APPROVAL_TIMEOUT=300
 ```
 
-### 生产环境配置
+当受控工具被调用时，`POST /chat` 返回 `interruptions` 与 `run_state`。调用方随后将原始 `message`、实际 `model`、`run_state` 和审批决定提交到：
+
+```bash
+POST /chat/resume
+```
+
+可运行演示：
+
+```bash
+venv/bin/python examples/hitl_resume.py --approve --message "请查询北京天气。"
+```
+
+当前 `ApprovalManager` 与 `run_state` 持久化仍为轻量实现，不适合作为跨实例、可审计的生产审批仓库。
+
+### Checkpoint 与 Handoff
 
 ```env
-# config/prod.env
-APP_PROFILE=production
-DEBUG=false
-LOG_LEVEL=INFO
+CHECKPOINT_ENABLED=true
+CHECKPOINT_AUTO_SAVE=true
+CHECKPOINT_MAX_CHECKPOINTS=10
 
-# OpenAI API
-OPENAI_API_KEY=your-prod-key
-OPENAI_BASE_URL=https://prod-api.com/v1
-AGENT_MODEL_DEFAULT=qwen3.5-plus
+HANDOFF_ENABLED=true
+HANDOFF_AGENTS_JSON={"billing":{"description":"处理账单问题","instructions":"只处理账单问题。"}}
+```
 
-# 生产环境启用所有能力
-MEMORY_ENABLED=true
-REDIS_URL=redis://prod-redis:6379/0
-MEMORY_LONG_TERM_ENABLED=true
-MEMORY_ES_HOSTS=http://prod-es:9200
+- Checkpoint 当前仅保存进程内运行前/后摘要，不保存 SDK `RunState`，不能恢复中断任务。
+- Handoff 将静态配置的目标 Agent 传给 SDK 原生 `Agent.handoffs`；当前不配置专家专属工具。
+
+## 协议与观测能力
+
+```env
+AUTH_ENABLED=true
+AUTH_STRICT=true
+AUTH_JWT_SECRET=replace-with-long-secret
+
+RATE_LIMIT_ENABLED=true
+RATE_LIMIT_BACKEND=redis
+REDIS_ENABLED=true
+RATE_LIMIT_FAIL_OPEN=false
 
 LANGFUSE_ENABLED=true
-LANGFUSE_HOST=https://prod-langfuse.com
 LANGFUSE_PUBLIC_KEY=pk-xxx
 LANGFUSE_SECRET_KEY=sk-xxx
+LANGFUSE_BASE_URL=https://cloud.langfuse.com
 ```
 
-### 启用高级能力
+- Redis 限流后端要求 `REDIS_ENABLED=true`；后端失败默认返回 `503`，显式设置 `RATE_LIMIT_FAIL_OPEN=true` 才放行。
+- 所有 HTTP 请求都有 `X-Request-ID`；启用 Observability 后响应额外包含 `X-Trace-ID`。
 
-在 `src/api/routers/chat.py` 中:
-
-```python
-# 取消注释以下代码启用高级能力
-
-from src.capabilities.advanced_agents import (
-    HITLConfig,
-    CheckpointConfig,
-)
-
-_hitl_config = HITLConfig(
-    enabled=True,
-    require_approval_tools=["delete_data"],
-)
-
-_checkpoint_config = CheckpointConfig(
-    enabled=True,
-    max_checkpoints=10,
-)
-
-_orchestrator = AgentOrchestrator(
-    tool_registry=_tool_registry,
-    memory_store=_memory_store,
-    model_router=_model_router,
-    hitl_config=_hitl_config,
-    checkpoint_config=_checkpoint_config,
-)
-```
-
----
-
-## 常见问题
-
-### Q1: 如何添加自定义工具?
-
-```python
-from agents import function_tool
-from src.capabilities.tools.registry import ToolRegistry
-
-@function_tool
-def my_custom_tool(param1: str, param2: int) -> str:
-    """我的自定义工具"""
-    return f"结果: {param1}, {param2}"
-
-# 注册工具
-tool_registry = ToolRegistry()
-tool_registry.register(my_custom_tool)
-```
-
-### Q2: 如何切换模型?
-
-```python
-# 方式 1: 配置文件
-AGENT_MODEL_DEFAULT=qwen3.5-plus
-
-# 方式 2: 代码中指定
-from src.capabilities.model_routing.router import ModelRouter
-
-model_router = ModelRouter()
-model_router.register_model("complex", "gpt-4")
-model_router.register_model("simple", "qwen3.5-plus")
-```
-
-### Q3: 如何禁用某个能力?
-
-```python
-# 方式 1: 不传递配置 (推荐)
-orchestrator = AgentOrchestrator(
-    ...,
-    hitl_config=None,  # 不启用 HITL
-)
-
-# 方式 2: 配置中设置 enabled=False
-hitl_config = HITLConfig(enabled=False)
-```
-
-### Q4: API 限流怎么办?
-
-```python
-# 添加重试机制
-import asyncio
-from openai import RateLimitError
-
-async def call_with_retry(func, max_retries=3):
-    for attempt in range(max_retries):
-        try:
-            return await func()
-        except RateLimitError:
-            wait_time = 15 * (attempt + 1)
-            await asyncio.sleep(wait_time)
-    raise Exception("重试次数已用完")
-```
-
-### Q5: 如何查看日志?
+## 能力目录与生成前校验
 
 ```bash
-# 查看控制台日志
-# 启动时配置 LOG_LEVEL=DEBUG
-
-# 查看 Langfuse Dashboard
-open https://your-langfuse-host.com/traces
+curl http://localhost:8080/health/capability-catalog
+curl -X POST http://localhost:8080/health/capability-selection/validate \
+  -H 'Content-Type: application/json' \
+  -d '{"selected":["vector_search","hitl"]}'
 ```
 
----
+选择 `vector_search` 会自动解析 `long_term_memory`、`memory_manager` 与 `embedding_provider` 等内部要求，并报告 `database` 与 `embedding_api` 等外部资源。
 
-## 更多文档
+## 测试
 
-- 📖 [架构设计](../architecture/ARCHITECTURE_DESIGN.md) - Harness 架构与脚手架适配
-- 📖 [高级能力指南](../guides/ADVANCED_AGENTS_GUIDE.md) - HITL/Checkpoint/Handoff
-- 📖 [Orchestrator 使用指南](../guides/AGENT_ORCHESTRATOR_USAGE.md) - 运行时接入
-- 📖 [记忆系统](../guides/MEMORY_SYSTEM.md) - 短期/长期记忆
-- 📖 [可观测性](../guides/OBSERVABILITY_GUIDE.md) - Langfuse 集成
-- 📖 [模型弹性](../guides/MODEL_RESILIENCE_GUIDE.md) - 降级/重试/超时
-- 📖 [高级能力集成设计记录](../design-notes/ADVANCED_AGENTS_INTEGRATION.md) - 历史设计背景
+```bash
+make test
+make test-all
+```
 
----
+外部模型相关测试默认跳过；显式验证外部服务时设置 `RUN_EXTERNAL_TESTS=true`。
 
-## 🎓 下一步
+## 继续阅读
 
-1. **阅读架构文档** - 了解六层架构设计
-2. **运行测试** - 验证环境配置
-   ```bash
-   python tests/test_orchestrator_pluggable.py
-   ```
-3. **启动服务** - 体验 API
-   ```bash
-   uvicorn src.main:app --reload
-   ```
-4. **启用高级能力** - 根据业务需求配置
-5. **部署到生产** - 参考配置指南
-
----
-
-## 💡 支持
-
-- GitHub Issues: https://github.com/rnb-tron/openai-agent-sdk/issues
-- 邮箱: your-email@example.com
-
----
-
-**祝你使用愉快!** 🚀
+- [架构设计](../architecture/ARCHITECTURE_DESIGN.md)
+- [AgentOrchestrator 使用指南](../guides/AGENT_ORCHESTRATOR_USAGE.md)
+- [高级 Agent 能力](../guides/ADVANCED_AGENTS_GUIDE.md)
+- [Memory 系统](../guides/MEMORY_SYSTEM.md)
+- [模型弹性](../guides/MODEL_RESILIENCE_GUIDE.md)
+- [可观测性](../guides/OBSERVABILITY_GUIDE.md)

@@ -1,4 +1,4 @@
-"""MiddlewarePlugin protocol & shared types for the protocol layer."""
+"""ProtocolPlugin 协议与 HTTP 接入层共享类型。"""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from fastapi import FastAPI
 
 
 @runtime_checkable
-class MiddlewarePlugin(Protocol):
-    """Protocol-layer pluggable component.
+class ProtocolPlugin(Protocol):
+    """对外协议层可插拔组件。
 
     Each plugin owns its installation strategy (HTTP middleware / Depends /
     router-level), so the registry stays agnostic about FastAPI hook flavor.
@@ -36,3 +36,7 @@ class MiddlewarePlugin(Protocol):
     async def teardown(self) -> None:
         """Optional async resource cleanup (called inside lifespan shutdown)."""
         ...
+
+
+# 兼容旧导入；具体插件实现仍可使用 FastAPI middleware。
+MiddlewarePlugin = ProtocolPlugin

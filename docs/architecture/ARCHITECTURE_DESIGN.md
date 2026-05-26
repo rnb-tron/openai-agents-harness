@@ -1,6 +1,6 @@
 # 🏗️ Agent Harness 架构设计
 
-本文档描述当前仓库的实际架构。目标不是描述一个理想蓝图，而是说明当前代码如何支持企业级 Agent Harness、可插拔能力和未来脚手架生成。
+本文档描述当前仓库的实际架构。目标不是描述一个理想蓝图，而是说明当前代码如何构成可演进的 Agent Harness 底座、承载可插拔能力并为未来脚手架生成提供输入。
 
 > 状态：当前实现基准文档。架构判断与脚手架设计应优先以本文和代码为准。
 
@@ -21,30 +21,35 @@ Agent Harness 的目标是提供一个可复用的工程底座，让业务团队
 
 ```mermaid
 flowchart TD
-    A["API 层<br/>HTTP 路由 / 中间件 / Schemas"] --> B["Harness 装配层<br/>Builder / Context / Manifest"]
+    A["API 接入层<br/>App Factory / Routers / Protocol Plugins"] --> B["Harness 装配层<br/>Builder / Context / Manifest"]
     B --> C["运行时层<br/>AgentOrchestrator"]
     C --> D["Capability 层<br/>Memory / Prompt / Tools / Model Router / Compression"]
-    A --> E["协议能力<br/>Auth / RateLimit / Observability"]
-    D --> F["基础设施层<br/>DB / Redis / Kafka / HTTP Client"]
+    A --> E["协议能力<br/>Auth / RateLimit"]
+    A --> O["横切观测接入<br/>Observability HTTP Interceptor"]
+    D --> F["基础设施层<br/>DatabaseResource / Redis / Kafka / HTTP Client"]
 ```
 
-### API 层
+### API 接入层
 
 位置：`src/api`
 
 职责：
 
-- 暴露 HTTP API。
+- 通过 `create_app()` 暴露并装配 HTTP API。
 - 从 FastAPI app state 获取 `Harness`。
 - 不直接创建 `Runtime`，不直接判断能力组合。
-- 安装协议层中间件，例如 Auth、RateLimit、Observability。
+- 安装协议插件，例如 Auth、RateLimit，以及 Observability 提供的 HTTP 追踪入口。
+- 始终安装基础请求上下文，统一负责 Request ID 与日志关联。
 
 代表模块：
 
+- `src/api/app.py`
 - `src/api/routers/chat.py`
 - `src/api/routers/health.py`
 - `src/api/routers/memory.py`
 - `src/api/middleware/*`
+
+Auth 与 RateLimit 是协议治理能力。Observability 本体仍是横切资源能力；其 HTTP interceptor 与协议插件共享安装链路，仅因为需要观察 HTTP 请求，并不改变能力归属。
 
 ### Harness 装配层
 
@@ -108,6 +113,8 @@ flowchart TD
 职责：
 
 - 封装数据库、Redis、Kafka、HTTP Client 等基础设施。
+- 数据库由 Harness 持有单一 `DatabaseResource`，将同一连接池会话注入 Memory 等消费者。
+- 通用 HTTP Client 默认可使用但按需创建，超时与连接限制由配置覆盖。
 - 不感知业务 Agent。
 - 被 Harness 或 Capability 按需使用。
 
@@ -218,7 +225,7 @@ flowchart TD
 - `memory_session` 提供对话上下文，`context_compression` 在其后运行。
 - `prompt` 可以为主 Agent 和摘要策略提供模板，但关闭时使用内置兜底文本。
 - `auth` 和 `rate_limit` 属于协议层能力，不进入 Agent `RunContext` 主链路。
-- `observability` 同时管理中间件和 Langfuse/OpenTelemetry 生命周期。
+- `observability` 管理 Langfuse/OpenTelemetry 生命周期，并向 API 接入层提供 HTTP interceptor；它不属于鉴权或流量治理。
 
 ## 🧱 HarnessBuilder 装配策略
 
@@ -232,6 +239,7 @@ flowchart TD
 - 读取 Handoff 专家配置并将目标 Agent 挂载到 SDK 主 Agent。
 - 创建 `ModelRouter` 和模型弹性配置。
 - 创建 `MemoryStore`。
+- 按需创建一套共享 `DatabaseResource`，避免能力各自创建连接池。
 - 按需创建 `MemoryManager`。
 - 按需创建 `PromptManager`。
 - 注册 capability marker。
@@ -239,6 +247,10 @@ flowchart TD
 - 校验能力依赖。
 
 这种方式让 `Runtime` 不再依赖全局单例，也让脚手架生成器可以围绕 `Builder` 做模板裁剪。
+
+HTTP 接入部分由 `src/api/app.py` 和 `ProtocolPluginRegistry` 负责装配。`src/main.py` 仅保留 ASGI 导出，避免随着协议能力增多而不断承载配置判断。Request Context 始终位于请求链最外层，独占 `X-Request-ID`；Observability 读取该 ID 并输出 `X-Trace-ID`。
+
+当前 `CapabilityManifest` 是能力目录和选择校验的元数据来源，还不是完全动态的装配解释器。`HarnessBuilder` 与 `AgentOrchestrator` 仍显式创建或注册 Memory、Prompt、Compression、HITL、Checkpoint 与 Handoff；脚手架生成演进时仍需避免元数据和实际装配逻辑长期双重维护。
 
 ## 🧰 OpenAI Agents SDK 适配
 
@@ -267,6 +279,8 @@ flowchart TD
 `Checkpoint` 与 HITL 状态存储保持分离。当前 `CHECKPOINT_ENABLED=true` 只装配进程内 `CheckpointManager`；`CHECKPOINT_AUTO_SAVE=true` 时记录运行前/后的 `AgentState` 摘要。该能力用于运行回看与业务状态检查，不包含 SDK 序列化 `RunState`，因此不能替代 HITL 的持久化状态仓库。
 
 当 `HANDOFF_ENABLED=true` 时，`HANDOFF_AGENTS_JSON` 描述静态专家 Agent 的名称、描述与指令。`HarnessBuilder` 装配 `HandoffManager`，Runtime 使用与主 Agent 相同的当前模型构造专家目标并传入 SDK 原生 `handoffs`。本阶段不扩展专家专属工具和动态路由，以保持配置契约轻量。
+
+Memory 当前包含两层语义：基础 `memory_session` 使用进程内 `MemoryStore`；启用 `MEMORY_ENABLED=true` 并成功构建 `MemoryManager` 后，运行结果会写入关系记忆记录。`MEMORY_LONG_TERM_ENABLED=true` 当前主要控制向量后端、embedding 与语义检索，并非关系持久化的总开关。Redis 基础设施目前也未注入 Runtime 的短期会话记忆。
 
 ## 🏭 脚手架生成适配
 
@@ -315,11 +329,15 @@ flowchart LR
 - 可选择能力目录和依赖矩阵已可通过 `/health/capability-catalog` 读取。
 - 候选能力组合已可通过 `/health/capability-selection/validate` 做生成前校验。
 - Memory 长期关系存储支持 MySQL / PostgreSQL；`EmbeddingProvider` 接入写入与检索链路；向量后端可配置为 Elasticsearch 或 PostgreSQL pgvector。
+- Database 已收敛为 Harness 持有的共享连接池，并开放 pool 配置参数。
+- HTTP Client 支持可配置超时/连接限制并采用懒加载。
+- 协议插件 setup 失败会阻止启动；Redis 限流默认 fail-closed。
 - 测试已拆分为 `unit`、`integration`、`e2e`。
 - README 和文档索引已按当前实现更新。
 
 ## ⚠️ 后续演进重点
 
+- 为 `/chat` 会话标识与 `/memory/*` 管理接口补充认证主体/租户级资源授权，避免调用方仅凭 `session_id` 或 `user_id` 访问记忆。
 - 为 `EmbeddingProvider` 增加批量化、成本观测与替代供应商适配，并验证 ES / pgvector 的生产索引参数。
 - 为 HITL 增加服务端状态持久化、审批查询、审计和幂等控制。
 - 在能力选择校验结果上补充模板裁剪规则和配置字段生成映射。

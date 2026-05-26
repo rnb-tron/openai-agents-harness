@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from typing import Optional
 
-from src.api.middleware.rate_limit.base import RateLimitDecision, RateLimitKey, RateLimiter
+from src.api.middleware.rate_limit.base import RateLimitDecision, RateLimitError, RateLimitKey, RateLimiter
 from src.core.logging import setup_logger
 
 logger = setup_logger("api.middleware.rate_limit.redis")
@@ -71,11 +71,12 @@ class RedisRateLimiter(RateLimiter):
     before `init_redis()` runs in lifespan startup).
     """
 
-    def __init__(self, *, get_client=None) -> None:
+    def __init__(self, *, get_client=None, fail_open: bool = False) -> None:
         # `get_client` lets callers/tests inject a redis client factory.
         # When None, falls back to `src.infrastructure.redis_client.get_redis_client`.
         self._get_client = get_client
         self._script_sha: Optional[str] = None
+        self._fail_open = fail_open
 
     async def _client(self):
         if self._get_client is not None:
@@ -88,6 +89,14 @@ class RedisRateLimiter(RateLimiter):
         if self._script_sha is None:
             self._script_sha = await client.script_load(_LUA_TOKEN_BUCKET)
         return self._script_sha
+
+    async def setup(self) -> None:
+        """启动时验证 Redis 与 Lua 脚本，避免启用限流后静默失效。"""
+        client = await self._client()
+        if client is None:
+            raise RuntimeError("Redis rate limiting requires an initialized Redis client")
+        await client.ping()
+        await self._ensure_script(client)
 
     async def check(
         self,
@@ -104,12 +113,13 @@ class RedisRateLimiter(RateLimiter):
 
         client = await self._client()
         if client is None:
-            # Redis not initialized: degrade to allow but log loudly.
-            logger.warning(
-                "rate_limit_redis_unavailable_allow_through",
-                extra={"key": key.redis_key()},
-            )
-            return RateLimitDecision(allowed=True, remaining=burst, retry_after_sec=0, limit=limit)
+            if self._fail_open:
+                logger.warning(
+                    "rate_limit_redis_unavailable_allow_through",
+                    extra={"key": key.redis_key()},
+                )
+                return RateLimitDecision(allowed=True, remaining=burst, retry_after_sec=0, limit=limit)
+            raise RateLimitError("Redis rate limiting backend is unavailable")
 
         import time as _time
         now_ms = int(_time.time() * 1000)
@@ -135,16 +145,19 @@ class RedisRateLimiter(RateLimiter):
                     extra={"key": key.redis_key(), "error": str(e2)},
                     exc_info=True,
                 )
-                # Fail-open: allow but mark.
-                return RateLimitDecision(allowed=True, remaining=burst, retry_after_sec=0, limit=limit)
+                if self._fail_open:
+                    return RateLimitDecision(allowed=True, remaining=burst, retry_after_sec=0, limit=limit)
+                raise RateLimitError("Redis rate limiting backend failed") from e2
 
         # result is [allowed, remaining, retry_after]
         try:
             allowed_i = int(result[0])
             remaining_i = int(result[1])
             retry_after_i = int(result[2])
-        except (TypeError, ValueError, IndexError):  # pragma: no cover
-            return RateLimitDecision(allowed=True, remaining=burst, retry_after_sec=0, limit=limit)
+        except (TypeError, ValueError, IndexError) as exc:  # pragma: no cover
+            if self._fail_open:
+                return RateLimitDecision(allowed=True, remaining=burst, retry_after_sec=0, limit=limit)
+            raise RateLimitError("Redis rate limiting backend returned invalid data") from exc
 
         return RateLimitDecision(
             allowed=bool(allowed_i),

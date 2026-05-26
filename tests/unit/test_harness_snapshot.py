@@ -1,6 +1,10 @@
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
-from src.harness.builder import HarnessBuilder
+import pytest
+
+from src.capabilities.memory.store import MemoryStore
+from src.harness.builder import Harness, HarnessBuilder
 
 
 def _settings(**overrides):
@@ -127,3 +131,28 @@ def test_harness_builder_enables_native_handoff_targets():
     assert harness.runtime.handoff_mgr is not None
     assert "handoff" in names
     assert "agent_handoffs" in snapshot["provided"]
+
+
+@pytest.mark.asyncio
+async def test_harness_teardown_releases_resources_after_partial_startup():
+    memory_manager = AsyncMock()
+    database_resource = AsyncMock()
+    session = AsyncMock()
+    runtime = AsyncMock()
+    context = SimpleNamespace(get_resource=lambda name: None)
+    harness = Harness(
+        context=context,
+        runtime=runtime,
+        memory_store=MemoryStore(),
+        memory_manager=memory_manager,
+        database_resource=database_resource,
+        _memory_session=session,
+        _setup_done=False,
+    )
+
+    await harness.teardown()
+
+    runtime.teardown.assert_not_awaited()
+    memory_manager.close.assert_awaited_once()
+    session.close.assert_awaited_once()
+    database_resource.close.assert_awaited_once()

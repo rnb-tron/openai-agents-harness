@@ -35,6 +35,7 @@ class RateLimitPlugin:
         default_window_sec: int = 60,
         default_burst: int = 10,
         key_strategy: str = "principal_or_ip",
+        fail_open: bool = False,
         route_overrides: Optional[dict[str, dict[str, int]]] = None,
         skip_paths: Optional[list[str]] = None,
     ) -> None:
@@ -44,6 +45,7 @@ class RateLimitPlugin:
         self._default_window_sec = default_window_sec
         self._default_burst = default_burst
         self._key_strategy = key_strategy
+        self._fail_open = fail_open
         self._route_overrides = route_overrides or {}
         self._skip_paths = tuple(skip_paths) if skip_paths else _DEFAULT_SKIP_PATHS
 
@@ -57,7 +59,13 @@ class RateLimitPlugin:
         if backend_name == "memory":
             backend: RateLimiter = MemoryRateLimiter()
         else:
-            backend = RedisRateLimiter()
+            if not bool(getattr(settings, "redis_enabled", False)):
+                raise ValueError(
+                    "RATE_LIMIT_BACKEND=redis requires REDIS_ENABLED=true"
+                )
+            backend = RedisRateLimiter(
+                fail_open=bool(getattr(settings, "rate_limit_fail_open", False))
+            )
 
         # `rate_limit_routes` is stored as a JSON string for env-var friendliness.
         raw_routes = getattr(settings, "rate_limit_routes", "") or ""
@@ -91,6 +99,7 @@ class RateLimitPlugin:
             default_window_sec=int(getattr(settings, "rate_limit_default_window_sec", 60)),
             default_burst=int(getattr(settings, "rate_limit_default_burst", 10)),
             key_strategy=getattr(settings, "rate_limit_key_strategy", "principal_or_ip"),
+            fail_open=bool(getattr(settings, "rate_limit_fail_open", False)),
             route_overrides=route_overrides,
             skip_paths=list(getattr(settings, "rate_limit_skip_paths", _DEFAULT_SKIP_PATHS)),
         )
@@ -160,8 +169,15 @@ class RateLimitPlugin:
                     extra={"path": path, "error": str(e)},
                     exc_info=True,
                 )
-                # Fail-open
-                return await call_next(request)
+                if self._fail_open:
+                    return await call_next(request)
+                return JSONResponse(
+                    {
+                        "error": "rate_limit_unavailable",
+                        "message": "Rate limiting service unavailable",
+                    },
+                    status_code=503,
+                )
 
             if not decision.allowed:
                 logger.warning(
