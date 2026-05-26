@@ -13,7 +13,7 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-from agents import Agent, AsyncOpenAI, OpenAIChatCompletionsModel, Runner, set_tracing_disabled
+from agents import Agent, AsyncOpenAI, OpenAIChatCompletionsModel, Runner, RunState, set_tracing_disabled
 
 from src.capabilities.memory.capability import (
     LongTermMemoryCapability,
@@ -37,6 +37,7 @@ try:
         ApprovalManager,
         CheckpointCapability,
         CheckpointManager,
+        HandoffCapability,
         HandoffConfig,
         HandoffManager,
         HITLCapability,
@@ -49,6 +50,7 @@ except ImportError:
     ApprovalManager = None
     CheckpointManager = None
     HandoffManager = None
+    HandoffCapability = None
     CheckpointCapability = None
     HITLCapability = None
     HITLConfig = None
@@ -71,7 +73,7 @@ class AgentOrchestrator:
     可插拔能力:
     - Memory (短期 + 可选长期, 始终注册, 由 ``MemoryCapability`` 内部判断)
     - HITL / Checkpoint (可选, 仅在传入对应 config 时注册)
-    - Handoff (当前不参与主流程钩子, 仅暴露 manager 供业务直接调用)
+    - Handoff (可选, 启用后通过 SDK 原生 ``Agent.handoffs`` 执行)
     """
 
     def __init__(
@@ -116,7 +118,11 @@ class AgentOrchestrator:
         self.registry.register(LongTermMemoryCapability(enabled=long_term_enabled))
         self.registry.register(
             VectorSearchCapability(
-                enabled=long_term_enabled and getattr(memory_manager, "vector_store", None) is not None
+                enabled=(
+                    long_term_enabled
+                    and getattr(memory_manager, "vector_store", None) is not None
+                    and getattr(memory_manager, "embedding_provider", None) is not None
+                )
             )
         )
 
@@ -162,9 +168,13 @@ class AgentOrchestrator:
             ):
                 self.checkpoint_mgr = CheckpointManager(checkpoint_config)
                 self.registry.register(CheckpointCapability(self.checkpoint_mgr))
-            # Handoff 不参与 BEFORE/AFTER_RUN 钩子, 直接暴露给上层使用
-            if handoff_config is not None and HandoffManager is not None:
+            if (
+                handoff_config is not None
+                and HandoffManager is not None
+                and HandoffCapability is not None
+            ):
                 self.handoff_mgr = HandoffManager(handoff_config)
+                self.registry.register(HandoffCapability(self.handoff_mgr))
 
     async def setup(self) -> None:
         """供应用启动期调用, 触发所有能力的 setup"""
@@ -197,18 +207,249 @@ class AgentOrchestrator:
         # 触发 BEFORE_RUN: 让所有 capabilities 注入上下文 (memory / checkpoint pre-save)
         await self.registry.dispatch(RunPhase.BEFORE_RUN, ctx)
 
-        # 构造 OpenAI Agents SDK 客户端与 Agent
+        client = self._create_openai_client()
+        instructions = await self._resolve_instructions(task_type, ctx)
+
+        async def run_with_model(model: str):
+            agent = self._build_agent(model=model, client=client, instructions=instructions)
+            return Runner.run(starting_agent=agent, input=ctx.enriched_input)
+
+        # 执行 Agent 调用; 失败触发 ON_ERROR 后向上抛
+        try:
+            run_result = await self.model_router.run_with_resilience(
+                run_with_model,
+                task_type=task_type,
+            )
+        except Exception as e:
+            await self.registry.dispatch(RunPhase.ON_ERROR, ctx, error=e)
+            raise
+
+        if self.model_router.last_metrics and self.model_router.last_metrics.success_model:
+            selected_model = self.model_router.last_metrics.success_model
+            ctx.selected_model = selected_model
+
+        interruptions = list(getattr(run_result, "interruptions", []) or [])
+        if interruptions:
+            run_state = run_result.to_state().to_json()
+            approval_requests = []
+            if self.hitl_mgr is not None:
+                run_state, requests = await self.hitl_mgr.request_approvals_from_result(
+                    run_result,
+                    session_id=ctx.session_id,
+                    user_id=ctx.user_id or "anonymous",
+                )
+                approval_requests = [request.to_dict() for request in requests]
+            else:
+                approval_requests = [
+                    {
+                        "tool_name": getattr(item, "qualified_name", None)
+                        or getattr(item, "name", None)
+                        or "unknown",
+                        "arguments": getattr(item, "arguments", None),
+                        "call_id": getattr(item, "call_id", None),
+                        "sdk_interruption_index": index,
+                    }
+                    for index, item in enumerate(interruptions)
+                ]
+
+            ctx.metadata["hitl"] = {
+                "interrupted": True,
+                "approval_requests": approval_requests,
+            }
+            return {
+                "session_id": session.session_id,
+                "input": user_input,
+                "output": None,
+                "model": selected_model,
+                "tool_calls": [],
+                "memory_size": len(self.memory_store.get(session.session_id)),
+                "interrupted": True,
+                "interruptions": approval_requests,
+                "run_state": run_state,
+            }
+
+        ctx.final_output = str(run_result.final_output)
+        ctx.tool_calls = parse_tool_calls_from_result(run_result)
+
+        # 触发 AFTER_RUN: 让所有 capabilities 持久化 (memory write / checkpoint post-save)
+        await self.registry.dispatch(RunPhase.AFTER_RUN, ctx)
+
+        session.context["last_model"] = selected_model
+
+        return {
+            "session_id": session.session_id,
+            "input": user_input,
+            "output": ctx.final_output,
+            "model": selected_model,
+            "tool_calls": ctx.tool_calls,
+            "memory_size": len(self.memory_store.get(session.session_id)),
+        }
+
+    async def resume_with_approval(
+        self,
+        session: AgentSession,
+        *,
+        run_state: dict[str, Any],
+        interruption_index: int,
+        approved: bool,
+        approval_request_id: str | None = None,
+        reviewer: str = "anonymous",
+        model: str | None = None,
+        user_input: str = "",
+        always: bool = False,
+        rejection_message: str | None = None,
+    ) -> dict[str, Any]:
+        """Resume an OpenAI Agents SDK interrupted run after a human decision."""
+        if not self.settings.openai_api_key:
+            raise RuntimeError("OPENAI_API_KEY is required for /chat endpoint")
+
+        task_type = self.model_router.infer_task_type(user_input) if user_input else None
+        selected_model = model or self.model_router.select(task_type=task_type)
+        ctx = RunContext(
+            session_id=session.session_id,
+            user_id=session.user_id,
+            user_input=user_input,
+            enriched_input=user_input,
+            selected_model=selected_model,
+        )
+        client = self._create_openai_client()
+        instructions = await self._resolve_instructions(task_type, ctx)
+        agent = self._build_agent(
+            model=selected_model,
+            client=client,
+            instructions=instructions,
+        )
+        sdk_state = await RunState.from_json(agent, run_state)
+        if self.hitl_mgr is not None:
+            if not approval_request_id:
+                raise ValueError("HITL 已启用，恢复请求必须包含 approval_request_id")
+            await self.hitl_mgr.review_sdk_approval(
+                request_id=approval_request_id,
+                session_id=session.session_id,
+                interruption_index=interruption_index,
+                run_state=run_state,
+                approved=approved,
+                reviewer=reviewer,
+                comment=rejection_message or "",
+            )
+            self.hitl_mgr.apply_approval_to_state(
+                sdk_state,
+                interruption_index=interruption_index,
+                approved=approved,
+                always=always,
+                rejection_message=rejection_message,
+            )
+        else:
+            interruptions = sdk_state.get_interruptions()
+            if interruption_index < 0 or interruption_index >= len(interruptions):
+                raise ValueError(f"审批中断不存在: {interruption_index}")
+            interruption = interruptions[interruption_index]
+            if approved:
+                sdk_state.approve(interruption, always_approve=always)
+            else:
+                sdk_state.reject(
+                    interruption,
+                    always_reject=always,
+                    rejection_message=rejection_message,
+                )
+
+        try:
+            run_result = await Runner.run(starting_agent=agent, input=sdk_state)
+        except Exception as e:
+            await self.registry.dispatch(RunPhase.ON_ERROR, ctx, error=e)
+            raise
+
+        interruptions = list(getattr(run_result, "interruptions", []) or [])
+        if interruptions:
+            next_state = run_result.to_state().to_json()
+            approval_requests = []
+            if self.hitl_mgr is not None:
+                next_state, requests = await self.hitl_mgr.request_approvals_from_result(
+                    run_result,
+                    session_id=ctx.session_id,
+                    user_id=ctx.user_id or "anonymous",
+                )
+                approval_requests = [request.to_dict() for request in requests]
+            else:
+                approval_requests = [
+                    {
+                        "tool_name": getattr(item, "qualified_name", None)
+                        or getattr(item, "name", None)
+                        or "unknown",
+                        "arguments": getattr(item, "arguments", None),
+                        "call_id": getattr(item, "call_id", None),
+                        "sdk_interruption_index": index,
+                    }
+                    for index, item in enumerate(interruptions)
+                ]
+            ctx.metadata["hitl"] = {
+                "interrupted": True,
+                "approval_requests": approval_requests,
+            }
+            return {
+                "session_id": session.session_id,
+                "input": user_input,
+                "output": None,
+                "model": selected_model,
+                "tool_calls": [],
+                "memory_size": len(self.memory_store.get(session.session_id)),
+                "interrupted": True,
+                "interruptions": approval_requests,
+                "run_state": next_state,
+            }
+
+        ctx.final_output = str(run_result.final_output)
+        ctx.tool_calls = parse_tool_calls_from_result(run_result)
+        await self.registry.dispatch(RunPhase.AFTER_RUN, ctx)
+        session.context["last_model"] = selected_model
+
+        return {
+            "session_id": session.session_id,
+            "input": user_input,
+            "output": ctx.final_output,
+            "model": selected_model,
+            "tool_calls": ctx.tool_calls,
+            "memory_size": len(self.memory_store.get(session.session_id)),
+            "interrupted": False,
+        }
+
+    def _create_openai_client(self) -> AsyncOpenAI:
         client_kwargs: dict[str, Any] = {"api_key": self.settings.openai_api_key}
         if self.settings.openai_base_url:
             client_kwargs["base_url"] = self.settings.openai_base_url
-        client = AsyncOpenAI(**client_kwargs)
+        return AsyncOpenAI(**client_kwargs)
 
-        # 默认 instructions: 与历史硬编码语义保持一致 (作为 prompt 失败时的兜底)
-        instructions = (
+    def _build_agent(
+        self,
+        *,
+        model: str,
+        client: AsyncOpenAI,
+        instructions: str,
+    ) -> Agent:
+        sdk_model = OpenAIChatCompletionsModel(model=model, openai_client=client)
+        handoffs = []
+        if self.handoff_mgr is not None:
+            handoffs = self.handoff_mgr.build_configured_handoffs(sdk_model)
+            if handoffs:
+                from agents.extensions.handoff_prompt import prompt_with_handoff_instructions
+
+                instructions = prompt_with_handoff_instructions(instructions)
+        return Agent(
+            name="MinimalChatAgent",
+            instructions=instructions,
+            model=sdk_model,
+            tools=self.tool_registry.list_agent_tools(),
+            handoffs=handoffs,
+        )
+
+    def _default_instructions(self) -> str:
+        return (
             "You are a concise assistant. Use tools when useful. "
             "If a tool is used, include the final user-facing conclusion in plain text."
         )
-        # prompt_enabled 时, 从注入的 PromptManager 取 prompt; 失败走兜底
+
+    async def _resolve_instructions(self, task_type: str, ctx: RunContext) -> str:
+        instructions = self._default_instructions()
         if self.settings.prompt_enabled and self.prompt_manager is not None:
             try:
                 rendered = await self.prompt_manager.get(
@@ -229,42 +470,4 @@ class AgentOrchestrator:
                 )
                 if not self.settings.prompt_fail_open:
                     raise
-
-        async def run_with_model(model: str):
-            agent = Agent(
-                name="MinimalChatAgent",
-                instructions=instructions,
-                model=OpenAIChatCompletionsModel(model=model, openai_client=client),
-                tools=self.tool_registry.list_agent_tools(),
-            )
-            return Runner.run(starting_agent=agent, input=ctx.enriched_input)
-
-        # 执行 Agent 调用; 失败触发 ON_ERROR 后向上抛
-        try:
-            run_result = await self.model_router.run_with_resilience(
-                run_with_model,
-                task_type=task_type,
-            )
-        except Exception as e:
-            await self.registry.dispatch(RunPhase.ON_ERROR, ctx, error=e)
-            raise
-
-        if self.model_router.last_metrics and self.model_router.last_metrics.success_model:
-            selected_model = self.model_router.last_metrics.success_model
-            ctx.selected_model = selected_model
-        ctx.final_output = str(run_result.final_output)
-        ctx.tool_calls = parse_tool_calls_from_result(run_result)
-
-        # 触发 AFTER_RUN: 让所有 capabilities 持久化 (memory write / checkpoint post-save / hitl 审批)
-        await self.registry.dispatch(RunPhase.AFTER_RUN, ctx)
-
-        session.context["last_model"] = selected_model
-
-        return {
-            "session_id": session.session_id,
-            "input": user_input,
-            "output": ctx.final_output,
-            "model": selected_model,
-            "tool_calls": ctx.tool_calls,
-            "memory_size": len(self.memory_store.get(session.session_id)),
-        }
+        return instructions

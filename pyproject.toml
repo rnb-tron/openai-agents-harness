@@ -20,6 +20,7 @@ dependencies = [
     "sqlalchemy>=2.0.0",
     "aiosqlite>=0.20.0",
     "aiomysql>=0.2.0",
+    "asyncpg>=0.29.0",
     "redis>=5.0.0",
     "elasticsearch>=9.0.0",
     "aiokafka>=0.12.0",

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from src.api.middleware.capabilities import AuthCapability, RateLimitCapability
 from src.application.orchestration.agent_runtime import AgentOrchestrator
+from src.capabilities.advanced_agents import CheckpointConfig, HandoffConfig, HITLConfig
 from src.capabilities.memory.manager import MemoryManager
 from src.capabilities.memory.store import MemoryStore
 from src.capabilities.model_routing.capabilities import (
@@ -100,6 +101,14 @@ class HarnessBuilder:
     def build(self) -> Harness:
         tool_registry = ToolRegistry()
         tool_registry.register_defaults()
+        hitl_config = HITLConfig.from_settings(self.settings)
+        checkpoint_config = CheckpointConfig.from_settings(self.settings)
+        handoff_config = HandoffConfig.from_settings(self.settings)
+        if hitl_config.enabled:
+            tool_registry.configure_approval_policy(
+                require_approval=hitl_config.require_approval_tools,
+                auto_approve=hitl_config.auto_approve_tools,
+            )
 
         resilience_config = ResilienceConfig.from_env()
         model_router = ModelRouter(
@@ -135,6 +144,10 @@ class HarnessBuilder:
         memory_manager, memory_engine, memory_session = self._build_memory_manager()
         if memory_manager is not None:
             context.set_resource("memory_manager", memory_manager)
+            if memory_manager.embedding_provider is not None:
+                context.set_resource(
+                    "embedding_provider", memory_manager.embedding_provider
+                )
         prompt_manager = self._build_prompt_manager()
         if prompt_manager is not None:
             context.set_resource("prompt_manager", prompt_manager)
@@ -148,6 +161,9 @@ class HarnessBuilder:
             settings=self.settings,
             capability_registry=capability_registry,
             tracing_disabled=self.config.runtime.tracing_disabled,
+            hitl_config=hitl_config if hitl_config.enabled else None,
+            checkpoint_config=checkpoint_config if checkpoint_config.enabled else None,
+            handoff_config=handoff_config if handoff_config.enabled else None,
         )
         context.validate_dependencies()
 

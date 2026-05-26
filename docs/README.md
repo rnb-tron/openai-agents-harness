@@ -1,78 +1,73 @@
 # 📚 Agent Harness 文档索引
 
-这里是 `openai-agent-sdk` 的文档入口。建议优先阅读“当前状态文档”，历史方案类文档用于理解演进过程，不代表全部都是最终实现。
+本文档是 `openai-agent-sdk` 的唯一文档入口。请优先阅读“当前实现”类文档；`design-notes/` 与 `archive/` 用于保留决策背景和阶段记录，不作为当前行为依据。
 
 ## 🚀 快速入口
 
-| 文档 | 用途 | 建议阅读对象 |
+| 文档 | 用途 | 读者 |
 | --- | --- | --- |
-| [README](../README.md) | 项目总览、架构、运行和测试 | 所有人 |
-| [项目文档导航](./PROJECT_DOCUMENTATION.md) | 全部文档分组索引 | 所有人 |
-| [快速入门](./QUICKSTART.md) | 本地启动和基本使用 | 新接入同学 |
-| [架构设计](./ARCHITECTURE_DESIGN.md) | 当前 Harness 架构和能力边界 | 架构、平台、核心研发 |
+| [项目 README](../README.md) | 项目定位、能力概览、运行命令 | 所有人 |
+| [快速入门](./getting-started/QUICKSTART.md) | 安装、启动与基本调用 | 业务研发 |
+| [架构设计](./architecture/ARCHITECTURE_DESIGN.md) | Harness 分层、能力目录、组合校验与脚手架适配 | 架构与平台研发 |
+| [示例索引](../examples/README.md) | 示例运行条件与推荐接入路径 | 业务研发 |
 
-## 🏗️ 当前架构与核心模块
+## 🏗️ 当前实现文档
 
 | 文档 | 内容 |
 | --- | --- |
-| [架构设计](./ARCHITECTURE_DESIGN.md) | 分层设计、Harness 装配、Capability 抽象、脚手架生成适配 |
-| [AgentOrchestrator 使用指南](./AGENT_ORCHESTRATOR_USAGE.md) | Agent 运行时入口和使用方式 |
-| [Memory 系统](./MEMORY_SYSTEM.md) | 短期记忆、长期记忆、向量检索相关说明 |
-| [模型弹性指南](./MODEL_RESILIENCE_GUIDE.md) | 模型降级、重试、超时 |
-| [可观测性指南](./OBSERVABILITY_GUIDE.md) | Langfuse / OpenTelemetry 接入 |
+| [架构设计](./architecture/ARCHITECTURE_DESIGN.md) | Runtime、Capability、OpenAI Agents SDK 接入、脚手架生成前校验 |
+| [AgentOrchestrator 使用指南](./guides/AGENT_ORCHESTRATOR_USAGE.md) | 运行时入口与能力装配 |
+| [高级 Agent 能力指南](./guides/ADVANCED_AGENTS_GUIDE.md) | HITL、Checkpoint、Handoff 能力说明 |
+| [Memory 系统](./guides/MEMORY_SYSTEM.md) | 会话记忆、长期记忆与向量检索现状 |
+| [模型弹性指南](./guides/MODEL_RESILIENCE_GUIDE.md) | 路由、降级、重试、超时 |
+| [可观测性指南](./guides/OBSERVABILITY_GUIDE.md) | Langfuse 与 OpenTelemetry |
+| [结构化日志指南](./guides/SIMPLE_LOGGING_GUIDE.md) | 日志字段与使用方式 |
 
-## 🧩 能力方案文档
+## 🧩 设计记录
 
-| 文档 | 内容 | 状态 |
-| --- | --- | --- |
-| [Prompt 管理方案](./PROMPT_MANAGEMENT_PLAN.md) | PromptManager、Store、缓存和兜底策略 | 方案 + 部分实现 |
-| [上下文压缩方案](./CONTEXT_COMPRESSION_PLAN.md) | token budget、rolling summary、hybrid 策略 | 方案 + 已接入 |
-| [Auth / RateLimit 方案](./AUTH_RATE_LIMIT_PLAN.md) | 协议层插件和安全控制 | 方案 + 已接入 |
-| [Langfuse 集成方案](./LANGFUSE_INTEGRATION_PLAN.md) | 可观测性方案设计 | 方案 + 已接入 |
-| [模型降级重试超时方案](./MODEL_FALLBACK_RETRY_TIMEOUT_PLAN.md) | 模型弹性设计 | 方案 + 部分实现 |
-| [结构化日志方案](./STRUCTURED_LOGGING_PLAN.md) | 日志结构、脱敏、上下文关联 | 方案 + 已接入 |
+以下文件记录能力演进过程，可能包含早于当前实现的方案细节。
 
-## 🧪 高级 Agent 能力
-
-| 文档 | 内容 | 状态 |
-| --- | --- | --- |
-| [高级能力指南](./ADVANCED_AGENTS_GUIDE.md) | HITL、Checkpoint、Handoff 使用说明 | 实验中 |
-| [高级能力集成](./ADVANCED_AGENTS_INTEGRATION.md) | 高级能力接入细节 | 实验中 |
-
-## 📊 报告与历史记录
-
-| 文档 | 内容 |
+| 文档 | 主题 |
 | --- | --- |
-| [Memory 系统测试报告](./reports/MEMORY_SYSTEM_TEST_REPORT.md) | Memory 测试记录 |
-| [迁移报告](./reports/MIGRATION_REPORT.md) | 历史目录迁移记录 |
-| [安全审计报告](./reports/SECURITY_AUDIT_REPORT.md) | 安全检查记录 |
-| [文档总结](./DOCUMENTATION_SUMMARY.md) | 历史文档整理记录 |
+| [高级能力集成记录](./design-notes/ADVANCED_AGENTS_INTEGRATION.md) | HITL、Checkpoint、Handoff 早期接入设计 |
+| [Auth 与 RateLimit 方案](./design-notes/AUTH_RATE_LIMIT_PLAN.md) | 协议层安全和限流 |
+| [上下文压缩方案](./design-notes/CONTEXT_COMPRESSION_PLAN.md) | 压缩策略设计 |
+| [Prompt 管理方案](./design-notes/PROMPT_MANAGEMENT_PLAN.md) | Prompt Store 与缓存策略 |
+| [Langfuse 集成方案](./design-notes/LANGFUSE_INTEGRATION_PLAN.md) | 可观测方案设计 |
+| [模型弹性方案](./design-notes/MODEL_FALLBACK_RETRY_TIMEOUT_PLAN.md) | fallback、retry、timeout 设计 |
+| [结构化日志方案](./design-notes/STRUCTURED_LOGGING_PLAN.md) | 日志与脱敏设计 |
+
+## 🗄️ 归档记录
+
+| 文档 | 说明 |
+| --- | --- |
+| [Memory 系统测试报告](./archive/reports/MEMORY_SYSTEM_TEST_REPORT.md) | 阶段性测试记录 |
+| [目录迁移报告](./archive/reports/MIGRATION_REPORT.md) | `app/` 迁移至 `src/` 的历史记录 |
+| [安全审查报告](./archive/reports/SECURITY_AUDIT_REPORT.md) | 阶段性审查记录 |
 
 ## 🧭 推荐阅读路径
 
-### 新接入研发
+### 业务 Agent 研发
 
-1. [README](../README.md)
-2. [快速入门](./QUICKSTART.md)
-3. [AgentOrchestrator 使用指南](./AGENT_ORCHESTRATOR_USAGE.md)
+1. [项目 README](../README.md)
+2. [快速入门](./getting-started/QUICKSTART.md)
+3. [示例索引](../examples/README.md)
+4. [AgentOrchestrator 使用指南](./guides/AGENT_ORCHESTRATOR_USAGE.md)
 
-### 平台/脚手架研发
+### 平台与脚手架研发
 
-1. [架构设计](./ARCHITECTURE_DESIGN.md)
-2. [项目文档导航](./PROJECT_DOCUMENTATION.md)
-3. [Prompt 管理方案](./PROMPT_MANAGEMENT_PLAN.md)
-4. [Auth / RateLimit 方案](./AUTH_RATE_LIMIT_PLAN.md)
+1. [架构设计](./architecture/ARCHITECTURE_DESIGN.md)
+2. [高级 Agent 能力指南](./guides/ADVANCED_AGENTS_GUIDE.md)
+3. 相关 [设计记录](./design-notes/)
 
-### 生产化能力研发
+### 能力维护研发
 
-1. [Memory 系统](./MEMORY_SYSTEM.md)
-2. [模型弹性指南](./MODEL_RESILIENCE_GUIDE.md)
-3. [可观测性指南](./OBSERVABILITY_GUIDE.md)
-4. [结构化日志方案](./STRUCTURED_LOGGING_PLAN.md)
+1. 对应 `guides/` 使用指南
+2. 对应 `design-notes/` 设计记录
+3. `src/capabilities/` 与 `tests/` 中的实际实现和验证
 
-## ⚠️ 文档状态说明
+## ⚠️ 状态约定
 
-- “指南”类文档用于使用当前实现。
-- “方案”类文档包含设计过程，部分内容可能早于当前实现。
-- “报告”类文档用于保留历史测试、审计和迁移记录。
-- 如 README 与历史方案文档不一致，以 README 和当前代码为准。
+- `architecture/`、`getting-started/`、`guides/` 描述当前可使用能力，仍以代码和测试为最终依据。
+- `design-notes/` 保存设计过程，不保证示例与当前 API 完全一致。
+- `archive/` 保存历史记录，不应作为当前测试结论或发布审查结论。

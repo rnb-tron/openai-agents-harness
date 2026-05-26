@@ -9,6 +9,10 @@ from src.capabilities.model_routing.router import ModelRouter
 from src.capabilities.plugin import CapabilityRegistry
 from src.capabilities.tools.registry import ToolRegistry
 from src.core.config import Settings
+from src.harness.catalog import (
+    available_capability_manifests,
+    validate_capability_selection,
+)
 from src.harness.config import HarnessConfig
 from src.harness.manifest import CapabilityManifest
 
@@ -70,6 +74,63 @@ class HarnessContext:
             "provided": sorted(self.provided_names(enabled_only=True)),
             "missing_dependencies": self.missing_dependencies(enabled_only=True),
         }
+
+    def capability_catalog(self) -> dict[str, Any]:
+        """Return all available capability metadata for scaffold selection."""
+        assembled = {cap.manifest.name: cap for cap in self.capability_registry.all}
+        enabled = {cap.manifest.name for cap in self.capability_registry.enabled}
+        enabled.update(
+            name
+            for name in ("tool_registry", "memory_manager", "embedding_provider")
+            if name in self.provides or name in self.resources
+        )
+        manifests = available_capability_manifests()
+
+        capabilities = [
+            {
+                "name": manifest.name,
+                "kind": manifest.kind.value,
+                "config_section": manifest.config_section,
+                "depends_on": list(manifest.depends_on),
+                "provides": list(manifest.provides),
+                "install_order": manifest.install_order,
+                "tags": list(manifest.tags),
+                "selectable": "builder_resource" not in manifest.tags,
+                "assembled": (
+                    manifest.name in assembled
+                    or manifest.name in self.provides
+                    or manifest.name in self.resources
+                ),
+                "enabled": manifest.name in enabled,
+            }
+            for manifest in manifests
+        ]
+        providers: dict[str, set[str]] = {}
+        for manifest in manifests:
+            for provided in (manifest.name, *manifest.provides):
+                providers.setdefault(provided, set()).add(manifest.name)
+
+        dependencies = [
+            {
+                "capability": manifest.name,
+                "requires": dependency,
+                "provider_capabilities": sorted(providers.get(dependency, set())),
+                "external_resource": dependency not in providers,
+            }
+            for manifest in manifests
+            for dependency in manifest.depends_on
+        ]
+        return {
+            "version": 1,
+            "capabilities": capabilities,
+            "dependencies": dependencies,
+            "current_selection": sorted(enabled),
+            "missing_dependencies": self.missing_dependencies(enabled_only=True),
+        }
+
+    def validate_capability_selection(self, selected: list[str]) -> dict[str, object]:
+        """Validate a prospective scaffold selection against known metadata."""
+        return validate_capability_selection(selected)
 
     def provided_names(self, *, enabled_only: bool = True) -> set[str]:
         provided = set(self.provides)

@@ -1,5 +1,6 @@
+import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
@@ -17,6 +18,15 @@ def _load_env_file() -> str:
 
 def _split_csv(raw: str) -> list[str]:
     return [s.strip() for s in raw.split(",") if s.strip()]
+
+
+def _load_json_object(raw: str, name: str) -> dict[str, dict]:
+    if not raw.strip():
+        return {}
+    value = json.loads(raw)
+    if not isinstance(value, dict):
+        raise ValueError(f"{name} must be a JSON object")
+    return value
 
 
 @dataclass
@@ -48,6 +58,10 @@ class Settings:
     memory_long_term_enabled: bool
     memory_es_hosts: str
     memory_es_index: str
+    memory_vector_backend: str
+    memory_pgvector_table: str
+    memory_embedding_provider: str
+    memory_embedding_model: str
     memory_vector_dimension: int
     memory_max_context_turns: int
     memory_retrieval_top_k: int
@@ -56,6 +70,21 @@ class Settings:
     
     # Observability System Configuration
     observability_enabled: bool
+
+    # Human-in-the-Loop (SDK native tool approval)
+    hitl_enabled: bool = False
+    hitl_approval_timeout: float = 300.0
+    hitl_require_approval_tools: list[str] = field(default_factory=list)
+    hitl_auto_approve_tools: list[str] = field(default_factory=list)
+
+    # In-process execution checkpoint snapshots
+    checkpoint_enabled: bool = False
+    checkpoint_max_checkpoints: int = 10
+    checkpoint_auto_save: bool = True
+
+    # OpenAI Agents SDK native handoffs
+    handoff_enabled: bool = False
+    handoff_agents: dict[str, dict] = field(default_factory=dict)
 
     # Protocol-layer security (default disabled, zero overhead when off)
     auth_enabled: bool = False
@@ -131,6 +160,12 @@ def get_settings() -> Settings:
         memory_long_term_enabled=os.getenv("MEMORY_LONG_TERM_ENABLED", "false").lower() == "true",
         memory_es_hosts=os.getenv("MEMORY_ES_HOSTS", "http://localhost:9200"),
         memory_es_index=os.getenv("MEMORY_ES_INDEX", "agent_memories"),
+        memory_vector_backend=os.getenv("MEMORY_VECTOR_BACKEND", "none"),
+        memory_pgvector_table=os.getenv("MEMORY_PGVECTOR_TABLE", "memory_vectors"),
+        memory_embedding_provider=os.getenv("MEMORY_EMBEDDING_PROVIDER", "none"),
+        memory_embedding_model=os.getenv(
+            "MEMORY_EMBEDDING_MODEL", "text-embedding-3-small"
+        ),
         memory_vector_dimension=int(os.getenv("MEMORY_VECTOR_DIMENSION", "1536")),
         memory_max_context_turns=int(os.getenv("MEMORY_MAX_CONTEXT_TURNS", "6")),
         memory_retrieval_top_k=int(os.getenv("MEMORY_RETRIEVAL_TOP_K", "3")),
@@ -138,6 +173,18 @@ def get_settings() -> Settings:
         memory_forgetting_enabled=os.getenv("MEMORY_FORGETTING_ENABLED", "true").lower() == "true",
         # Observability Configuration
         observability_enabled=os.getenv("LANGFUSE_ENABLED", "false").lower() == "true",
+        # Human-in-the-Loop
+        hitl_enabled=os.getenv("HITL_ENABLED", "false").lower() == "true",
+        hitl_approval_timeout=float(os.getenv("HITL_APPROVAL_TIMEOUT", "300")),
+        hitl_require_approval_tools=_split_csv(os.getenv("HITL_REQUIRE_APPROVAL_TOOLS", "")),
+        hitl_auto_approve_tools=_split_csv(os.getenv("HITL_AUTO_APPROVE_TOOLS", "")),
+        # Execution Checkpoints
+        checkpoint_enabled=os.getenv("CHECKPOINT_ENABLED", "false").lower() == "true",
+        checkpoint_max_checkpoints=int(os.getenv("CHECKPOINT_MAX_CHECKPOINTS", "10")),
+        checkpoint_auto_save=os.getenv("CHECKPOINT_AUTO_SAVE", "true").lower() == "true",
+        # Native Handoffs
+        handoff_enabled=os.getenv("HANDOFF_ENABLED", "false").lower() == "true",
+        handoff_agents=_load_json_object(os.getenv("HANDOFF_AGENTS_JSON", ""), "HANDOFF_AGENTS_JSON"),
         # Protocol-layer Auth
         auth_enabled=os.getenv("AUTH_ENABLED", "false").lower() == "true",
         auth_strict=os.getenv("AUTH_STRICT", "false").lower() == "true",

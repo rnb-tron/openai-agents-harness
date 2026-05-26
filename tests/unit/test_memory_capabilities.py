@@ -32,6 +32,7 @@ def test_memory_session_manifest_is_separate_from_long_term_memory():
     assert cap.manifest.name == "memory_session"
     assert "conversation_context" in cap.manifest.provides
     assert cap.manifest.depends_on == ()
+    assert "required" in cap.manifest.tags
 
 
 def test_memory_marker_capabilities_express_dependencies():
@@ -39,8 +40,8 @@ def test_memory_marker_capabilities_express_dependencies():
     vector = VectorSearchCapability(enabled=True)
 
     assert long_term.manifest.depends_on == ("database", "memory_manager")
-    assert vector.manifest.depends_on == ("long_term_memory",)
-    assert "partial" in vector.manifest.tags
+    assert vector.manifest.depends_on == ("long_term_memory", "embedding_provider")
+    assert "partial" not in vector.manifest.tags
 
 
 def test_orchestrator_registers_only_memory_session_when_manager_absent():

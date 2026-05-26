@@ -9,6 +9,9 @@ def test_harness_config_projects_capability_switches():
         memory_enabled=True,
         compression_enabled=False,
         prompt_enabled=True,
+        hitl_enabled=True,
+        checkpoint_enabled=True,
+        handoff_enabled=True,
         auth_enabled=False,
         rate_limit_enabled=True,
     )
@@ -19,5 +22,8 @@ def test_harness_config_projects_capability_switches():
     assert config.capabilities.memory is True
     assert config.capabilities.context_compression is False
     assert config.capabilities.prompt is True
+    assert config.capabilities.hitl is True
+    assert config.capabilities.checkpoint is True
+    assert config.capabilities.handoff is True
     assert config.capabilities.auth is False
     assert config.capabilities.rate_limit is True

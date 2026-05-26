@@ -60,3 +60,70 @@ def test_capability_snapshot_enabled_only_filters_disabled_capabilities():
     assert "auth" not in names
     assert "observability" in names
     assert "tracing" in snapshot["provided"]
+
+
+def test_harness_builder_enables_hitl_and_configures_sdk_tool_approval():
+    harness = HarnessBuilder(
+        _settings(
+            hitl_enabled=True,
+            hitl_approval_timeout=30.0,
+            hitl_require_approval_tools=["get_weather"],
+            hitl_auto_approve_tools=[],
+        )
+    ).build()
+
+    enabled = {
+        item["name"]
+        for item in harness.context.capability_snapshot(enabled_only=True)["capabilities"]
+    }
+    weather_tool = next(
+        tool
+        for tool in harness.context.tool_registry.list_agent_tools()
+        if tool.name == "get_weather"
+    )
+
+    assert harness.runtime.hitl_mgr is not None
+    assert "hitl" in enabled
+    assert harness.context.tool_registry.list_approval_required() == ["get_weather"]
+    assert weather_tool.needs_approval is True
+
+
+def test_harness_builder_enables_in_process_checkpoint_snapshots():
+    harness = HarnessBuilder(
+        _settings(
+            checkpoint_enabled=True,
+            checkpoint_max_checkpoints=3,
+            checkpoint_auto_save=True,
+        )
+    ).build()
+
+    snapshot = harness.context.capability_snapshot(enabled_only=True)
+    names = {item["name"] for item in snapshot["capabilities"]}
+
+    assert harness.runtime.checkpoint_mgr is not None
+    assert harness.runtime.checkpoint_mgr.config.storage_backend == "memory"
+    assert harness.runtime.checkpoint_mgr.config.max_checkpoints == 3
+    assert harness.runtime.checkpoint_mgr.config.auto_save is True
+    assert "checkpoint" in names
+    assert "run_checkpoints" in snapshot["provided"]
+
+
+def test_harness_builder_enables_native_handoff_targets():
+    harness = HarnessBuilder(
+        _settings(
+            handoff_enabled=True,
+            handoff_agents={
+                "billing": {
+                    "description": "处理账单问题",
+                    "instructions": "只处理账单相关请求。",
+                }
+            },
+        )
+    ).build()
+
+    snapshot = harness.context.capability_snapshot(enabled_only=True)
+    names = {item["name"] for item in snapshot["capabilities"]}
+
+    assert harness.runtime.handoff_mgr is not None
+    assert "handoff" in names
+    assert "agent_handoffs" in snapshot["provided"]

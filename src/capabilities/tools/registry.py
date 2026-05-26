@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, is_dataclass, replace
 from typing import Any
 
 from agents import function_tool
@@ -22,6 +22,8 @@ class ToolSpec:
 class ToolRegistry:
     def __init__(self):
         self._tools: dict[str, ToolSpec] = {}
+        self._approval_required_names: set[str] = set()
+        self._auto_approve_names: set[str] = set()
 
     def register(
         self,
@@ -55,7 +57,28 @@ class ToolRegistry:
             raise ValueError("tool name is required")
         if spec.handler is None:
             raise ValueError("tool handler is required")
-        self._tools[spec.name] = spec
+        self._tools[spec.name] = self._apply_approval_policy(spec)
+
+    def configure_approval_policy(
+        self,
+        *,
+        require_approval: list[str] | tuple[str, ...] = (),
+        auto_approve: list[str] | tuple[str, ...] = (),
+    ) -> None:
+        """Apply HITL policy to existing tools and any tools registered later."""
+        self._approval_required_names = set(require_approval)
+        self._auto_approve_names = set(auto_approve)
+        self._tools = {
+            name: self._apply_approval_policy(spec)
+            for name, spec in self._tools.items()
+        }
+
+    def _apply_approval_policy(self, spec: ToolSpec) -> ToolSpec:
+        if spec.name in self._auto_approve_names:
+            return replace(spec, requires_approval=False)
+        if spec.name in self._approval_required_names:
+            return replace(spec, requires_approval=True)
+        return spec
 
     def get(self, name: str) -> Any | None:
         spec = self._tools.get(name)
@@ -76,7 +99,7 @@ class ToolRegistry:
         return sorted(specs, key=lambda spec: spec.name)
 
     def list_agent_tools(self) -> list[Any]:
-        return [self._tools[name].handler for name in self.list_tools()]
+        return [self._to_agent_tool(self._tools[name]) for name in self.list_tools()]
 
     def list_approval_required(self) -> list[str]:
         return [
@@ -84,6 +107,20 @@ class ToolRegistry:
             for spec in self.list_specs()
             if spec.requires_approval
         ]
+
+    def _to_agent_tool(self, spec: ToolSpec) -> Any:
+        handler = spec.handler
+        updates: dict[str, Any] = {}
+        if spec.requires_approval:
+            updates["needs_approval"] = True
+        if spec.timeout_sec is not None:
+            updates["timeout_seconds"] = spec.timeout_sec
+        if updates and is_dataclass(handler):
+            valid_fields = {field.name for field in handler.__dataclass_fields__.values()}
+            filtered = {key: value for key, value in updates.items() if key in valid_fields}
+            if filtered:
+                return replace(handler, **filtered)
+        return handler
 
     def register_defaults(self) -> None:
         """Register minimal SDK tools for demo and extension."""

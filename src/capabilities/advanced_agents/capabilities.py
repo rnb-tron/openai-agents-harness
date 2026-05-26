@@ -12,6 +12,7 @@ from src.harness.manifest import CapabilityKind, CapabilityManifest
 
 from .checkpoint import CheckpointManager
 from .config import AgentState
+from .handoff import HandoffManager
 from .hitl import ApprovalManager
 
 
@@ -38,6 +39,8 @@ class CheckpointCapability(Capability):
         return self._manager.is_enabled()
 
     async def before_run(self, ctx: RunContext) -> None:
+        if not self._manager.config.auto_save:
+            return
         initial_state = AgentState(
             session_id=ctx.session_id,
             conversation_history=[],
@@ -52,6 +55,8 @@ class CheckpointCapability(Capability):
         )
 
     async def after_run(self, ctx: RunContext) -> None:
+        if not self._manager.config.auto_save:
+            return
         final_state = AgentState(
             session_id=ctx.session_id,
             conversation_history=[
@@ -72,8 +77,9 @@ class CheckpointCapability(Capability):
 class HITLCapability(Capability):
     """Human-in-the-Loop 审批能力
 
-    在 ``after_run`` 检查工具调用是否需要审批, 创建审批请求。
-    实际"等待审批 / 拒绝则中断"的逻辑由业务侧通过 ``ApprovalManager`` 自行驱动。
+    作为 HITL 能力声明与生命周期入口。实际审批请求由 SDK 原生
+    ``interruptions`` 产生，并由 Runtime 转交给 ``ApprovalManager``，
+    避免工具执行完成后重复申请审批。
     """
 
     name = "hitl"
@@ -92,16 +98,22 @@ class HITLCapability(Capability):
     def is_enabled(self) -> bool:
         return self._manager.is_enabled()
 
-    async def after_run(self, ctx: RunContext) -> None:
-        if not ctx.tool_calls:
-            return
-        for tc in ctx.tool_calls:
-            tool_name = tc.get("tool", "")
-            if self._manager.requires_approval(tool_name):
-                await self._manager.request_approval(
-                    tool_name=tool_name,
-                    tool_args=tc.get("args", {}),
-                    session_id=ctx.session_id,
-                    user_id=ctx.user_id or "anonymous",
-                    reason=f"工具 {tool_name} 需要审批",
-                )
+
+class HandoffCapability(Capability):
+    """SDK 原生 handoff 的声明型能力；执行由 ``Agent.handoffs`` 完成。"""
+
+    name = "handoff"
+    manifest = CapabilityManifest(
+        name="handoff",
+        kind=CapabilityKind.RUNTIME,
+        config_section="handoff",
+        depends_on=("model_router",),
+        provides=("agent_handoffs",),
+        install_order=45,
+    )
+
+    def __init__(self, manager: HandoffManager) -> None:
+        self._manager = manager
+
+    def is_enabled(self) -> bool:
+        return self._manager.is_enabled()

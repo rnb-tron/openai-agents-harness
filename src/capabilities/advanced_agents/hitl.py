@@ -50,6 +50,27 @@ class ApprovalRequest:
         self.reviewed_by: Optional[str] = None
         self.reviewed_at: Optional[float] = None
         self.review_comment: Optional[str] = None
+        self.sdk_interruption_index: int | None = None
+        self.sdk_call_id: str | None = None
+        self.sdk_run_state: dict[str, Any] | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-friendly representation for APIs and snapshots."""
+        return {
+            "id": self.id,
+            "tool_name": self.tool_name,
+            "tool_args": self.tool_args,
+            "session_id": self.session_id,
+            "user_id": self.user_id,
+            "reason": self.reason,
+            "status": self.status.value,
+            "created_at": self.created_at,
+            "reviewed_by": self.reviewed_by,
+            "reviewed_at": self.reviewed_at,
+            "review_comment": self.review_comment,
+            "sdk_interruption_index": self.sdk_interruption_index,
+            "sdk_call_id": self.sdk_call_id,
+        }
 
 
 class ApprovalManager:
@@ -114,6 +135,116 @@ class ApprovalManager:
             },
         )
         
+        return request
+
+    async def request_sdk_approval(
+        self,
+        *,
+        interruption: Any,
+        interruption_index: int,
+        run_state: dict[str, Any],
+        session_id: str,
+        user_id: str,
+        reason: str = "",
+    ) -> ApprovalRequest:
+        """Create an approval request from an OpenAI Agents SDK interruption."""
+        tool_name = getattr(interruption, "qualified_name", None) or getattr(
+            interruption, "name", None
+        ) or "unknown"
+        raw_args = getattr(interruption, "arguments", None)
+        tool_args: dict[str, Any]
+        if isinstance(raw_args, dict):
+            tool_args = raw_args
+        elif raw_args:
+            tool_args = {"arguments": raw_args}
+        else:
+            tool_args = {}
+        request = await self.request_approval(
+            tool_name=tool_name,
+            tool_args=tool_args,
+            session_id=session_id,
+            user_id=user_id,
+            reason=reason or f"工具 {tool_name} 需要人工审批",
+        )
+        request.sdk_interruption_index = interruption_index
+        request.sdk_call_id = getattr(interruption, "call_id", None)
+        request.sdk_run_state = run_state
+        return request
+
+    async def request_approvals_from_result(
+        self,
+        run_result: Any,
+        *,
+        session_id: str,
+        user_id: str,
+    ) -> tuple[dict[str, Any] | None, list[ApprovalRequest]]:
+        """Create approval requests from a native SDK RunResult interruption payload."""
+        interruptions = list(getattr(run_result, "interruptions", []) or [])
+        if not interruptions:
+            return None, []
+
+        run_state = run_result.to_state().to_json()
+        requests = [
+            await self.request_sdk_approval(
+                interruption=interruption,
+                interruption_index=index,
+                run_state=run_state,
+                session_id=session_id,
+                user_id=user_id,
+            )
+            for index, interruption in enumerate(interruptions)
+        ]
+        return run_state, requests
+
+    def apply_approval_to_state(
+        self,
+        run_state: Any,
+        *,
+        interruption_index: int,
+        approved: bool,
+        always: bool = False,
+        rejection_message: str | None = None,
+    ) -> None:
+        """Apply a human decision to an SDK RunState before resuming via Runner.run()."""
+        interruptions = run_state.get_interruptions()
+        if interruption_index < 0 or interruption_index >= len(interruptions):
+            raise ValueError(f"审批中断不存在: {interruption_index}")
+        interruption = interruptions[interruption_index]
+        if approved:
+            run_state.approve(interruption, always_approve=always)
+        else:
+            run_state.reject(
+                interruption,
+                always_reject=always,
+                rejection_message=rejection_message,
+            )
+
+    async def review_sdk_approval(
+        self,
+        *,
+        request_id: str,
+        session_id: str,
+        interruption_index: int,
+        run_state: dict[str, Any],
+        approved: bool,
+        reviewer: str,
+        comment: str = "",
+    ) -> ApprovalRequest:
+        """Validate and record a decision for a native SDK interruption."""
+        request = self._requests.get(request_id)
+        if not request:
+            raise ValueError(f"审批请求不存在: {request_id}")
+        if request.session_id != session_id:
+            raise ValueError("审批请求与会话不匹配")
+        if request.sdk_interruption_index != interruption_index:
+            raise ValueError("审批请求与中断序号不匹配")
+        if request.sdk_run_state != run_state:
+            raise ValueError("审批请求与运行状态不匹配")
+
+        if approved:
+            await self.approve(request_id, reviewer=reviewer, comment=comment)
+        else:
+            await self.reject(request_id, reviewer=reviewer, reason=comment)
         return request
     
     async def approve(
