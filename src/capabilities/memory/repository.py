@@ -1,6 +1,6 @@
 """
 Memory Repository
-MySQL数据访问层 - 长期记忆CRUD操作
+关系数据库访问层 - 长期记忆 CRUD 操作
 """
 
 from datetime import datetime
@@ -15,7 +15,7 @@ from src.core.snowflake import generate_rid
 
 
 class MemoryRepository:
-    """记忆数据仓库 - 异步MySQL操作"""
+    """记忆数据仓库 - SQLAlchemy 异步关系数据库操作。"""
 
     def __init__(self, db_session: AsyncSession):
         """
@@ -46,7 +46,7 @@ class MemoryRepository:
             role: 角色 (user/assistant/system)
             content: 记忆内容
             memory_type: 记忆类型
-            embedding_id: ES向量ID
+            embedding_id: 向量存储中的关联 ID
             metadata: 扩展元数据
             importance_score: 重要性评分
 
@@ -299,6 +299,25 @@ class MemoryRepository:
             service_logger.error(f"Failed to batch delete session memories: {e}", exc_info=True)
             await self.db.rollback()
             return 0
+
+    async def list_ids_by_session(self, session_id: str) -> list[int]:
+        """返回会话内仍有效的记忆 ID，供关联资源清理使用。"""
+        try:
+            result = await self.db.execute(
+                select(MemoryRecord.id).where(
+                    and_(
+                        MemoryRecord.session_id == session_id,
+                        MemoryRecord.is_deleted == 0,
+                    )
+                )
+            )
+            return list(result.scalars().all())
+        except Exception as e:
+            service_logger.error(
+                f"Failed to list memory ids for session={session_id}: {e}",
+                exc_info=True,
+            )
+            return []
 
     async def get_important_memories(
         self,

@@ -26,6 +26,7 @@ class MemoryCapability(Capability):
         config_section="memory",
         provides=("conversation_context", "memory_session"),
         install_order=20,
+        tags=("required",),
     )
 
     def __init__(
@@ -151,10 +152,10 @@ class VectorSearchCapability(Capability):
         name="vector_search",
         kind=CapabilityKind.RUNTIME,
         config_section="memory",
-        depends_on=("long_term_memory",),
+        depends_on=("long_term_memory", "embedding_provider"),
         provides=("vector_search",),
         install_order=22,
-        tags=("marker", "partial"),
+        tags=("marker",),
     )
 
     def __init__(self, enabled: bool) -> None:

@@ -1,6 +1,6 @@
 """
 Memory System SQLAlchemy Models
-MySQL存储层 - 长期记忆数据模型
+关系数据库存储层 - 长期记忆数据模型
 """
 
 from datetime import datetime
@@ -46,7 +46,7 @@ class MemoryRecord(AsyncAttrs, Base):
 
     # 记忆内容
     content = Column(Text, nullable=False, comment="记忆内容")
-    embedding_id = Column(String(64), nullable=True, comment="ES向量ID")
+    embedding_id = Column(String(64), nullable=True, comment="向量存储关联ID")
 
     # 元数据
     extra_metadata = Column("metadata", JSON, nullable=True, comment="扩展元数据 (tokens, timestamp, tags等)")

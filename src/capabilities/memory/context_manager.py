@@ -7,7 +7,8 @@ import tiktoken
 
 from src.capabilities.memory.store import ShortTermMemory
 from src.capabilities.memory.repository import MemoryRepository
-from src.capabilities.memory.vector_store import ElasticsearchVectorStore
+from src.capabilities.memory.embeddings import EmbeddingProvider
+from src.capabilities.memory.vector_store import VectorStore
 from src.core.logging import service_logger
 
 
@@ -18,25 +19,25 @@ class ContextManager:
         self,
         short_term: ShortTermMemory,
         repository: MemoryRepository,
-        vector_store: ElasticsearchVectorStore | None = None,
+        vector_store: VectorStore | None = None,
         max_tokens: int = 4000,
-        embedding_func=None,
+        embedding_provider: EmbeddingProvider | None = None,
     ):
         """
         初始化上下文管理器
 
         Args:
             short_term: 短期记忆存储
-            repository: MySQL数据仓库
-            vector_store: ES向量存储 (可选)
+            repository: 长期记忆关系数据仓库
+            vector_store: 可配置向量存储 (可选)
             max_tokens: 最大Token数
-            embedding_func: 嵌入函数 (用于向量检索)
+            embedding_provider: 嵌入生成器 (用于向量检索)
         """
         self.short_term = short_term
         self.repository = repository
         self.vector_store = vector_store
         self.max_tokens = max_tokens
-        self.embedding_func = embedding_func
+        self.embedding_provider = embedding_provider
 
         # 初始化tokenizer (使用cl100k_base,对应GPT-4)
         try:
@@ -80,22 +81,24 @@ class ContextManager:
 
             # 2. 向量检索长期记忆 (如果启用且有向量存储)
             long_memories = []
-            if enable_retrieval and self.vector_store and self.embedding_func:
+            if enable_retrieval and self.vector_store and self.embedding_provider:
                 try:
                     # 生成查询向量
-                    query_embedding = await self.embedding_func(user_input)
+                    query_embedding = await self.embedding_provider.embed(user_input)
 
                     # 向量检索
-                    long_memories = await self.vector_store.search(
+                    candidates = await self.vector_store.search(
                         query_embedding=query_embedding,
                         top_k=retrieval_top_k,
                         user_id=user_id,
                     )
 
-                    # 增加访问计数
-                    for memory in long_memories:
+                    # 关系存储是有效状态的事实源，软删除的残留向量不可进入上下文。
+                    for memory in candidates:
                         memory_id = int(memory["memory_id"])
-                        await self.repository.increment_access(memory_id)
+                        if await self.repository.get_by_id(memory_id):
+                            long_memories.append(memory)
+                            await self.repository.increment_access(memory_id)
 
                 except Exception as e:
                     service_logger.error(f"Long-term memory retrieval failed: {e}", exc_info=True)

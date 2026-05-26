@@ -77,11 +77,14 @@ class MemoryTaskScheduler:
             if not self.memory_manager:
                 return
 
-            # 检查ES连接
+            # 检查当前向量存储连接
             if self.memory_manager.vector_store:
                 healthy = await self.memory_manager.vector_store.health_check()
                 if not healthy:
-                    service_logger.warning("Elasticsearch health check failed")
+                    service_logger.warning(
+                        f"Vector store health check failed: "
+                        f"backend={self.memory_manager.vector_store.backend_name}"
+                    )
 
             # 获取统计信息
             stats = await self.memory_manager.get_stats()

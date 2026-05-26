@@ -18,6 +18,9 @@ class CapabilitySwitches:
     memory: bool
     context_compression: bool
     prompt: bool
+    hitl: bool
+    checkpoint: bool
+    handoff: bool
     observability: bool
     auth: bool
     rate_limit: bool
@@ -42,6 +45,9 @@ class HarnessConfig:
                 memory=settings.memory_enabled,
                 context_compression=settings.compression_enabled,
                 prompt=settings.prompt_enabled,
+                hitl=getattr(settings, "hitl_enabled", False),
+                checkpoint=getattr(settings, "checkpoint_enabled", False),
+                handoff=getattr(settings, "handoff_enabled", False),
                 observability=settings.observability_enabled,
                 auth=settings.auth_enabled,
                 rate_limit=settings.rate_limit_enabled,

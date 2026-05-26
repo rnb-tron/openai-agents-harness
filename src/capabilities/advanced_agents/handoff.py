@@ -1,22 +1,8 @@
-"""
-Handoff Agent 协作管理器
+"""OpenAI Agents SDK 原生 Handoff 的轻量装配器。"""
 
-提供:
-- 注册专业 Agent
-- 创建 Triage Agent (带 Handoff 能力)
-- 执行 Handoff 路由
-- Agent 可用性检查
-"""
+from typing import Any
 
-from typing import Optional, Any
-
-try:
-    from openai_agents import Agent
-    from openai_agents.models import OpenAIChatCompletionsModel
-except ImportError:
-    # 如果 openai_agents 未安装,使用占位符
-    Agent = Any
-    OpenAIChatCompletionsModel = Any
+from agents import Agent, OpenAIChatCompletionsModel
 
 from src.core.logging import setup_logger
 
@@ -26,115 +12,128 @@ logger = setup_logger("advanced_agents.handoff")
 
 
 class HandoffManager:
-    """Handoff Agent 协作管理器"""
-    
+    """根据配置构造可交给主 Agent 的 SDK 原生 handoff 目标。"""
+
     def __init__(
         self,
         config: HandoffConfig,
-        model: Optional[OpenAIChatCompletionsModel] = None,
-    ):
+        model: OpenAIChatCompletionsModel | None = None,
+    ) -> None:
         self.config = config
         self._agents: dict[str, Agent] = {}
-        self._agent_registry: dict[str, dict] = {}  # 存储 Agent 元信息
+        self._agent_registry: dict[str, dict[str, Any]] = {}
         self.model = model
-    
+
     def is_enabled(self) -> bool:
-        """是否启用 Handoff"""
         return self.config.enabled
-    
+
     def register_agent(
         self,
         name: str,
         display_name: str,
         description: str,
         instructions: str = "",
-    ) -> dict:
-        """注册一个 Agent"""
-        self._agent_registry[name] = {
+    ) -> dict[str, Any]:
+        metadata = {
             "name": name,
             "display_name": display_name,
             "description": description,
             "instructions": instructions,
         }
+        self._agent_registry[name] = metadata
         logger.info(
             "agent_registered",
             extra={"agent_name": name, "display_name": display_name},
         )
-        return self._agent_registry[name]
-    
+        return metadata
+
     def create_agent(
         self,
         name: str,
         instructions: str,
-        tools: Optional[list] = None,
+        tools: list[Any] | None = None,
+        *,
+        description: str = "",
+        model: OpenAIChatCompletionsModel | None = None,
     ) -> Agent:
-        """创建 Agent 实例"""
-        if not self.model:
+        agent_model = model or self.model
+        if not agent_model:
             raise ValueError("未提供 Model 实例")
-        
+
         agent = Agent(
             name=name,
+            handoff_description=description or None,
             instructions=instructions,
-            model=self.model,
+            model=agent_model,
             tools=tools or [],
         )
-        
         self._agents[name] = agent
         logger.info("agent_created", extra={"agent_name": name})
         return agent
-    
+
+    def build_configured_handoffs(
+        self,
+        model: OpenAIChatCompletionsModel,
+    ) -> list[Agent]:
+        """构造主 Agent 的 SDK 原生 handoff 目标列表。"""
+        if not self.config.enabled:
+            return []
+
+        self.model = model
+        handoffs: list[Agent] = []
+        for name, spec in self.config.agents.items():
+            if not isinstance(spec, dict) or spec.get("enabled", True) is False:
+                continue
+            handoffs.append(
+                self.create_agent(
+                    name=name,
+                    instructions=str(spec.get("instructions", "")),
+                    description=str(spec.get("description", "")),
+                    model=model,
+                )
+            )
+        return handoffs
+
     def create_triage_agent(
         self,
         name: str,
         instructions: str,
         handoff_agents: list[str],
-        tools: Optional[list] = None,
+        tools: list[Any] | None = None,
     ) -> Agent:
-        """创建 Triage Agent (带 Handoff 能力)"""
         if not self.model:
             raise ValueError("未提供 Model 实例")
-        
-        # 获取要 Handoff 的 Agent
-        agents_to_handoff = []
-        for agent_name in handoff_agents:
-            agent = self._agents.get(agent_name)
-            if agent:
-                agents_to_handoff.append(agent)
-        
+
+        targets = [
+            agent for agent_name in handoff_agents if (agent := self._agents.get(agent_name))
+        ]
         triage_agent = Agent(
             name=name,
             instructions=instructions,
             model=self.model,
             tools=tools or [],
-            handoffs=agents_to_handoff,  # 设置 Handoff
+            handoffs=targets,
         )
-        
         self._agents[name] = triage_agent
         logger.info(
             "triage_agent_created",
             extra={"agent_name": name, "handoff_targets": handoff_agents},
         )
-
         return triage_agent
-    
+
     def is_agent_available(self, agent_name: str) -> bool:
-        """检查 Agent 是否可用"""
         return agent_name in self._agents or agent_name in self._agent_registry
-    
-    def get_agent(self, agent_name: str) -> Optional[Agent]:
-        """获取 Agent 实例"""
+
+    def get_agent(self, agent_name: str) -> Agent | None:
         return self._agents.get(agent_name)
-    
+
     def get_available_agents(self) -> list[str]:
-        """获取所有可用的 Agent"""
         return list(self._agents.keys())
-    
-    def get_registry(self) -> dict[str, dict]:
-        """获取 Agent 注册表"""
+
+    def get_registry(self) -> dict[str, dict[str, Any]]:
         return self._agent_registry.copy()
-    
-    def cleanup(self):
-        """清理所有 Agent"""
+
+    def cleanup(self) -> None:
         self._agents.clear()
         self._agent_registry.clear()
         logger.info("handoff_manager_cleaned")

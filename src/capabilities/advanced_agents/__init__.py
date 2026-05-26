@@ -31,6 +31,7 @@ from .handoff import (
 
 from .capabilities import (
     CheckpointCapability,
+    HandoffCapability,
     HITLCapability,
 )
 
@@ -51,5 +52,6 @@ __all__ = [
     "HandoffManager",
     # Capability adapters
     "CheckpointCapability",
+    "HandoffCapability",
     "HITLCapability",
 ]

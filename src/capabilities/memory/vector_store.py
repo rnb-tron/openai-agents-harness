@@ -4,7 +4,7 @@ Elasticsearch Vector Store
 """
 
 import hashlib
-from typing import Any
+from typing import Any, Protocol
 
 from elasticsearch import AsyncElasticsearch
 from elasticsearch.exceptions import NotFoundError
@@ -12,8 +12,47 @@ from elasticsearch.exceptions import NotFoundError
 from src.core.logging import service_logger
 
 
+class VectorStore(Protocol):
+    """MemoryManager 可切换的向量存储边界。"""
+
+    backend_name: str
+
+    async def create_index(self) -> None: ...
+
+    async def upsert(
+        self,
+        memory_id: str,
+        embedding: list[float],
+        user_id: str,
+        session_id: str,
+        memory_type: str,
+        role: str,
+        content: str,
+        importance_score: float = 0.5,
+        metadata: dict[str, Any] | None = None,
+    ) -> bool: ...
+
+    async def search(
+        self,
+        query_embedding: list[float],
+        top_k: int = 3,
+        user_id: str | None = None,
+        session_id: str | None = None,
+        memory_type: str | None = None,
+        min_importance: float = 0.0,
+    ) -> list[dict[str, Any]]: ...
+
+    async def delete(self, memory_ids: list[str]) -> bool: ...
+
+    async def health_check(self) -> bool: ...
+
+    async def close(self) -> None: ...
+
+
 class ElasticsearchVectorStore:
     """Elasticsearch向量存储 - 支持记忆向量检索"""
+
+    backend_name = "elasticsearch"
 
     def __init__(self, hosts: str, index_name: str, dimension: int = 1536):
         """
@@ -111,7 +150,7 @@ class ElasticsearchVectorStore:
         插入或更新向量
 
         Args:
-            memory_id: 记忆ID (与MySQL主键对应)
+            memory_id: 记忆ID (与关系存储主键对应)
             embedding: 向量数组
             user_id: 用户ID
             session_id: 会话ID
@@ -144,8 +183,8 @@ class ElasticsearchVectorStore:
                 "content_hash": content_hash,
                 "content_preview": content_preview,
                 "importance_score": importance_score,
-                "created_at": None,  # 由MySQL管理,ES不存储
-                "metadata": metadata or {},
+                "created_at": None,  # 由关系存储管理,ES不存储
+                "metadata": {**(metadata or {}), "content": content},
             }
 
             await self.client.index(
