@@ -9,6 +9,7 @@ from src.api.middleware.request_context import install_request_context
 from src.api.routers import chat as chat_router
 from src.api.routers import health as health_router
 from src.api.routers import memory as memory_router
+from src.api.routers import ui as ui_router
 from src.core.logging import setup_logger
 from src.harness.builder import build_harness
 from src.infrastructure.http_client import close_http_client, configure_http_client
@@ -67,4 +68,5 @@ def create_app(settings) -> FastAPI:
     app.include_router(health_router.router)
     app.include_router(chat_router.router)
     app.include_router(memory_router.router)
+    app.include_router(ui_router.router)
     return app

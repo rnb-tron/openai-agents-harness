@@ -1,0 +1,632 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Agent Harness - Chat E2E Console</title>
+    <style>
+      :root {
+        --bg: #f5f7fb;
+        --panel: #ffffff;
+        --ink: #132238;
+        --muted: #617187;
+        --line: #dfe6ef;
+        --primary: #2364d2;
+        --primary-dark: #194da8;
+        --success: #0d7b5f;
+        --warning: #a55b05;
+        --assistant: #eef4ff;
+        --user: #1b56bb;
+        color-scheme: light;
+        font-family: Inter, "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--ink);
+      }
+
+      header {
+        height: 68px;
+        background: #12263f;
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 32px;
+      }
+
+      header h1 {
+        font-size: 18px;
+        margin: 0;
+        font-weight: 650;
+      }
+
+      header span {
+        font-size: 13px;
+        color: #bdd0eb;
+      }
+
+      main {
+        display: grid;
+        grid-template-columns: 315px minmax(460px, 1fr) 330px;
+        gap: 18px;
+        padding: 18px;
+        height: calc(100vh - 68px);
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        overflow: hidden;
+      }
+
+      .panel-title {
+        border-bottom: 1px solid var(--line);
+        padding: 17px 18px;
+        font-weight: 650;
+        font-size: 15px;
+      }
+
+      .settings {
+        padding: 16px 18px;
+      }
+
+      label {
+        display: block;
+        font-size: 12px;
+        color: var(--muted);
+        margin: 0 0 7px;
+      }
+
+      input,
+      textarea {
+        width: 100%;
+        border: 1px solid #cbd6e5;
+        border-radius: 8px;
+        font: inherit;
+        font-size: 13px;
+        padding: 10px 11px;
+        color: var(--ink);
+        background: white;
+      }
+
+      input:focus,
+      textarea:focus {
+        outline: 2px solid #ccddfb;
+        border-color: var(--primary);
+      }
+
+      .field {
+        margin-bottom: 16px;
+      }
+
+      .read-only {
+        background: #f7f9fc;
+      }
+
+      button {
+        border: 0;
+        border-radius: 8px;
+        cursor: pointer;
+        font: inherit;
+        font-size: 13px;
+        font-weight: 600;
+        padding: 10px 14px;
+        transition: background 0.15s ease;
+      }
+
+      button:disabled {
+        cursor: wait;
+        opacity: 0.6;
+      }
+
+      .secondary {
+        width: 100%;
+        color: #30445e;
+        background: #eef2f8;
+      }
+
+      .secondary:hover {
+        background: #e2e8f2;
+      }
+
+      .health {
+        border-radius: 9px;
+        padding: 10px 12px;
+        font-size: 13px;
+        background: #eef8f5;
+        color: var(--success);
+        margin-bottom: 18px;
+      }
+
+      .health.offline {
+        color: #a13e36;
+        background: #fcefed;
+      }
+
+      .chat {
+        display: flex;
+        flex-direction: column;
+      }
+
+      #messages {
+        flex: 1;
+        overflow: auto;
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      .empty {
+        margin: auto;
+        color: var(--muted);
+        text-align: center;
+        line-height: 1.7;
+      }
+
+      .message {
+        max-width: 78%;
+        border-radius: 13px;
+        padding: 13px 15px;
+        white-space: pre-wrap;
+        line-height: 1.55;
+        font-size: 14px;
+      }
+
+      .message.user {
+        align-self: flex-end;
+        background: var(--user);
+        color: white;
+      }
+
+      .message.assistant {
+        align-self: flex-start;
+        background: var(--assistant);
+      }
+
+      .message.system {
+        align-self: center;
+        max-width: 92%;
+        color: var(--warning);
+        background: #fff5e8;
+        font-size: 13px;
+      }
+
+      .message-meta {
+        display: block;
+        color: var(--muted);
+        font-size: 11px;
+        margin-top: 7px;
+      }
+
+      .composer {
+        border-top: 1px solid var(--line);
+        padding: 14px 16px;
+      }
+
+      .composer textarea {
+        resize: none;
+        height: 72px;
+      }
+
+      .composer-actions {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 10px;
+      }
+
+      .hint {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .primary {
+        color: white;
+        background: var(--primary);
+        padding-left: 20px;
+        padding-right: 20px;
+      }
+
+      .primary:hover {
+        background: var(--primary-dark);
+      }
+
+      .approval {
+        display: none;
+        margin: 0 16px 14px;
+        border: 1px solid #efcf91;
+        background: #fff8e9;
+        border-radius: 10px;
+        padding: 13px;
+      }
+
+      .approval.visible {
+        display: block;
+      }
+
+      .approval h3 {
+        font-size: 13px;
+        margin: 0 0 9px;
+      }
+
+      .approval-actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .approve {
+        color: white;
+        background: #168261;
+      }
+
+      .reject {
+        color: white;
+        background: #b14e42;
+      }
+
+      .raw {
+        padding: 15px;
+        height: calc(100% - 54px);
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      #raw-response {
+        margin: 0;
+        flex: 1;
+        overflow: auto;
+        border-radius: 9px;
+        background: #101c2d;
+        color: #d9e5f6;
+        padding: 13px;
+        font-size: 12px;
+        line-height: 1.55;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      @media (max-width: 1050px) {
+        main {
+          grid-template-columns: 1fr;
+          height: auto;
+        }
+
+        .chat {
+          min-height: 65vh;
+        }
+
+        .raw {
+          height: 400px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Agent Harness / Chat E2E Console</h1>
+      <span>POST /chat/stream · POST /chat/resume</span>
+    </header>
+    <main>
+      <section class="panel">
+        <div class="panel-title">请求设置</div>
+        <div class="settings">
+          <div id="health" class="health">正在连接本地服务...</div>
+          <div class="field">
+            <label for="session-id">Session ID</label>
+            <input id="session-id" class="read-only" data-testid="session-id" readonly>
+          </div>
+          <div class="field">
+            <label for="user-id">User ID（可选）</label>
+            <input id="user-id" data-testid="user-id" value="ui-tester" placeholder="ui-tester">
+          </div>
+          <div class="field">
+            <label for="auth-token">Bearer Token（启用 Auth 时填写）</label>
+            <input id="auth-token" type="password" data-testid="auth-token" placeholder="JWT token">
+          </div>
+          <button id="new-session" class="secondary" data-testid="new-session" type="button">新建会话并清空记录</button>
+        </div>
+      </section>
+
+      <section class="panel chat">
+        <div class="panel-title">聊天验证</div>
+        <div id="messages" data-testid="messages">
+          <div class="empty" id="empty-state">输入一条消息，验证真实 /chat/stream 调用。<br>同一页面内会自动复用 session_id。</div>
+        </div>
+        <div id="approval" class="approval" data-testid="approval">
+          <h3>检测到需要人工审批的工具调用</h3>
+          <div id="approval-detail"></div>
+          <div class="approval-actions">
+            <button id="approve" class="approve" type="button">批准并继续</button>
+            <button id="reject" class="reject" type="button">拒绝并继续</button>
+          </div>
+        </div>
+        <form id="composer" class="composer">
+          <textarea id="message" data-testid="message" placeholder="例如：用一句话介绍当前 Agent 能力" required></textarea>
+          <div class="composer-actions">
+            <span class="hint">Enter 发送，Shift + Enter 换行</span>
+            <button id="send" class="primary" data-testid="send" type="submit">发送</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="panel">
+        <div class="panel-title">最近响应 JSON</div>
+        <div class="raw">
+          <pre id="raw-response" data-testid="raw-response">等待请求...</pre>
+        </div>
+      </section>
+    </main>
+    <script>
+      const sessionInput = document.querySelector("#session-id");
+      const userInput = document.querySelector("#user-id");
+      const tokenInput = document.querySelector("#auth-token");
+      const messageInput = document.querySelector("#message");
+      const sendButton = document.querySelector("#send");
+      const messages = document.querySelector("#messages");
+      const rawResponse = document.querySelector("#raw-response");
+      const health = document.querySelector("#health");
+      const approval = document.querySelector("#approval");
+      const approvalDetail = document.querySelector("#approval-detail");
+      let pendingApproval = null;
+
+      function newSessionId() {
+        return globalThis.crypto && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `ui-${Date.now()}`;
+      }
+
+      function setSession(id) {
+        sessionInput.value = id;
+        localStorage.setItem("agent-chat-session", id);
+      }
+
+      function addMessage(role, text, meta = "") {
+        messages.querySelector(".empty")?.remove();
+        const bubble = document.createElement("div");
+        bubble.className = `message ${role}`;
+        bubble.textContent = text;
+        if (meta) {
+          const info = document.createElement("span");
+          info.className = "message-meta";
+          info.textContent = meta;
+          bubble.appendChild(info);
+        }
+        messages.appendChild(bubble);
+        messages.scrollTop = messages.scrollHeight;
+        return bubble;
+      }
+
+      function updateMessage(bubble, text, meta = "") {
+        bubble.textContent = text;
+        if (meta) {
+          const info = document.createElement("span");
+          info.className = "message-meta";
+          info.textContent = meta;
+          bubble.appendChild(info);
+        }
+        messages.scrollTop = messages.scrollHeight;
+      }
+
+      function headers() {
+        const value = tokenInput.value.trim();
+        const requestHeaders = {"Content-Type": "application/json"};
+        if (value) {
+          requestHeaders.Authorization = `Bearer ${value}`;
+        }
+        return requestHeaders;
+      }
+
+      function setBusy(busy) {
+        sendButton.disabled = busy;
+        document.querySelector("#approve").disabled = busy;
+        document.querySelector("#reject").disabled = busy;
+        sendButton.textContent = busy ? "请求中..." : "发送";
+      }
+
+      function showRaw(value) {
+        rawResponse.textContent = JSON.stringify(value, null, 2);
+      }
+
+      function showPending(data, originalMessage) {
+        pendingApproval = {data, originalMessage};
+        const interruption = (data.interruptions || [])[0] || {};
+        approvalDetail.textContent = `工具：${interruption.tool_name || "unknown"}`;
+        approval.classList.add("visible");
+      }
+
+      function clearPending() {
+        pendingApproval = null;
+        approval.classList.remove("visible");
+      }
+
+      async function sendChat(message) {
+        const payload = {
+          message,
+          session_id: sessionInput.value,
+          user_id: userInput.value.trim() || null
+        };
+        const response = await fetch("/chat/stream", {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify(payload)
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        if (!response.body) {
+          throw new Error("浏览器未提供流式响应体");
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        const events = [];
+        let buffer = "";
+        let streamedOutput = "";
+        let assistantBubble = null;
+        let completed = false;
+        let streamEnded = false;
+        while (!streamEnded) {
+          const next = await reader.read();
+          buffer += decoder.decode(next.value || new Uint8Array(), {stream: !next.done});
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+          for (const line of lines) {
+            if (!line.trim()) {
+              continue;
+            }
+            const event = JSON.parse(line);
+            events.push(event);
+            showRaw(events);
+            if (event.type === "start") {
+              setSession(event.session_id);
+            } else if (event.type === "delta") {
+              if (!assistantBubble) {
+                assistantBubble = addMessage("assistant", "");
+              }
+              streamedOutput += event.delta;
+              updateMessage(assistantBubble, streamedOutput, "streaming...");
+            } else if (event.type === "error") {
+              throw new Error(event.detail || "流式请求失败");
+            } else if (event.type === "done") {
+              completed = true;
+              const data = event.data;
+              setSession(data.session_id);
+              if (data.interrupted) {
+                addMessage("system", "请求已暂停，等待人工审批。");
+                showPending(data, message);
+              } else {
+                if (!assistantBubble) {
+                  assistantBubble = addMessage("assistant", "");
+                }
+                updateMessage(
+                  assistantBubble,
+                  data.output || streamedOutput || "(无文本输出)",
+                  `model: ${data.model} · memory: ${data.memory_size}`
+                );
+              }
+            }
+          }
+          streamEnded = next.done;
+        }
+        if (!completed) {
+          throw new Error("流式连接结束，但未收到完成事件");
+        }
+      }
+
+      async function resumeChat(approved) {
+        if (!pendingApproval) {
+          return;
+        }
+        const data = pendingApproval.data;
+        const originalMessage = pendingApproval.originalMessage;
+        const interruption = (data.interruptions || [])[0] || {};
+        const payload = {
+          run_state: data.run_state,
+          approval_request_id: interruption.id || null,
+          interruption_index: interruption.sdk_interruption_index || 0,
+          approved,
+          session_id: data.session_id,
+          message: originalMessage,
+          model: data.model,
+          user_id: userInput.value.trim() || null
+        };
+        const response = await fetch("/chat/resume", {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify(payload)
+        });
+        const body = await response.json();
+        showRaw(body);
+        if (!response.ok) {
+          throw new Error(body.detail || `HTTP ${response.status}`);
+        }
+        clearPending();
+        const resumed = body.data;
+        if (resumed.interrupted) {
+          showPending(resumed, originalMessage);
+          addMessage("system", "出现新的审批请求。");
+        } else {
+          addMessage("assistant", resumed.output || "(无文本输出)", `model: ${resumed.model} · resumed`);
+        }
+      }
+
+      async function withFeedback(action) {
+        setBusy(true);
+        try {
+          await action();
+        } catch (error) {
+          addMessage("system", `请求失败：${error.message}`);
+        } finally {
+          setBusy(false);
+        }
+      }
+
+      document.querySelector("#composer").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const message = messageInput.value.trim();
+        if (!message) {
+          return;
+        }
+        clearPending();
+        addMessage("user", message);
+        messageInput.value = "";
+        await withFeedback(() => sendChat(message));
+      });
+
+      messageInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !event.shiftKey) {
+          event.preventDefault();
+          document.querySelector("#composer").requestSubmit();
+        }
+      });
+
+      document.querySelector("#approve").addEventListener("click", () => {
+        withFeedback(() => resumeChat(true));
+      });
+
+      document.querySelector("#reject").addEventListener("click", () => {
+        withFeedback(() => resumeChat(false));
+      });
+
+      document.querySelector("#new-session").addEventListener("click", () => {
+        setSession(newSessionId());
+        messages.replaceChildren();
+        clearPending();
+        rawResponse.textContent = "等待请求...";
+        const placeholder = document.createElement("div");
+        placeholder.className = "empty";
+        placeholder.textContent = "新会话已准备好，发送消息开始测试。";
+        messages.appendChild(placeholder);
+      });
+
+      async function checkHealth() {
+        try {
+          const response = await fetch("/health/ok");
+          if (!response.ok) {
+            throw new Error();
+          }
+          health.textContent = "本地 API 已连接 · /health/ok";
+        } catch (error) {
+          health.classList.add("offline");
+          health.textContent = "本地 API 未连接";
+        }
+      }
+
+      setSession(localStorage.getItem("agent-chat-session") || newSessionId());
+      checkHealth();
+      messageInput.focus();
+    </script>
+  </body>
+</html>

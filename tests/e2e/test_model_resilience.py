@@ -1,278 +1,206 @@
-"""Test model resilience features (fallback, retry, timeout)."""
+"""Model routing and resilience behavior, plus an opt-in provider smoke test."""
 
-import sys
-from pathlib import Path
-
-# Add project root to Python path
-sys.path.insert(0, str(Path(__file__).parents[2]))
+from __future__ import annotations
 
 import asyncio
 import os
+import sys
+from pathlib import Path
+
 import pytest
 from dotenv import load_dotenv
 
-# Load config
-env_file = Path(__file__).parents[2] / "config" / "test.env"
-load_dotenv(env_file, override=True)
+PROJECT_ROOT = Path(__file__).parents[2]
+sys.path.insert(0, str(PROJECT_ROOT))
+load_dotenv(PROJECT_ROOT / "config" / "test.env", override=True)
 
-pytestmark = pytest.mark.skipif(
-    os.getenv("RUN_EXTERNAL_TESTS", "false").lower() != "true",
-    reason="requires external OpenAI-compatible model service; set RUN_EXTERNAL_TESTS=true",
-)
+from agents import Agent, AsyncOpenAI, OpenAIChatCompletionsModel, RunConfig, Runner
 
-from agents import Agent, AsyncOpenAI, OpenAIChatCompletionsModel, Runner
 from src.capabilities.model_routing import (
     FallbackConfig,
+    ModelRouter,
     ResilienceConfig,
     RetryConfig,
     TimeoutConfig,
-    ModelRouter,
 )
+from src.capabilities.model_routing.timeout import TimeoutError as ModelTimeoutError
 
 
-async def test_basic_routing():
-    """Test 1: Basic model routing without resilience."""
-    print("=" * 60)
-    print("Test 1: Basic Model Routing (No Resilience)")
-    print("=" * 60)
-    
-    router = ModelRouter(default_model="qwen3.5-plus")
-    
-    client = AsyncOpenAI(
-        api_key=os.getenv("OPENAI_API_KEY"),
-        base_url=os.getenv("OPENAI_BASE_URL"),
-    )
-    
-    async def create_agent(model):
-        return Runner.run(
-            Agent(
-                name="Test",
-                instructions="You are helpful.",
-                model=OpenAIChatCompletionsModel(model=model, openai_client=client),
-            ),
-            "Say hello",
-        )
-    
-    result = await router.run_with_resilience(create_agent)
-    print(f"OK Result: {result.final_output}")
-    print()
-    return True
+class APIConnectionError(Exception):
+    """Named like the SDK recoverable exception to exercise configured policy."""
 
 
-async def test_fallback():
-    """Test 2: Model fallback."""
-    print("=" * 60)
-    print("Test 2: Model Fallback")
-    print("=" * 60)
-    
-    config = ResilienceConfig(
-        enabled=True,
-        fallback=FallbackConfig(
-            enabled=True,
-            models=["qwen3.5-plus"],
-        ),
-    )
-    
+def _completed(value):
+    async def complete():
+        return value
+
+    return complete()
+
+
+@pytest.mark.asyncio
+async def test_basic_routing_selects_configured_default_model():
+    called_models = []
+    router = ModelRouter(default_model="configured-default")
+
+    async def run_with_model(model: str):
+        called_models.append(model)
+        return _completed("ok")
+
+    result = await router.run_with_resilience(run_with_model)
+
+    assert result == "ok"
+    assert called_models == ["configured-default"]
+    assert router.last_metrics is None
+
+
+@pytest.mark.asyncio
+async def test_fallback_attempts_secondary_model_after_recoverable_failure():
+    called_models = []
     router = ModelRouter(
-        default_model="qwen3.5-plus",
-        resilience_config=config,
-    )
-    
-    client = AsyncOpenAI(
-        api_key=os.getenv("OPENAI_API_KEY"),
-        base_url=os.getenv("OPENAI_BASE_URL"),
-    )
-    
-    async def create_agent(model):
-        return Runner.run(
-            Agent(
-                name="Test",
-                instructions="You are helpful.",
-                model=OpenAIChatCompletionsModel(model=model, openai_client=client),
-            ),
-            "What is 1+1?",
-        )
-    
-    result = await router.run_with_resilience(create_agent)
-    print(f"OK Result: {result.final_output}")
-    print(f"Metrics - Model: {router.last_metrics.success_model}")
-    print()
-    return True
-
-
-async def test_retry():
-    """Test 3: Retry mechanism."""
-    print("=" * 60)
-    print("Test 3: Retry Mechanism")
-    print("=" * 60)
-    
-    config = ResilienceConfig(
-        enabled=True,
-        retry=RetryConfig(
+        default_model="primary",
+        resilience_config=ResilienceConfig(
             enabled=True,
-            max_retries=2,
-            initial_delay=0.5,
+            fallback=FallbackConfig(enabled=True, models=["primary", "secondary"]),
         ),
     )
-    
+
+    async def run_with_model(model: str):
+        called_models.append(model)
+
+        async def complete():
+            if model == "primary":
+                raise APIConnectionError("primary unavailable")
+            return "secondary response"
+
+        return complete()
+
+    result = await router.run_with_resilience(run_with_model)
+
+    assert result == "secondary response"
+    assert called_models == ["primary", "secondary"]
+    assert router.last_metrics.models_tried == ["primary", "secondary"]
+    assert router.last_metrics.success_model == "secondary"
+    assert router.last_metrics.fallback_count == 1
+    assert router.last_metrics.retry_count == 0
+
+
+@pytest.mark.asyncio
+async def test_retry_repeats_same_model_without_counting_a_fallback():
+    attempts = 0
     router = ModelRouter(
-        default_model="qwen3.5-plus",
-        resilience_config=config,
-    )
-    
-    client = AsyncOpenAI(
-        api_key=os.getenv("OPENAI_API_KEY"),
-        base_url=os.getenv("OPENAI_BASE_URL"),
-    )
-    
-    async def create_agent(model):
-        return Runner.run(
-            Agent(
-                name="Test",
-                instructions="You are helpful.",
-                model=OpenAIChatCompletionsModel(model=model, openai_client=client),
-            ),
-            "Tell me a fact",
-        )
-    
-    result = await router.run_with_resilience(create_agent)
-    print(f"OK Result: {result.final_output[:100]}...")
-    print()
-    return True
-
-
-async def test_timeout():
-    """Test 4: Timeout control."""
-    print("=" * 60)
-    print("Test 4: Timeout Control")
-    print("=" * 60)
-    
-    config = ResilienceConfig(
-        enabled=True,
-        timeout=TimeoutConfig(
+        default_model="primary",
+        resilience_config=ResilienceConfig(
             enabled=True,
-            total_timeout=30.0,
+            retry=RetryConfig(enabled=True, max_retries=1, initial_delay=0, max_delay=0),
         ),
     )
-    
+
+    async def run_with_model(model: str):
+        nonlocal attempts
+
+        async def complete():
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise APIConnectionError("transient failure")
+            return model
+
+        return complete()
+
+    result = await router.run_with_resilience(run_with_model)
+
+    assert result == "primary"
+    assert attempts == 2
+    assert router.last_metrics.models_tried == ["primary"]
+    assert router.last_metrics.success_model == "primary"
+    assert router.last_metrics.retry_count == 1
+    assert router.last_metrics.fallback_count == 0
+
+
+@pytest.mark.asyncio
+async def test_retry_exhaustion_can_trigger_fallback_to_secondary_model():
+    called_models = []
     router = ModelRouter(
-        default_model="qwen3.5-plus",
-        resilience_config=config,
+        default_model="primary",
+        resilience_config=ResilienceConfig(
+            enabled=True,
+            fallback=FallbackConfig(enabled=True, models=["primary", "secondary"]),
+            retry=RetryConfig(enabled=True, max_retries=1, initial_delay=0, max_delay=0),
+        ),
     )
-    
-    client = AsyncOpenAI(
-        api_key=os.getenv("OPENAI_API_KEY"),
-        base_url=os.getenv("OPENAI_BASE_URL"),
-    )
-    
-    async def create_agent(model):
-        return Runner.run(
-            Agent(
-                name="Test",
-                instructions="You are helpful.",
-                model=OpenAIChatCompletionsModel(model=model, openai_client=client),
-            ),
-            "Say something short",
-        )
-    
-    result = await router.run_with_resilience(create_agent)
-    print(f"OK Result: {result.final_output}")
-    print(f"Metrics - Duration: {router.last_metrics.total_duration:.2f}s")
-    print()
-    return True
+
+    async def run_with_model(model: str):
+        called_models.append(model)
+
+        async def complete():
+            if model == "primary":
+                raise APIConnectionError("primary unavailable")
+            return "secondary response"
+
+        return complete()
+
+    result = await router.run_with_resilience(run_with_model)
+
+    assert result == "secondary response"
+    assert called_models == ["primary", "primary", "secondary"]
+    assert router.last_metrics.models_tried == ["primary", "secondary"]
+    assert router.last_metrics.retry_count == 1
+    assert router.last_metrics.fallback_count == 1
+    assert router.last_metrics.success_model == "secondary"
 
 
-async def test_full_resilience():
-    """Test 5: Full resilience configuration."""
-    print("=" * 60)
-    print("Test 5: Full Resilience (Fallback + Retry + Timeout)")
-    print("=" * 60)
-    
-    config = ResilienceConfig(
-        enabled=True,
-        fallback=FallbackConfig(
-            enabled=True,
-            models=["qwen3.5-plus"],
-        ),
-        retry=RetryConfig(
-            enabled=True,
-            max_retries=1,
-            initial_delay=0.5,
-        ),
-        timeout=TimeoutConfig(
-            enabled=True,
-            total_timeout=30.0,
-        ),
-    )
-    
+@pytest.mark.asyncio
+async def test_timeout_raises_when_total_budget_is_exceeded():
     router = ModelRouter(
-        default_model="qwen3.5-plus",
-        resilience_config=config,
+        default_model="slow-model",
+        resilience_config=ResilienceConfig(
+            enabled=True,
+            timeout=TimeoutConfig(enabled=True, total_timeout=0.01),
+        ),
     )
-    
+
+    async def run_with_model(model: str):
+        async def complete():
+            await asyncio.sleep(0.1)
+            return model
+
+        return complete()
+
+    with pytest.raises(ModelTimeoutError, match="Total timeout"):
+        await router.run_with_resilience(run_with_model)
+
+    assert router.last_metrics.models_tried == ["slow-model"]
+    assert "TimeoutError" in router.last_metrics.error
+
+
+@pytest.mark.skipif(
+    os.getenv("RUN_EXTERNAL_TESTS", "false").lower() != "true",
+    reason="requires external OpenAI-compatible model service; set RUN_EXTERNAL_TESTS=true",
+)
+@pytest.mark.asyncio
+async def test_configured_model_service_smoke():
+    """Perform one real request using the model and endpoint from local config."""
+    model = os.environ["AGENT_MODEL_DEFAULT"]
     client = AsyncOpenAI(
-        api_key=os.getenv("OPENAI_API_KEY"),
-        base_url=os.getenv("OPENAI_BASE_URL"),
+        api_key=os.environ["OPENAI_API_KEY"],
+        base_url=os.getenv("OPENAI_BASE_URL") or None,
     )
-    
-    async def create_agent(model):
+    router = ModelRouter(default_model=model)
+
+    async def run_with_model(model: str):
         return Runner.run(
             Agent(
-                name="Test",
-                instructions="You are helpful.",
-                model=OpenAIChatCompletionsModel(model=model, openai_client=client),
+                name="resilience-smoke",
+                instructions="Reply with only OK.",
+                model=OpenAIChatCompletionsModel(
+                    model=model,
+                    openai_client=client,
+                ),
             ),
-            "Hello!",
+            "Reply with only OK.",
+            run_config=RunConfig(tracing_disabled=True),
         )
-    
-    result = await router.run_with_resilience(create_agent)
-    print(f"OK Result: {result.final_output}")
-    metrics = router.last_metrics
-    print(f"Metrics:")
-    print(f"  - Model: {metrics.success_model}")
-    print(f"  - Duration: {metrics.total_duration:.2f}s")
-    print(f"  - Fallbacks: {metrics.fallback_count}")
-    print()
-    return True
 
+    result = await router.run_with_resilience(run_with_model)
 
-async def main():
-    """Run all tests."""
-    print("\n")
-    print("Model Resilience Tests")
-    print("=" * 60)
-    print()
-    
-    results = {}
-    
-    results["Basic Routing"] = await test_basic_routing()
-    results["Fallback"] = await test_fallback()
-    results["Retry"] = await test_retry()
-    results["Timeout"] = await test_timeout()
-    results["Full Resilience"] = await test_full_resilience()
-    
-    print("=" * 60)
-    print("Test Results Summary")
-    print("=" * 60)
-    
-    for name, success in results.items():
-        status = "PASS" if success else "FAIL"
-        print(f"{name:20s} {status}")
-    
-    print()
-    
-    passed = sum(1 for s in results.values() if s)
-    total = len(results)
-    
-    if passed == total:
-        print(f"All tests passed! ({passed}/{total})")
-        print()
-        print("Pluggable model resilience is working correctly!")
-    else:
-        print(f"Some tests failed ({passed}/{total})")
-    
-    print()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    assert result.final_output.strip()

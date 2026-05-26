@@ -130,7 +130,10 @@ class ModelFallback:
     
     def _should_fallback(self, error: Exception) -> bool:
         """检查是否应该降级"""
-        error_type = type(error).__name__
+        # RetryExecutor wraps its final recoverable error; fallback decisions
+        # must still be based on the underlying provider failure.
+        root_error = getattr(error, "last_error", error)
+        error_type = type(root_error).__name__
         return error_type in self.config.fallback_on
     
     @property

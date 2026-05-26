@@ -11,7 +11,7 @@ src.main:app
   -> src.api.app.create_app(settings)
      -> build_harness(settings)
      -> build_protocol_registry(settings)
-     -> /chat, /chat/resume, /memory/*, /health/*
+     -> /chat, /chat/stream, /chat/resume, /memory/*, /health/*
 ```
 
 - `src/main.py` 仅导出 ASGI `app`。
@@ -51,6 +51,14 @@ curl http://localhost:8080/health/ok
 curl http://localhost:8080/health/capabilities
 ```
 
+浏览器手工验证 `/chat` 时，打开：
+
+```text
+http://localhost:8080/ui
+```
+
+页面默认调用 `POST /chat/stream` 实时展示文本增量，并复用同一 `session_id`、显示原始事件；启用 HITL 时也可在页面批准或拒绝中断的工具调用。启用 Auth 时，可在页面请求设置中填写 Bearer Token。
+
 ## 聊天 API
 
 ```bash
@@ -60,6 +68,10 @@ curl -X POST http://localhost:8080/chat \
 ```
 
 `/chat` 会返回 `session_id`、`output`、实际使用的 `model`、工具调用以及当前内存会话消息数量。
+
+需要流式显示时，提交相同请求体到 `POST /chat/stream`。该接口以
+`application/x-ndjson` 依次发送 `start`、`delta` 和 `done` 事件；失败时发送
+`error` 事件。由于已发送的文本增量不可透明撤回，模型失败重试与 fallback 仍由完整响应接口 `/chat` 承载。
 
 当前安全边界：
 
@@ -159,7 +171,7 @@ RATE_LIMIT_FAIL_OPEN=false
 LANGFUSE_ENABLED=true
 LANGFUSE_PUBLIC_KEY=pk-xxx
 LANGFUSE_SECRET_KEY=sk-xxx
-LANGFUSE_BASE_URL=https://cloud.langfuse.com
+LANGFUSE_BASE_URL=http://agent-otel-test.ke.com
 ```
 
 - Redis 限流后端要求 `REDIS_ENABLED=true`；后端失败默认返回 `503`，显式设置 `RATE_LIMIT_FAIL_OPEN=true` 才放行。

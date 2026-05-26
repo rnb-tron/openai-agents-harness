@@ -10,10 +10,13 @@
 未启用的能力零开销, 不再有散落的 ``if mgr is not None`` 判断。
 """
 
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
 
 from agents import Agent, AsyncOpenAI, OpenAIChatCompletionsModel, Runner, RunState, set_tracing_disabled
+from agents.stream_events import RawResponsesStreamEvent
+from openai.types.responses.response_text_delta_event import ResponseTextDeltaEvent
 
 from src.capabilities.memory.capability import (
     LongTermMemoryCapability,
@@ -283,6 +286,114 @@ class AgentOrchestrator:
             "model": selected_model,
             "tool_calls": ctx.tool_calls,
             "memory_size": len(self.memory_store.get(session.session_id)),
+        }
+
+    async def run_stream(
+        self,
+        session: AgentSession,
+        user_input: str,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Run one selected model and yield text deltas followed by the completed response.
+
+        Retry and fallback remain on ``run``: once deltas have been delivered,
+        transparently restarting with another model would corrupt the client-visible stream.
+        """
+        if not self.settings.openai_api_key:
+            raise RuntimeError("OPENAI_API_KEY is required for /chat endpoint")
+
+        task_type = self.model_router.infer_task_type(user_input)
+        selected_model = self.model_router.select(task_type=task_type)
+        ctx = RunContext(
+            session_id=session.session_id,
+            user_id=session.user_id,
+            user_input=user_input,
+            enriched_input=user_input,
+            selected_model=selected_model,
+        )
+        ctx.metadata["tools"] = {
+            "available": self.tool_registry.list_tools(),
+            "approval_required": self.tool_registry.list_approval_required(),
+        }
+
+        await self.registry.dispatch(RunPhase.BEFORE_RUN, ctx)
+        client = self._create_openai_client()
+        instructions = await self._resolve_instructions(task_type, ctx)
+        agent = self._build_agent(model=selected_model, client=client, instructions=instructions)
+
+        yield {
+            "type": "start",
+            "session_id": session.session_id,
+            "model": selected_model,
+        }
+        try:
+            run_result = Runner.run_streamed(starting_agent=agent, input=ctx.enriched_input)
+            async for event in run_result.stream_events():
+                if isinstance(event, RawResponsesStreamEvent) and isinstance(
+                    event.data, ResponseTextDeltaEvent
+                ):
+                    yield {"type": "delta", "delta": event.data.delta}
+        except Exception as exc:
+            await self.registry.dispatch(RunPhase.ON_ERROR, ctx, error=exc)
+            raise
+
+        interruptions = list(getattr(run_result, "interruptions", []) or [])
+        if interruptions:
+            run_state = run_result.to_state().to_json()
+            approval_requests = []
+            if self.hitl_mgr is not None:
+                run_state, requests = await self.hitl_mgr.request_approvals_from_result(
+                    run_result,
+                    session_id=ctx.session_id,
+                    user_id=ctx.user_id or "anonymous",
+                )
+                approval_requests = [request.to_dict() for request in requests]
+            else:
+                approval_requests = [
+                    {
+                        "tool_name": getattr(item, "qualified_name", None)
+                        or getattr(item, "name", None)
+                        or "unknown",
+                        "arguments": getattr(item, "arguments", None),
+                        "call_id": getattr(item, "call_id", None),
+                        "sdk_interruption_index": index,
+                    }
+                    for index, item in enumerate(interruptions)
+                ]
+            ctx.metadata["hitl"] = {
+                "interrupted": True,
+                "approval_requests": approval_requests,
+            }
+            yield {
+                "type": "done",
+                "data": {
+                    "session_id": session.session_id,
+                    "input": user_input,
+                    "output": None,
+                    "model": selected_model,
+                    "tool_calls": [],
+                    "memory_size": len(self.memory_store.get(session.session_id)),
+                    "interrupted": True,
+                    "interruptions": approval_requests,
+                    "run_state": run_state,
+                },
+            }
+            return
+
+        ctx.final_output = str(run_result.final_output)
+        ctx.tool_calls = parse_tool_calls_from_result(run_result)
+        await self.registry.dispatch(RunPhase.AFTER_RUN, ctx)
+        session.context["last_model"] = selected_model
+        yield {
+            "type": "done",
+            "data": {
+                "session_id": session.session_id,
+                "input": user_input,
+                "output": ctx.final_output,
+                "model": selected_model,
+                "tool_calls": ctx.tool_calls,
+                "memory_size": len(self.memory_store.get(session.session_id)),
+                "interrupted": False,
+            },
         }
 
     async def resume_with_approval(
