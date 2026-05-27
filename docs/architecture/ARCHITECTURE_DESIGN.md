@@ -4,6 +4,116 @@
 
 > 状态：当前实现基准文档。架构判断与脚手架设计应优先以本文和代码为准。
 
+## 管理者决策视图：原子能力为什么需要 Harness
+
+这张图用于判断整体技术方向，而不是呈现某一次请求的所有实现细节。它把当前代码中已经存在的装配路径、插件边界和仍待平台化的部分放在一张图里。
+
+```mermaid
+flowchart TB
+    Product["平台配置 / 项目模板选择<br/>勾选 Memory、Prompt、Observability、Auth、RateLimit、HITL 等"]:::decision
+    Settings["Settings / Env<br/>能力开关与后端参数"]:::config
+    Catalog["CapabilityManifest + Catalog<br/>kind / depends_on / provides / install_order"]:::control
+    Validate["组合校验<br/>补齐 required 能力<br/>检查外部资源与依赖"]:::control
+
+    Product --> Catalog --> Validate
+    Product --> Settings
+
+    subgraph Assembly["装配边界：create_app() + HarnessBuilder"]
+        direction LR
+        AppFactory["App Factory<br/>创建应用并管理总生命周期"]:::assembly
+        ProtocolAssembly["ProtocolPluginRegistry<br/>HTTP 接入插件装配"]:::assembly
+        HarnessBuilder["HarnessBuilder<br/>资源创建、依赖注入、能力注册、依赖校验"]:::assembly
+        Harness["Harness + HarnessContext<br/>已装配系统快照 / shared resources"]:::assembly
+
+        AppFactory --> ProtocolAssembly
+        AppFactory --> HarnessBuilder --> Harness
+    end
+
+    Settings --> AppFactory
+    Validate -. "当前提供生成/选择校验输入" .-> HarnessBuilder
+
+    subgraph Protocol["协议原子能力：请求进入系统前"]
+        direction LR
+        RequestCtx["Request Context<br/>Request-ID"]:::protocol
+        ObsHttp["Observability HTTP<br/>Trace-ID"]:::protocol
+        Auth["Auth<br/>principal"]:::protocol
+        Rate["RateLimit<br/>traffic policy"]:::protocol
+        Router["FastAPI Routers"]:::runtime
+        RequestCtx --> ObsHttp --> Auth --> Rate --> Router
+    end
+
+    ProtocolAssembly --> RequestCtx
+
+    subgraph Runtime["运行时原子能力：一次 Agent Run"]
+        direction LR
+        Orchestrator["AgentOrchestrator<br/>稳定主流程"]:::runtime
+        Registry["CapabilityRegistry<br/>setup / before_run / after_run / on_error / teardown"]:::runtime
+        Before["Before Run<br/>Memory / Prompt / Compression / Checkpoint"]:::capability
+        Model["ModelRouter<br/>Fallback / Retry / Timeout"]:::capability
+        SDK["OpenAI Agents SDK<br/>Agent / Runner / Tools / Handoff / HITL"]:::sdk
+        After["After Run / Error<br/>Memory write / Checkpoint / audit hooks"]:::capability
+
+        Orchestrator --> Registry --> Before --> Model --> SDK --> After
+        Registry --> After
+    end
+
+    Router --> Orchestrator
+    Harness --> Orchestrator
+
+    subgraph Resources["资源原子能力：被复用且统一释放"]
+        direction LR
+        Tools["ToolRegistry"]:::resource
+        DB["DatabaseResource<br/>shared pool"]:::resource
+        MemoryMgr["MemoryManager<br/>vector / long-term"]:::resource
+        PromptMgr["PromptManager"]:::resource
+        Langfuse["Langfuse / OTel"]:::resource
+        Infra["Redis / Kafka / HTTP Client"]:::resource
+        DB --> MemoryMgr
+    end
+
+    Harness --> Tools
+    Harness --> DB
+    Harness --> PromptMgr
+    ProtocolAssembly --> Langfuse
+    AppFactory --> Infra
+    Tools --> SDK
+    MemoryMgr --> Before
+    PromptMgr --> Before
+    Langfuse --> ObsHttp
+
+    Boundary["当前边界<br/>Manifest 已支持目录和组合校验；<br/>实际实例创建仍由 Builder / App Factory 显式编码"]:::boundary
+    Catalog -.-> Boundary
+    HarnessBuilder -.-> Boundary
+
+    classDef decision fill:#13315c,color:#fff,stroke:#13315c;
+    classDef config fill:#e9f1ff,stroke:#5677a6,color:#15263d;
+    classDef control fill:#e9f5ed,stroke:#48865e,color:#173527;
+    classDef assembly fill:#fff2d9,stroke:#bd8324,color:#3f2b0b,stroke-width:2px;
+    classDef protocol fill:#e8f1fb,stroke:#4175ae,color:#142d48;
+    classDef runtime fill:#eee9fb,stroke:#6850a3,color:#292040;
+    classDef capability fill:#efe9fb,stroke:#8465bf,color:#292040;
+    classDef resource fill:#e7f6f4,stroke:#37847d,color:#133b38;
+    classDef sdk fill:#122a44,color:#fff,stroke:#122a44;
+    classDef boundary fill:#fff0f0,stroke:#b45252,color:#4b2020,stroke-dasharray: 4 3;
+```
+
+### 读图结论
+
+1. **原子能力不是直接拼到 Router 或 SDK 上。** 每项能力只承担一类职责：协议治理、运行期钩子或共享资源；统一由装配层决定是否启用、实例化和释放。
+2. **Harness 是把“可选模块”变成“可运行系统”的必要边界。** 它集中处理依赖注入、资源复用、生命周期、能力顺序和依赖校验，使 `AgentOrchestrator` 保持稳定，新增能力无需持续扩张主执行路径。
+3. **SDK 仍然是执行内核。** Harness 没有重写 Agent 引擎；Tools、Handoff、HITL 和模型调用最终仍交给 OpenAI Agents SDK，这能控制自研复杂度。
+4. **方向成立，但尚未完成全动态平台化。** `CapabilityManifest` 当前可供能力目录、组合检查和脚手架规划使用；实际 `HarnessBuilder`、`AgentOrchestrator` 与 `build_protocol_registry()` 仍显式装配具体实例。下一阶段应收敛为由同一装配描述驱动“校验 + 实例创建”，避免元数据和实现长期漂移。
+
+### 方向校验闸门
+
+| 判断问题 | 当前代码证据 | 判断 |
+| --- | --- | --- |
+| 关闭能力会不会污染主流程？ | `Capability.is_enabled()`、Registry 仅调度 enabled 能力；Protocol Plugin 按设置注册 | 基本满足 |
+| 共享资源会不会由各能力重复创建？ | `HarnessBuilder` 持有 `DatabaseResource`、`PromptManager`、`MemoryManager` 并注入 Runtime | 方向正确 |
+| 能力依赖是否可提前发现？ | `CapabilityManifest.depends_on/provides`、`validate_capability_selection()`、`context.validate_dependencies()` | 已具备基线 |
+| 新增能力是否必须修改主 Runtime？ | 通用钩子能力可注册接入；但部分高级能力和资源创建仍在 Builder / Runtime 显式编码 | 部分满足，需继续收敛 |
+| HTTP 治理与 Agent 能力是否混杂？ | `ProtocolPluginRegistry` 与 `CapabilityRegistry` 分离，Observability 仅跨边界贡献 HTTP interceptor | 边界合理 |
+
 ## 🎯 架构目标
 
 Agent Harness 的目标是提供一个可复用的工程底座，让业务团队可以在平台勾选能力后生成可运行 Agent 工程。

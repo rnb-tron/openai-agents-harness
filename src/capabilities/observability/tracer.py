@@ -3,8 +3,7 @@
 import logging
 from typing import Optional, Any
 
-from langfuse import get_client
-# Langfuse 4.x 不再需要单独导入 Langfuse 类
+from langfuse import Langfuse
 from openinference.instrumentation.openai_agents import OpenAIAgentsInstrumentor
 
 from src.capabilities.observability.config import ObservabilityConfig
@@ -35,8 +34,13 @@ class TracerManager:
             # 验证配置
             self.config.validate()
             
-            # 初始化 Langfuse 客户端
-            self._langfuse = get_client()
+            # 显式传递配置，确保自建 Langfuse 地址在未设置 SDK 环境变量时也生效。
+            self._langfuse = Langfuse(
+                public_key=self.config.public_key,
+                secret_key=self.config.secret_key,
+                base_url=self.config.base_url,
+                tracing_enabled=self.config.tracing_enabled,
+            )
             
             # 验证连接
             if self._langfuse.auth_check():

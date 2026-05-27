@@ -19,7 +19,18 @@
 
 ## 🧭 架构总览
 
-![Agent Harness Architecture](docs/assets/agent-harness-architecture-cn-v5.png)
+![Agent Harness Architecture](docs/assets/agent-harness-architecture-cn-v6.png)
+
+```mermaid
+flowchart TD
+    A["API 层<br/>routers / middleware / schemas"] --> B["Harness 装配层<br/>HarnessBuilder / HarnessContext / Manifest"]
+    B --> C["运行时层<br/>AgentOrchestrator + OpenAI Agents SDK Runner"]
+    C --> D["能力层<br/>Memory / Tools / Model Router / Prompt / Compression"]
+    A --> E["协议能力<br/>Auth / RateLimit / Observability Middleware"]
+    D --> F["基础设施层<br/>Database / Redis / Kafka / HTTP Client"]
+    B --> G["脚手架生成输入<br/>CapabilityManifest / Config / Resources"]
+```
+
 
 核心原则：
 
@@ -30,6 +41,37 @@
 - **可维护**：`API`、`Runtime`、`Capability`、`Infrastructure` 边界清晰。
 
 当前 `CapabilityManifest` 已可支持能力目录与组合校验，但运行时装配仍由 `HarnessBuilder` 和 `AgentOrchestrator` 显式实现；本仓库是可演进的工程底座，而不是已完成的全动态生成平台。
+
+## 🧰 技术选型
+
+| 领域 | 技术选型 | 当前用途 | 装配方式 |
+| --- | --- | --- | --- |
+| 开发语言 | Python 3.11+ | 异步服务与 Agent 能力实现 | 核心依赖 |
+| Agent Runtime | OpenAI Agents SDK | `Agent`、`Runner`、Tool、Handoff 与 HITL 恢复 | 核心依赖 |
+| HTTP 服务 | FastAPI + Uvicorn | `/chat`、`/chat/stream`、健康检查与本地验证 UI | 核心依赖 |
+| 流式验证 UI | 原生 HTML / CSS / JavaScript + Fetch Stream / NDJSON | 本地浏览器验证 `/chat/stream` 增量响应 | 随 API 服务提供 |
+| 配置与数据校验 | Pydantic + python-dotenv | 配置加载、API schema 与环境切换 | 核心依赖 |
+| 外部模型调用 | OpenAI Python SDK / OpenAI-compatible API | 聊天、embedding 与兼容模型端点访问 | 按模型配置启用 |
+| 通用 HTTP 客户端 | httpx AsyncClient | 对外 HTTP 调用、连接池与超时治理 | 基础设施，懒加载 |
+| 可观测性 | Langfuse + OpenTelemetry + OpenInference | Agent trace、流式输入输出、HTTP span 与模型调用追踪 | `LANGFUSE_ENABLED` 按需装配 |
+| Memory 框架 | Mem0 | 个性化长期记忆抽取、沉淀与召回的目标实现 | 目标选型，当前尚未接入代码 |
+| 当前 Memory 实现 | `MemoryStore` + `MemoryManager` | 会话历史、关系记忆与可选语义检索 | 基础会话始终启用；长期能力按需装配 |
+| 关系持久化 | SQLAlchemy Async + MySQL / PostgreSQL | 当前长期记忆记录及业务数据访问基础设施 | `DATABASE_ENABLED` / `MEMORY_ENABLED` 按需装配 |
+| 向量检索 | Elasticsearch 或 PostgreSQL + pgvector | Memory 语义召回 | `MEMORY_VECTOR_BACKEND` 按需选择 |
+| 缓存与限流 | Redis | Redis 限流、可选压缩缓存与基础资源接入 | `REDIS_ENABLED` 按需装配 |
+| 消息基础设施 | Kafka / aiokafka | 异步事件发送基础设施 | `KAFKA_ENABLED` 按需装配 |
+| 协议安全 | PyJWT | JWT 认证中间件 | `AUTH_ENABLED` 按需装配 |
+| Prompt 存储 | Langfuse Prompt + Local YAML fallback | Prompt 远端管理与本地降级 | `PROMPT_ENABLED` 按需装配 |
+| 上下文压缩 | tiktoken + 可配置 LLM Summary | token budget、滚动摘要与 hybrid 压缩 | `COMPRESSION_ENABLED` 按需装配 |
+| 模型弹性 | 自研 Router / Retry / Timeout / Fallback | 模型选择、失败重试和降级链路 | `MODEL_RESILIENCE_ENABLED` 按需装配 |
+| 高级 Agent | Agents SDK 原生 HITL / Handoff + 进程内 Checkpoint | 人工审批恢复、专家转交与执行摘要 | 对应配置开关按需装配 |
+| 生命周期调度 | APScheduler | Memory 清理任务调度 | 装配 `MemoryManager` 后启用 |
+| 日志 | Python logging + 自定义 JSON Formatter | 请求上下文与结构化运行日志 | 核心基础设施 |
+| 测试与质量 | pytest / pytest-asyncio / Ruff / Black / mypy | 单元、集成、E2E 与静态质量检查 | 开发依赖 |
+
+选型原则是让 Agent 主执行链保持最小可运行，同时将 Memory、Observability、Auth、RateLimit 和外部资源能力交给 Harness 按配置装配，便于平台后续按能力组合生成工程。
+
+> Memory 现状说明：`Mem0` 是长期记忆能力的目标技术选型，但当前代码尚未引入 `mem0` 依赖或适配层；当前已运行的实现仍由 `MemoryStore`、`MemoryManager`、关系库与可选向量后端组成。后续接入 Mem0 时，可将其作为 `memory` capability 的实现替换或增强，而不改变 API 与 Harness 装配边界。
 
 ## 🧩 能力体系
 

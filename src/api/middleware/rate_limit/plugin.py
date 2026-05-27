@@ -15,7 +15,7 @@ from src.core.logging import setup_logger
 
 logger = setup_logger("api.middleware.rate_limit")
 
-_DEFAULT_SKIP_PATHS = ("/health", "/docs", "/redoc", "/openapi.json")
+_DEFAULT_SKIP_PATHS = ("/health", "/docs", "/redoc", "/openapi.json", "/ui")
 
 
 class RateLimitPlugin:

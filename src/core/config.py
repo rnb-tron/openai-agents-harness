@@ -223,7 +223,7 @@ def get_settings() -> Settings:
         auth_jwt_issuer=os.getenv("AUTH_JWT_ISSUER", "") or None,
         auth_jwt_audience=os.getenv("AUTH_JWT_AUDIENCE", "") or None,
         auth_jwt_leeway_sec=int(os.getenv("AUTH_JWT_LEEWAY_SEC", "30")),
-        auth_skip_paths=_split_csv(os.getenv("AUTH_SKIP_PATHS", "/health,/docs,/redoc,/openapi.json")),
+        auth_skip_paths=_split_csv(os.getenv("AUTH_SKIP_PATHS", "/health,/docs,/redoc,/openapi.json,/ui")),
         # Protocol-layer Rate Limit
         rate_limit_enabled=os.getenv("RATE_LIMIT_ENABLED", "false").lower() == "true",
         rate_limit_backend=os.getenv("RATE_LIMIT_BACKEND", "redis"),
@@ -233,7 +233,7 @@ def get_settings() -> Settings:
         rate_limit_key_strategy=os.getenv("RATE_LIMIT_KEY_STRATEGY", "principal_or_ip"),
         rate_limit_fail_open=os.getenv("RATE_LIMIT_FAIL_OPEN", "false").lower() == "true",
         rate_limit_routes=os.getenv("RATE_LIMIT_ROUTES", ""),
-        rate_limit_skip_paths=_split_csv(os.getenv("RATE_LIMIT_SKIP_PATHS", "/health,/docs,/redoc,/openapi.json")),
+        rate_limit_skip_paths=_split_csv(os.getenv("RATE_LIMIT_SKIP_PATHS", "/health,/docs,/redoc,/openapi.json,/ui")),
         # Context Compression
         compression_enabled=os.getenv("COMPRESSION_ENABLED", "false").lower() == "true",
         compression_strategy=os.getenv("COMPRESSION_STRATEGY", "token_budget"),

@@ -84,9 +84,15 @@ class ResilientModelRunner:
             async def with_timeout():
                 # 中层: 降级策略
                 async def with_fallback(model):
+                    self.metrics.models_tried.append(model)
+                    attempt_count = 0
+
                     # 内层: 重试策略
                     async def with_retry():
-                        self.metrics.models_tried.append(model)
+                        nonlocal attempt_count
+                        if attempt_count > 0:
+                            self.metrics.retry_count += 1
+                        attempt_count += 1
                         
                         # 创建 Agent
                         agent = await agent_factory(model=model)
@@ -95,7 +101,7 @@ class ResilientModelRunner:
                         return await agent  # agent 应该是 Runner.run 的协程
                     
                     return await self.retry.execute(with_retry)
-                
+
                 return await self.fallback.execute(with_fallback)
             
             result = await self.timeout.execute(with_timeout)

@@ -98,8 +98,11 @@ class HarnessBuilder:
         self.config = HarnessConfig.from_settings(settings)
 
     def build(self) -> Harness:
+        # Tool Registry
         tool_registry = ToolRegistry()
+        # Register default tools
         tool_registry.register_defaults()
+        # Configure HITL
         hitl_config = HITLConfig.from_settings(self.settings)
         checkpoint_config = CheckpointConfig.from_settings(self.settings)
         handoff_config = HandoffConfig.from_settings(self.settings)
@@ -109,7 +112,9 @@ class HarnessBuilder:
                 auto_approve=hitl_config.auto_approve_tools,
             )
 
+        # Resilience Configuration
         resilience_config = ResilienceConfig.from_env()
+        # Model Router
         model_router = ModelRouter(
             default_model=self.settings.agent_model_default,
             reasoning_model=self.settings.agent_model_reasoning,

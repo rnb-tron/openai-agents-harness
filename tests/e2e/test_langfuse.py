@@ -2,13 +2,13 @@
 Langfuse 可观测系统测试
 
 使用前准备:
-1. 注册 Langfuse Cloud: https://cloud.langfuse.com
+1. 访问 Langfuse 平台: http://agent-otel-test.ke.com
 2. 创建项目并获取 API Keys
 3. 更新 config/test.env 中的配置:
    LANGFUSE_ENABLED=true
    LANGFUSE_PUBLIC_KEY=pk-lf-xxx
    LANGFUSE_SECRET_KEY=sk-lf-xxx
-   LANGFUSE_BASE_URL=https://cloud.langfuse.com
+   LANGFUSE_BASE_URL=http://agent-otel-test.ke.com
 """
 
 import asyncio
@@ -17,8 +17,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # 加载配置
-env_file = Path(__file__).parent.parent / "config" / "test.env"
-load_dotenv(env_file)
+env_file = Path(__file__).parents[2] / "config" / "test.env"
+load_dotenv(env_file, override=True)
 
 from agents import Agent, Runner, trace, function_tool
 
@@ -103,6 +103,7 @@ async def test_simple_agent_with_langfuse():
         agent = Agent(
             name="Assistant",
             instructions="You are a helpful assistant.",
+            model="qwen3.5-plus",
         )
         
         print("📤 用户: Tell me about Python programming")
@@ -115,7 +116,7 @@ async def test_simple_agent_with_langfuse():
         print()
         print("✅ Agent 运行成功!")
         print("📊 在 Langfuse Dashboard 中查看完整 Trace:")
-        print(f"   https://cloud.langfuse.com")
+        print(f"   {config.base_url}")
         print()
         
         # 关闭可观测系统
@@ -274,7 +275,7 @@ async def main():
         print("  LANGFUSE_ENABLED=true")
         print("  LANGFUSE_PUBLIC_KEY=pk-lf-xxx")
         print("  LANGFUSE_SECRET_KEY=sk-lf-xxx")
-        print("  LANGFUSE_BASE_URL=https://cloud.langfuse.com")
+        print("  LANGFUSE_BASE_URL=http://agent-otel-test.ke.com")
         print()
         return
     
@@ -282,7 +283,7 @@ async def main():
         print("❌ API Key 未配置")
         print()
         print("请获取 Langfuse API Keys:")
-        print("  1. 访问 https://cloud.langfuse.com")
+        print("  1. 访问 http://agent-otel-test.ke.com")
         print("  2. 创建项目")
         print("  3. Settings → API Keys")
         print("  4. 复制 Public Key 和 Secret Key")
@@ -332,7 +333,7 @@ async def main():
         print("Langfuse 可观测系统完全正常!")
         print()
         print("查看你的 Traces:")
-        print("  👉 https://cloud.langfuse.com")
+        print(f"  👉 {os.getenv('LANGFUSE_BASE_URL', 'http://agent-otel-test.ke.com')}")
     else:
         print(f"⚠️  部分测试失败 ({passed}/{total} 通过)")
     

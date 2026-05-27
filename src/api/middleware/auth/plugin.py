@@ -13,7 +13,7 @@ from src.core.logging import bind_log_context, reset_log_context, setup_logger
 
 logger = setup_logger("api.middleware.auth")
 
-_DEFAULT_SKIP_PATHS = ("/health", "/docs", "/redoc", "/openapi.json")
+_DEFAULT_SKIP_PATHS = ("/health", "/docs", "/redoc", "/openapi.json", "/ui")
 
 
 class AuthPlugin:

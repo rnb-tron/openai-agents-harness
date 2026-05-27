@@ -103,7 +103,7 @@ pip install langfuse openinference-instrumentation-openai-agents
 # 2. 配置环境变量
 LANGFUSE_PUBLIC_KEY=pk-lf-xxx
 LANGFUSE_SECRET_KEY=sk-lf-xxx
-LANGFUSE_BASE_URL=https://cloud.langfuse.com
+LANGFUSE_BASE_URL=http://agent-otel-test.ke.com
 
 # 3. 应用启动时初始化
 from src.capabilities.observability import init_observability
@@ -187,12 +187,12 @@ async def process_user_input(user_input: str):
 
 ```bash
 # 注册账号
-https://cloud.langfuse.com
+http://agent-otel-test.ke.com
 
 # 获取 API Key
 LANGFUSE_PUBLIC_KEY=pk-lf-xxx
 LANGFUSE_SECRET_KEY=sk-lf-xxx
-LANGFUSE_BASE_URL=https://cloud.langfuse.com
+LANGFUSE_BASE_URL=http://agent-otel-test.ke.com
 ```
 
 **优势**:

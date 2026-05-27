@@ -4,6 +4,8 @@ import os
 from dataclasses import dataclass, field
 from typing import Optional
 
+DEFAULT_LANGFUSE_BASE_URL = "http://agent-otel-test.ke.com"
+
 
 @dataclass
 class ObservabilityConfig:
@@ -12,7 +14,7 @@ class ObservabilityConfig:
     # Langfuse 认证
     public_key: str = ""
     secret_key: str = ""
-    base_url: str = "https://cloud.langfuse.com"
+    base_url: str = DEFAULT_LANGFUSE_BASE_URL
     
     # 功能开关
     enabled: bool = False
@@ -48,7 +50,7 @@ class ObservabilityConfig:
         return cls(
             public_key=os.getenv("LANGFUSE_PUBLIC_KEY", ""),
             secret_key=os.getenv("LANGFUSE_SECRET_KEY", ""),
-            base_url=os.getenv("LANGFUSE_BASE_URL", "https://cloud.langfuse.com"),
+            base_url=os.getenv("LANGFUSE_BASE_URL", DEFAULT_LANGFUSE_BASE_URL),
             enabled=os.getenv("LANGFUSE_ENABLED", "false").lower() == "true",
             tracing_enabled=os.getenv("LANGFUSE_TRACING_ENABLED", "true").lower() == "true",
             metrics_enabled=os.getenv("LANGFUSE_METRICS_ENABLED", "true").lower() == "true",
