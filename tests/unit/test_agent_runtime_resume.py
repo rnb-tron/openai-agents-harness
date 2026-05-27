@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -138,6 +139,10 @@ async def test_streamed_run_yields_text_delta_and_completed_result():
         model_router=ModelRouter(default_model="stream-model"),
         settings=_settings(),
     )
+    observation = MagicMock()
+    langfuse = MagicMock()
+    langfuse.start_as_current_observation.return_value = nullcontext(observation)
+    tracer_manager = SimpleNamespace(langfuse=langfuse, is_initialized=True)
 
     with patch(
         "src.application.orchestration.agent_runtime.Runner.run_streamed",
@@ -152,6 +157,12 @@ async def test_streamed_run_yields_text_delta_and_completed_result():
     ), patch(
         "src.application.orchestration.agent_runtime.parse_tool_calls_from_result",
         return_value=[],
+    ), patch(
+        "src.application.orchestration.agent_runtime.get_tracer_manager",
+        return_value=tracer_manager,
+    ), patch(
+        "src.application.orchestration.agent_runtime.propagate_attributes",
+        return_value=nullcontext(),
     ):
         events = [
             event
@@ -162,3 +173,14 @@ async def test_streamed_run_yields_text_delta_and_completed_result():
     assert [event["delta"] for event in events if event["type"] == "delta"] == ["完", "成"]
     assert events[-1]["type"] == "done"
     assert events[-1]["data"]["output"] == "完成"
+    langfuse.start_as_current_observation.assert_called_once_with(
+        name="agent.chat.stream",
+        as_type="agent",
+        input="answer",
+    )
+    langfuse.set_current_trace_io.assert_any_call(input="answer")
+    langfuse.set_current_trace_io.assert_any_call(output="完成")
+    observation.update.assert_called_once_with(
+        output="完成",
+        metadata={"model": "stream-model", "interrupted": False},
+    )

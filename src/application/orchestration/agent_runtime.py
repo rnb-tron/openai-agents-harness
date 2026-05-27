@@ -11,11 +11,13 @@
 """
 
 from collections.abc import AsyncIterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
 from agents import Agent, AsyncOpenAI, OpenAIChatCompletionsModel, Runner, RunState, set_tracing_disabled
 from agents.stream_events import RawResponsesStreamEvent
+from langfuse import propagate_attributes
 from openai.types.responses.response_text_delta_event import ResponseTextDeltaEvent
 
 from src.capabilities.memory.capability import (
@@ -26,6 +28,7 @@ from src.capabilities.memory.capability import (
 from src.capabilities.memory.manager import MemoryManager
 from src.capabilities.memory.store import MemoryStore
 from src.capabilities.model_routing.router import ModelRouter
+from src.capabilities.observability import get_tracer_manager
 from src.capabilities.plugin import CapabilityRegistry, RunContext, RunPhase
 from src.capabilities.prompt.manager import PromptManager
 from src.capabilities.tools.registry import ToolRegistry
@@ -187,7 +190,80 @@ class AgentOrchestrator:
         """供应用关闭期调用"""
         await self.registry.teardown_all()
 
+    @contextmanager
+    def _observe_agent_run(
+        self,
+        *,
+        session: AgentSession,
+        user_input: str,
+        trace_name: str,
+    ):
+        """Create the Langfuse root observation when observability is active."""
+        tracer_manager = get_tracer_manager()
+        langfuse = (
+            tracer_manager.langfuse
+            if tracer_manager is not None and tracer_manager.is_initialized
+            else None
+        )
+        if langfuse is None:
+            yield None
+            return
+
+        with langfuse.start_as_current_observation(
+            name=trace_name,
+            as_type="agent",
+            input=user_input,
+        ) as observation:
+            with propagate_attributes(
+                trace_name=trace_name,
+                session_id=session.session_id,
+                user_id=session.user_id,
+                tags=["chat"],
+            ):
+                # Self-hosted deployments may still render legacy trace-level I/O columns.
+                langfuse.set_current_trace_io(input=user_input)
+                yield observation
+
+    def _update_observation(self, observation: Any, result: dict[str, Any]) -> None:
+        if observation is None:
+            return
+        output: Any = result.get("output")
+        if result.get("interrupted"):
+            output = {
+                "interrupted": True,
+                "interruptions": result.get("interruptions", []),
+            }
+        observation.update(
+            output=output,
+            metadata={
+                "model": result.get("model", ""),
+                "interrupted": bool(result.get("interrupted", False)),
+            },
+        )
+        tracer_manager = get_tracer_manager()
+        if tracer_manager is not None and tracer_manager.langfuse is not None:
+            tracer_manager.langfuse.set_current_trace_io(output=output)
+
+    @staticmethod
+    def _mark_observation_error(observation: Any, error: Exception) -> None:
+        if observation is not None:
+            observation.update(level="ERROR", status_message=str(error))
+
     async def run(self, session: AgentSession, user_input: str) -> dict[str, Any]:
+        with self._observe_agent_run(
+            session=session,
+            user_input=user_input,
+            trace_name="agent.chat",
+        ) as observation:
+            try:
+                result = await self._run(session, user_input)
+            except Exception as exc:
+                self._mark_observation_error(observation, exc)
+                raise
+            self._update_observation(observation, result)
+            return result
+
+    async def _run(self, session: AgentSession, user_input: str) -> dict[str, Any]:
         if not self.settings.openai_api_key:
             raise RuntimeError("OPENAI_API_KEY is required for /chat endpoint")
 
@@ -289,6 +365,25 @@ class AgentOrchestrator:
         }
 
     async def run_stream(
+        self,
+        session: AgentSession,
+        user_input: str,
+    ) -> AsyncIterator[dict[str, Any]]:
+        with self._observe_agent_run(
+            session=session,
+            user_input=user_input,
+            trace_name="agent.chat.stream",
+        ) as observation:
+            try:
+                async for event in self._run_stream(session, user_input):
+                    if event["type"] == "done":
+                        self._update_observation(observation, event["data"])
+                    yield event
+            except Exception as exc:
+                self._mark_observation_error(observation, exc)
+                raise
+
+    async def _run_stream(
         self,
         session: AgentSession,
         user_input: str,
@@ -397,6 +492,44 @@ class AgentOrchestrator:
         }
 
     async def resume_with_approval(
+        self,
+        session: AgentSession,
+        *,
+        run_state: dict[str, Any],
+        interruption_index: int,
+        approved: bool,
+        approval_request_id: str | None = None,
+        reviewer: str = "anonymous",
+        model: str | None = None,
+        user_input: str = "",
+        always: bool = False,
+        rejection_message: str | None = None,
+    ) -> dict[str, Any]:
+        with self._observe_agent_run(
+            session=session,
+            user_input=user_input,
+            trace_name="agent.chat.resume",
+        ) as observation:
+            try:
+                result = await self._resume_with_approval(
+                    session,
+                    run_state=run_state,
+                    interruption_index=interruption_index,
+                    approved=approved,
+                    approval_request_id=approval_request_id,
+                    reviewer=reviewer,
+                    model=model,
+                    user_input=user_input,
+                    always=always,
+                    rejection_message=rejection_message,
+                )
+            except Exception as exc:
+                self._mark_observation_error(observation, exc)
+                raise
+            self._update_observation(observation, result)
+            return result
+
+    async def _resume_with_approval(
         self,
         session: AgentSession,
         *,
