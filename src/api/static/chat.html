@@ -277,10 +277,82 @@
 
       .raw {
         padding: 15px;
-        height: calc(100% - 54px);
+        flex: 1;
+        min-height: 190px;
         display: flex;
         flex-direction: column;
         gap: 12px;
+      }
+
+      .inspection {
+        display: flex;
+        flex-direction: column;
+      }
+
+      .advanced {
+        padding: 14px 15px;
+        border-bottom: 1px solid var(--line);
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .capability-badges {
+        display: flex;
+        gap: 5px;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+      }
+
+      .badge {
+        padding: 4px 7px;
+        border-radius: 999px;
+        color: #6b7483;
+        background: #edf1f7;
+        font-weight: 600;
+      }
+
+      .badge.enabled {
+        color: var(--success);
+        background: #e7f6f0;
+      }
+
+      .advanced-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 4px 0;
+      }
+
+      .advanced-row strong {
+        color: var(--ink);
+        font-weight: 600;
+        max-width: 200px;
+        text-align: right;
+        word-break: break-word;
+      }
+
+      .advanced h3 {
+        margin: 12px 0 6px;
+        color: var(--ink);
+        font-size: 12px;
+      }
+
+      .state-list {
+        border-radius: 7px;
+        background: #f7f9fc;
+        color: #40536d;
+        min-height: 28px;
+        max-height: 88px;
+        overflow: auto;
+        padding: 7px 8px;
+        line-height: 1.55;
+        white-space: pre-line;
+      }
+
+      .refresh-state {
+        width: 100%;
+        margin-top: 12px;
+        padding: 7px 10px;
       }
 
       #raw-response {
@@ -307,8 +379,8 @@
           min-height: 65vh;
         }
 
-        .raw {
-          height: 400px;
+        .inspection {
+          min-height: 560px;
         }
       }
     </style>
@@ -316,7 +388,7 @@
   <body>
     <header>
       <h1>Agent Harness / Chat E2E Console</h1>
-      <span>POST /chat/stream · POST /chat/resume</span>
+      <span>POST /chat/stream · POST /chat/resume/stream · GET /advanced/sessions/{id}</span>
     </header>
     <main>
       <section class="panel">
@@ -361,7 +433,19 @@
         </form>
       </section>
 
-      <section class="panel">
+      <section class="panel inspection">
+        <div class="panel-title">Advanced 验收</div>
+        <div class="advanced" data-testid="advanced-state">
+          <div id="advanced-enabled" class="capability-badges"></div>
+          <div class="advanced-row"><span>执行 Agent</span><strong id="executing-agent">-</strong></div>
+          <div class="advanced-row"><span>Agent 路径</span><strong id="agent-path">-</strong></div>
+          <div class="advanced-row"><span>Handoff 目标</span><strong id="handoff-targets">-</strong></div>
+          <h3>审批记录</h3>
+          <div id="approval-records" class="state-list">尚无审批</div>
+          <h3>Checkpoint</h3>
+          <div id="checkpoint-records" class="state-list">尚无检查点</div>
+          <button id="refresh-advanced" class="secondary refresh-state" type="button">刷新 Advanced 状态</button>
+        </div>
         <div class="panel-title">最近响应 JSON</div>
         <div class="raw">
           <pre id="raw-response" data-testid="raw-response">等待请求...</pre>
@@ -379,7 +463,14 @@
       const health = document.querySelector("#health");
       const approval = document.querySelector("#approval");
       const approvalDetail = document.querySelector("#approval-detail");
+      const advancedEnabled = document.querySelector("#advanced-enabled");
+      const executingAgent = document.querySelector("#executing-agent");
+      const agentPath = document.querySelector("#agent-path");
+      const handoffTargets = document.querySelector("#handoff-targets");
+      const approvalRecords = document.querySelector("#approval-records");
+      const checkpointRecords = document.querySelector("#checkpoint-records");
       let pendingApproval = null;
+      let currentAdvanced = {};
 
       function newSessionId() {
         return globalThis.crypto && crypto.randomUUID
@@ -439,6 +530,41 @@
         rawResponse.textContent = JSON.stringify(value, null, 2);
       }
 
+      function renderAdvanced(state = {}) {
+        currentAdvanced = {...currentAdvanced, ...state};
+        state = currentAdvanced;
+        const enabled = state.enabled || {};
+        advancedEnabled.replaceChildren();
+        for (const [key, label] of [["hitl", "HITL"], ["checkpoint", "Checkpoint"], ["handoff", "Handoff"]]) {
+          const badge = document.createElement("span");
+          badge.className = `badge ${enabled[key] ? "enabled" : ""}`;
+          badge.textContent = `${label}: ${enabled[key] ? "ON" : "OFF"}`;
+          advancedEnabled.appendChild(badge);
+        }
+        executingAgent.textContent = state.executing_agent || "-";
+        agentPath.textContent = (state.agent_path || []).join(" -> ") || "-";
+        handoffTargets.textContent = (state.handoff_targets || []).join(", ") || "-";
+        const approvals = state.approvals || [];
+        approvalRecords.textContent = approvals.length
+          ? approvals.map((item) => `${item.tool_name}: ${item.status}`).join("\n")
+          : "尚无审批";
+        const checkpoints = state.checkpoints || [];
+        checkpointRecords.textContent = checkpoints.length
+          ? checkpoints.map((item) => item.description || item.id).join("\n")
+          : "尚无检查点";
+      }
+
+      async function refreshAdvanced() {
+        const response = await fetch(`/advanced/sessions/${encodeURIComponent(sessionInput.value)}`, {
+          headers: headers()
+        });
+        if (!response.ok) {
+          throw new Error(`Advanced HTTP ${response.status}`);
+        }
+        const body = await response.json();
+        renderAdvanced(body.data);
+      }
+
       function showPending(data, originalMessage) {
         pendingApproval = {data, originalMessage};
         const interruption = (data.interruptions || [])[0] || {};
@@ -491,6 +617,12 @@
             showRaw(events);
             if (event.type === "start") {
               setSession(event.session_id);
+              renderAdvanced(event.advanced);
+            } else if (event.type === "agent_updated") {
+              renderAdvanced({
+                executing_agent: event.agent,
+                agent_path: event.agent_path
+              });
             } else if (event.type === "delta") {
               if (!assistantBubble) {
                 assistantBubble = addMessage("assistant", "");
@@ -503,7 +635,11 @@
               completed = true;
               const data = event.data;
               setSession(data.session_id);
+              renderAdvanced(data.advanced);
               if (data.interrupted) {
+                if (assistantBubble && !streamedOutput) {
+                  assistantBubble.remove();
+                }
                 addMessage("system", "请求已暂停，等待人工审批。");
                 showPending(data, message);
               } else {
@@ -540,25 +676,80 @@
           session_id: data.session_id,
           message: originalMessage,
           model: data.model,
-          user_id: userInput.value.trim() || null
+          user_id: userInput.value.trim() || null,
+          rejection_message: approved ? null : "用户拒绝执行该工具，工具未运行。"
         };
-        const response = await fetch("/chat/resume", {
+        const response = await fetch("/chat/resume/stream", {
           method: "POST",
           headers: headers(),
           body: JSON.stringify(payload)
         });
-        const body = await response.json();
-        showRaw(body);
         if (!response.ok) {
-          throw new Error(body.detail || `HTTP ${response.status}`);
+          throw new Error(`HTTP ${response.status}`);
         }
-        clearPending();
-        const resumed = body.data;
-        if (resumed.interrupted) {
-          showPending(resumed, originalMessage);
-          addMessage("system", "出现新的审批请求。");
-        } else {
-          addMessage("assistant", resumed.output || "(无文本输出)", `model: ${resumed.model} · resumed`);
+        if (!response.body) {
+          throw new Error("浏览器未提供流式响应体");
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        const events = [];
+        let buffer = "";
+        let streamedOutput = "";
+        let assistantBubble = null;
+        let completed = false;
+        let streamEnded = false;
+        while (!streamEnded) {
+          const next = await reader.read();
+          buffer += decoder.decode(next.value || new Uint8Array(), {stream: !next.done});
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+          for (const line of lines) {
+            if (!line.trim()) {
+              continue;
+            }
+            const event = JSON.parse(line);
+            events.push(event);
+            showRaw(events);
+            if (event.type === "start") {
+              renderAdvanced(event.advanced);
+            } else if (event.type === "agent_updated") {
+              renderAdvanced({
+                executing_agent: event.agent,
+                agent_path: event.agent_path
+              });
+            } else if (event.type === "delta") {
+              if (!assistantBubble) {
+                assistantBubble = addMessage("assistant", "");
+              }
+              streamedOutput += event.delta;
+              updateMessage(assistantBubble, streamedOutput, "streaming...");
+            } else if (event.type === "error") {
+              throw new Error(event.detail || "审批恢复失败");
+            } else if (event.type === "done") {
+              completed = true;
+              clearPending();
+              const resumed = event.data;
+              renderAdvanced(resumed.advanced);
+              if (resumed.interrupted) {
+                showPending(resumed, originalMessage);
+                addMessage("system", "出现新的审批请求。");
+              } else {
+                if (!assistantBubble) {
+                  assistantBubble = addMessage("assistant", "");
+                }
+                updateMessage(
+                  assistantBubble,
+                  resumed.output || streamedOutput || "(无文本输出)",
+                  `model: ${resumed.model} · resumed`
+                );
+              }
+            }
+          }
+          streamEnded = next.done;
+        }
+        if (!completed) {
+          throw new Error("流式连接结束，但未收到完成事件");
         }
       }
 
@@ -600,8 +791,14 @@
         withFeedback(() => resumeChat(false));
       });
 
+      document.querySelector("#refresh-advanced").addEventListener("click", () => {
+        withFeedback(() => refreshAdvanced());
+      });
+
       document.querySelector("#new-session").addEventListener("click", () => {
         setSession(newSessionId());
+        currentAdvanced = {};
+        renderAdvanced();
         messages.replaceChildren();
         clearPending();
         rawResponse.textContent = "等待请求...";
@@ -609,6 +806,7 @@
         placeholder.className = "empty";
         placeholder.textContent = "新会话已准备好，发送消息开始测试。";
         messages.appendChild(placeholder);
+        withFeedback(() => refreshAdvanced());
       });
 
       async function checkHealth() {
@@ -618,6 +816,7 @@
             throw new Error();
           }
           health.textContent = "本地 API 已连接 · /health/ok";
+          await refreshAdvanced();
         } catch (error) {
           health.classList.add("offline");
           health.textContent = "本地 API 未连接";
@@ -625,6 +824,7 @@
       }
 
       setSession(localStorage.getItem("agent-chat-session") || newSessionId());
+      renderAdvanced();
       checkHealth();
       messageInput.focus();
     </script>

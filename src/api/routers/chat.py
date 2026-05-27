@@ -125,3 +125,43 @@ async def resume_chat(
     except Exception as exc:  # pragma: no cover
         raise HTTPException(status_code=500, detail=f"chat resume failed: {exc}") from exc
     return create_success_response(data=result)
+
+
+@router.post("/resume/stream")
+async def resume_chat_stream(
+    request: ChatResumeRequest,
+    principal: Principal = Depends(get_current_principal),
+    harness: Harness = Depends(get_harness),
+) -> StreamingResponse:
+    """以 NDJSON 流式返回人工审批后的继续执行结果。"""
+    user_id = _resolve_user_id(principal, request.user_id)
+    session = AgentSession(session_id=request.session_id, user_id=user_id)
+
+    async def events():
+        try:
+            async for event in harness.runtime.resume_stream_with_approval(
+                session=session,
+                run_state=request.run_state,
+                interruption_index=request.interruption_index,
+                approved=request.approved,
+                approval_request_id=request.approval_request_id,
+                reviewer=user_id or "anonymous",
+                model=request.model,
+                user_input=request.message,
+                always=request.always,
+                rejection_message=request.rejection_message,
+            ):
+                yield json.dumps(event, ensure_ascii=False) + "\n"
+        except (RuntimeError, ValueError) as exc:
+            yield json.dumps({"type": "error", "detail": str(exc)}, ensure_ascii=False) + "\n"
+        except Exception as exc:  # pragma: no cover
+            yield json.dumps(
+                {"type": "error", "detail": f"chat resume failed: {exc}"},
+                ensure_ascii=False,
+            ) + "\n"
+
+    return StreamingResponse(
+        events(),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

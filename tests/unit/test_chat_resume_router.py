@@ -6,7 +6,13 @@ import pytest
 from fastapi import HTTPException
 
 from src.api.middleware.auth.base import Principal
-from src.api.routers.chat import ChatRequest, ChatResumeRequest, chat_stream, resume_chat
+from src.api.routers.chat import (
+    ChatRequest,
+    ChatResumeRequest,
+    chat_stream,
+    resume_chat,
+    resume_chat_stream,
+)
 
 
 class _StreamingRuntime:
@@ -77,6 +83,38 @@ async def test_resume_chat_passes_native_state_and_authenticated_identity():
     assert kwargs["approved"] is False
     assert kwargs["rejection_message"] == "未经批准"
     assert response.data["output"] == "完成"
+
+
+@pytest.mark.asyncio
+async def test_resume_chat_stream_emits_ndjson_continuation_events():
+    class Runtime:
+        async def resume_stream_with_approval(self, **kwargs):
+            self.kwargs = kwargs
+            yield {"type": "start", "session_id": kwargs["session"].session_id}
+            yield {"type": "delta", "delta": "继续"}
+            yield {"type": "done", "data": {"output": "继续完成"}}
+
+    runtime = Runtime()
+    request = ChatResumeRequest(
+        run_state={"snapshot": True},
+        interruption_index=0,
+        approved=True,
+        session_id="session-1",
+        message="查询天气",
+        model="gpt-4o-mini",
+    )
+
+    response = await resume_chat_stream(
+        request,
+        Principal(user_id="auth-user", is_anonymous=False),
+        SimpleNamespace(runtime=runtime),
+    )
+    chunks = [chunk async for chunk in response.body_iterator]
+    events = [json.loads(line) for chunk in chunks for line in chunk.splitlines()]
+
+    assert response.media_type == "application/x-ndjson"
+    assert events[1] == {"type": "delta", "delta": "继续"}
+    assert runtime.kwargs["session"].user_id == "auth-user"
 
 
 @pytest.mark.asyncio

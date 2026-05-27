@@ -6,6 +6,7 @@ from fastapi import FastAPI
 
 from src.api.middleware.assembler import build_protocol_registry
 from src.api.middleware.request_context import install_request_context
+from src.api.routers import advanced as advanced_router
 from src.api.routers import chat as chat_router
 from src.api.routers import health as health_router
 from src.api.routers import memory as memory_router
@@ -62,11 +63,12 @@ def create_app(settings) -> FastAPI:
     app.state.protocol_registry = protocol_registry
 
     protocol_registry.install_all(app)
-    # 最后注册以成为 FastAPI LIFO middleware 栈的最外层。
+
     install_request_context(app)
 
     app.include_router(health_router.router)
     app.include_router(chat_router.router)
+    app.include_router(advanced_router.router)
     app.include_router(memory_router.router)
     app.include_router(ui_router.router)
     return app

@@ -13,4 +13,7 @@ def test_chat_ui_serves_local_e2e_console():
     assert response.status_code == 200
     assert "Agent Harness / Chat E2E Console" in response.text
     assert 'fetch("/chat/stream"' in response.text
-    assert 'fetch("/chat/resume"' in response.text
+    assert 'fetch("/chat/resume/stream"' in response.text
+    assert "/advanced/sessions/${encodeURIComponent(sessionInput.value)}" in response.text
+    assert 'data-testid="advanced-state"' in response.text
+    assert 'id="agent-path"' in response.text

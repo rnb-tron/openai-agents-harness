@@ -123,6 +123,17 @@ async def test_review_sdk_approval_binds_decision_to_original_state():
     assert result.reviewed_by == "reviewer-1"
 
 
+async def test_list_requests_can_be_scoped_to_session():
+    manager = ApprovalManager(HITLConfig(enabled=True))
+    await manager.request_approval("delete_user", {}, "s1", "u1")
+    await manager.request_approval("delete_user", {}, "s2", "u2")
+
+    requests = manager.list_requests("s1")
+
+    assert len(requests) == 1
+    assert requests[0].session_id == "s1"
+
+
 async def test_hitl_capability_does_not_request_approval_after_execution():
     manager = ApprovalManager(
         HITLConfig(enabled=True, require_approval_tools=["delete_user"])

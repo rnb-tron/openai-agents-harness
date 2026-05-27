@@ -100,6 +100,13 @@ class ApprovalManager:
         
         # 默认不需要审批
         return False
+
+    def list_requests(self, session_id: str | None = None) -> list[ApprovalRequest]:
+        """List approval requests, optionally scoped to one chat session."""
+        requests = list(self._requests.values())
+        if session_id is not None:
+            requests = [request for request in requests if request.session_id == session_id]
+        return sorted(requests, key=lambda request: request.created_at)
     
     async def request_approval(
         self,
