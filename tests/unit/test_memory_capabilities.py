@@ -39,9 +39,10 @@ def test_memory_marker_capabilities_express_dependencies():
     long_term = LongTermMemoryCapability(enabled=True)
     vector = VectorSearchCapability(enabled=True)
 
-    assert long_term.manifest.depends_on == ("database", "memory_manager")
-    assert vector.manifest.depends_on == ("long_term_memory", "embedding_provider")
-    assert "partial" not in vector.manifest.tags
+    assert long_term.manifest.depends_on == ("memory_manager",)
+    assert "mem0" in long_term.manifest.tags
+    assert vector.manifest.depends_on == ("long_term_memory",)
+    assert "mem0" in vector.manifest.tags
 
 
 def test_orchestrator_registers_only_memory_session_when_manager_absent():
@@ -55,3 +56,26 @@ def test_orchestrator_registers_only_memory_session_when_manager_absent():
     enabled_names = [manifest.name for manifest in orchestrator.registry.enabled]
 
     assert enabled_names == ["memory_session"]
+
+
+def test_orchestrator_registers_mem0_memory_without_embedding_provider():
+    manager = SimpleNamespace(
+        supports_vector_search=True,
+        vector_store=None,
+        embedding_provider=None,
+    )
+    orchestrator = AgentOrchestrator(
+        tool_registry=ToolRegistry(),
+        memory_store=MemoryStore(),
+        model_router=ModelRouter(),
+        memory_manager=manager,
+        settings=_settings(memory_enabled=True),
+    )
+
+    manifests = {
+        capability.manifest.name: capability.manifest
+        for capability in orchestrator.registry.enabled
+    }
+
+    assert manifests["long_term_memory"].depends_on == ("memory_manager",)
+    assert manifests["vector_search"].depends_on == ("long_term_memory",)

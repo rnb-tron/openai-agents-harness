@@ -34,8 +34,10 @@ class RenderedPrompt:
     name: str
     text: str
     version: str | int | None = None
+    label: str | None = None
     source: str = "unknown"
     rendered_vars: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
     cache_hit: bool = False
     duration_ms: int = 0
 
@@ -44,10 +46,12 @@ class RenderedPrompt:
         return {
             "name": self.name,
             "version": self.version,
+            "label": self.label,
             "source": self.source,
             "cache_hit": self.cache_hit,
             "duration_ms": self.duration_ms,
             "rendered_vars": dict(self.rendered_vars),
+            **dict(self.metadata),
         }
 
 

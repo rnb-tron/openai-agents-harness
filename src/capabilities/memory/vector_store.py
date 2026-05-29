@@ -1,7 +1,4 @@
-"""
-Elasticsearch Vector Store
-向量存储层 - 用于记忆相似度检索
-"""
+"""向量存储层，用于记忆相似度检索。"""
 
 import hashlib
 from typing import Any, Protocol
@@ -13,7 +10,7 @@ from src.core.logging import service_logger
 
 
 class VectorStore(Protocol):
-    """MemoryManager 可切换的向量存储边界。"""
+    """记忆管理器可切换的向量存储边界。"""
 
     backend_name: str
 
@@ -50,7 +47,7 @@ class VectorStore(Protocol):
 
 
 class ElasticsearchVectorStore:
-    """Elasticsearch向量存储 - 支持记忆向量检索"""
+    """Elasticsearch 向量存储，支持记忆向量检索。"""
 
     backend_name = "elasticsearch"
 

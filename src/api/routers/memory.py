@@ -95,6 +95,7 @@ async def clear_session_memory(
 @router.get("/stats")
 async def get_memory_stats(
     user_id: str = Query(None, description="用户ID (可选)"),
+    session_id: str = Query(None, description="会话ID (可选，用于查看短期会话记忆)"),
     harness: Harness = Depends(get_harness),
 ):
     """
@@ -104,7 +105,7 @@ async def get_memory_stats(
     """
     try:
         if harness.memory_manager is not None:
-            stats = await harness.memory_manager.get_stats(user_id)
+            stats = await harness.memory_manager.get_stats(user_id, session_id=session_id)
         else:
             stats = {
                 "short_term": harness.memory_store.stats(),

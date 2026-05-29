@@ -2,7 +2,7 @@
 
 > 文档类型：设计记录。当前能力开关与装配状态以代码及架构设计文档为准。
 >
-> 更新说明：当前实现已将抽象名称收敛为 `ProtocolPlugin` / `ProtocolPluginRegistry`，由 `src/api/app.py` 装配；Redis 限流默认 fail-closed，以下早期 fail-open 描述仅保留决策演进背景。
+> 更新说明：当前实现使用 `ProtocolPlugin` / `ProtocolRequestChain`，由 `src/api/app.py` 装配显式请求链；Redis 限流默认 fail-closed，以下早期 fail-open 描述仅保留决策演进背景。
 >
 > 状态: **已实施**(分支 `refactor/arch-cleanup-p0-p1-p2` 之上的协议层增强)
 > 范围: 仅"消费方 JWT 认证 + Token-Bucket 限流",不含登录会话/Token 颁发
@@ -29,7 +29,7 @@
 
 ## 二、核心架构决策
 
-### 2.1 引入新抽象:`MiddlewarePlugin`(协议层)
+### 2.1 引入新抽象:`ProtocolPlugin`(协议层)
 
 与应用层 `Capability` 抽象**正交不耦合**,形成"双层可插拔":
 
@@ -38,7 +38,9 @@
 │ HTTP Request                                            │
 │   │                                                     │
 │   ▼  ┌──────────────────────────────────────────────┐   │
-│      │ MiddlewarePlugin 链 (协议层周期)             │   │
+│      │ ProtocolRequestChain (协议层周期)            │   │
+│      │   • RequestContext  → X-Request-ID          │   │
+│      │   • Observability   → HTTP tracing          │   │
 │      │   • AuthPlugin       → request.state.principal│   │
 │      │   • RateLimitPlugin  → 429 / X-RateLimit-*  │   │
 │      └──────────────────────────────────────────────┘   │
@@ -52,33 +54,32 @@
 └─────────────────────────────────────────────────────────┘
 ```
 
-### 2.2 协议层抽象三件套
+### 2.2 显式协议请求链
 
 ```python
 # src/api/middleware/base.py
 @runtime_checkable
-class MiddlewarePlugin(Protocol):
+class ProtocolPlugin(Protocol):
     name: str
     def is_enabled(self) -> bool: ...
     def install(self, app: FastAPI) -> None: ...
     async def setup(self) -> None: ...
     async def teardown(self) -> None: ...
 
-# src/api/middleware/registry.py
-class MiddlewareRegistry:
-    def register(self, plugin: MiddlewarePlugin) -> None: ...
-    def install_all(self, app: FastAPI) -> None:
-        # 反向 install,使注册顺序 = 运行顺序
-        for plugin in reversed(self.enabled):
+# src/api/middleware/chain.py
+class ProtocolRequestChain:
+    def __init__(self, request_order: tuple[ProtocolPlugin, ...]) -> None: ...
+    def install_on(self, app: FastAPI) -> None:
+        # 框架适配细节：FastAPI LIFO，外部只看 request_order
+        for plugin in reversed(self.request_order):
             plugin.install(app)
-    async def setup_all(self) -> None: ...
-    async def teardown_all(self) -> None: ...
-
-middleware_registry = MiddlewareRegistry()  # 全局单例
+    async def startup(self) -> None: ...
+    async def shutdown(self) -> None: ...
 ```
 
-> ⚠️ FastAPI middleware 是 LIFO 的(后注册先运行),Registry 内部反向 install,
-> 让用户视角的"先注册 Auth、再注册 RateLimit"在运行时=`Auth → RateLimit → Router`。
+> FastAPI middleware 是 LIFO 的（后注册先运行），但该细节仅封装在
+> `ProtocolRequestChain.install_on()` 内。业务阅读者直接看到的执行顺序为
+> `RequestContext → Observability → Auth → RateLimit → Router`。
 
 ---
 
@@ -173,9 +174,9 @@ Auth middleware 在 `principal` 解析后,通过 `bind_log_context(principal_id=
 
 | 策略 | key 模板 | 用处 |
 |---|---|---|
-| `principal` | `rl:{route}:principal:{user_id}` | 已认证用户限流 |
+| `principal`(默认) | Auth 解析的主体 ID；匿名请求共享 anonymous 桶 | 用户维度限流 |
 | `ip` | `rl:{route}:ip:{client_ip}` | 防爬虫/匿名滥用 |
-| `principal_or_ip`(默认) | 有 principal 用 principal,否则 IP | 兼容性最好 |
+| `principal_or_ip` | 有 principal 用 principal,否则 IP | 显式兼容模式 |
 
 ### 4.5 路由级覆写 (`rate_limit_routes`)
 
@@ -230,7 +231,7 @@ RATE_LIMIT_BACKEND=redis         # redis | memory
 RATE_LIMIT_DEFAULT_LIMIT=60
 RATE_LIMIT_DEFAULT_WINDOW_SEC=60
 RATE_LIMIT_DEFAULT_BURST=10
-RATE_LIMIT_KEY_STRATEGY=principal_or_ip
+RATE_LIMIT_KEY_STRATEGY=principal
 RATE_LIMIT_ROUTES=               # JSON 字符串,空=不覆写
 RATE_LIMIT_SKIP_PATHS=/health,/docs,/openapi.json
 ```
@@ -244,8 +245,8 @@ RATE_LIMIT_SKIP_PATHS=/health,/docs,/openapi.json
 | 路径 | 行数 | 职责 |
 |---|---|---|
 | `src/api/middleware/__init__.py` | 11 | 导出 |
-| `src/api/middleware/base.py` | 39 | `MiddlewarePlugin` Protocol |
-| `src/api/middleware/registry.py` | 92 | 注册中心 + 反向 install |
+| `src/api/middleware/base.py` | 39 | `ProtocolPlugin` Protocol |
+| `src/api/middleware/chain.py` | - | 显式请求执行链 + FastAPI 安装适配 |
 | `src/api/middleware/auth/__init__.py` | 17 | 导出 |
 | `src/api/middleware/auth/base.py` | 56 | `Principal / AuthError / AuthBackend` |
 | `src/api/middleware/auth/jwt_backend.py` | 128 | PyJWT 验签 |
@@ -308,11 +309,13 @@ RATE_LIMIT_SKIP_PATHS=/health,/docs,/openapi.json
 ```
 Request
   ↓
-RateLimitPlugin.middleware    ← LIFO: 后注册先跑
-  ↓ (decision.allowed)
-AuthPlugin.middleware
-  ↓ (request.state.principal)
-request_id_middleware
+RequestContextPlugin.middleware  (X-Request-ID / log context)
+  ↓
+ObservabilityPlugin.middleware   (trace ingress and rejected requests)
+  ↓
+AuthPlugin.middleware             (request.state.principal)
+  ↓
+RateLimitPlugin.middleware        (principal-dimensional decision)
   ↓
 FastAPI Router  (Depends(get_current_principal))
   ↓

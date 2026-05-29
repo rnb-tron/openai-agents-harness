@@ -49,14 +49,29 @@ class DatabaseResource:
         if not config.url:
             raise ValueError("DATABASE_URL is required to initialize database resource")
         self.config = config
+        pool_pre_ping = config.pool_pre_ping
+        if config.url.startswith("mysql+aiomysql"):
+            # SQLAlchemy 的 aiomysql 适配器在 pre_ping 时会调用 PyMySQL 风格
+            # ping()，而 aiomysql 需要 reconnect 参数；关闭 pre_ping 可避免
+            # 连接复用阶段触发 TypeError。
+            pool_pre_ping = False
+
+        connect_args: dict[str, Any] = {
+            "echo": config.echo,
+            "pool_pre_ping": pool_pre_ping,
+        }
+        if not config.url.startswith("sqlite"):
+            connect_args.update(
+                {
+                    "pool_recycle": config.pool_recycle_seconds,
+                    "pool_size": config.pool_size,
+                    "max_overflow": config.max_overflow,
+                    "pool_timeout": config.pool_timeout_seconds,
+                }
+            )
         self.engine: AsyncEngine = create_async_engine(
             config.url,
-            echo=config.echo,
-            pool_pre_ping=config.pool_pre_ping,
-            pool_recycle=config.pool_recycle_seconds,
-            pool_size=config.pool_size,
-            max_overflow=config.max_overflow,
-            pool_timeout=config.pool_timeout_seconds,
+            **connect_args,
         )
         self.session_factory = async_sessionmaker(
             self.engine,
@@ -66,6 +81,10 @@ class DatabaseResource:
 
     def session(self) -> AsyncSession:
         return self.session_factory()
+
+    async def create_all(self) -> None:
+        async with self.engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
 
     async def close(self) -> None:
         await self.engine.dispose()

@@ -1,4 +1,4 @@
-"""Memory capabilities."""
+"""记忆能力集合。"""
 
 from src.capabilities.memory.store import ShortTermMemory, MemoryStore
 
@@ -11,12 +11,13 @@ try:
     from src.capabilities.memory.lifecycle import MemoryLifecycleManager
     from src.capabilities.memory.context_manager import ContextManager
     from src.capabilities.memory.manager import MemoryManager
+    from src.capabilities.memory.mem0_manager import Mem0MemoryManager
     from src.capabilities.memory.capability import (
         LongTermMemoryCapability,
         MemoryCapability,
         VectorSearchCapability,
     )
-except ImportError:  # pragma: no cover - optional dependencies may be absent in minimal installs
+except ImportError:  # pragma: no cover - 最小安装场景下可不安装这些依赖
     MemoryRecord = None
     MemoryRepository = None
     ElasticsearchVectorStore = None
@@ -27,6 +28,7 @@ except ImportError:  # pragma: no cover - optional dependencies may be absent in
     MemoryLifecycleManager = None
     ContextManager = None
     MemoryManager = None
+    Mem0MemoryManager = None
     MemoryCapability = None
     LongTermMemoryCapability = None
     VectorSearchCapability = None
@@ -44,6 +46,7 @@ __all__ = [
     "MemoryLifecycleManager",
     "ContextManager",
     "MemoryManager",
+    "Mem0MemoryManager",
     "MemoryCapability",
     "LongTermMemoryCapability",
     "VectorSearchCapability",

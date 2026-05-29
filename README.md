@@ -42,36 +42,36 @@ flowchart TD
 
 当前 `CapabilityManifest` 已可支持能力目录与组合校验，但运行时装配仍由 `HarnessBuilder` 和 `AgentOrchestrator` 显式实现；本仓库是可演进的工程底座，而不是已完成的全动态生成平台。
 
-## 🧰 技术选型
+## 🧰 可插拔能力
 
-| 领域 | 技术选型 | 当前用途 | 装配方式 |
-| --- | --- | --- | --- |
-| 开发语言 | Python 3.11+ | 异步服务与 Agent 能力实现 | 核心依赖 |
-| Agent Runtime | OpenAI Agents SDK | `Agent`、`Runner`、Tool、Handoff 与 HITL 恢复 | 核心依赖 |
-| HTTP 服务 | FastAPI + Uvicorn | `/chat`、`/chat/stream`、健康检查与本地验证 UI | 核心依赖 |
-| 流式验证 UI | 原生 HTML / CSS / JavaScript + Fetch Stream / NDJSON | 本地浏览器验证 `/chat/stream` 增量响应 | 随 API 服务提供 |
-| 配置与数据校验 | Pydantic + python-dotenv | 配置加载、API schema 与环境切换 | 核心依赖 |
-| 外部模型调用 | OpenAI Python SDK / OpenAI-compatible API | 聊天、embedding 与兼容模型端点访问 | 按模型配置启用 |
-| 通用 HTTP 客户端 | httpx AsyncClient | 对外 HTTP 调用、连接池与超时治理 | 基础设施，懒加载 |
-| 可观测性 | Langfuse + OpenTelemetry + OpenInference | Agent trace、流式输入输出、HTTP span 与模型调用追踪 | `LANGFUSE_ENABLED` 按需装配 |
-| Memory 框架 | Mem0 | 个性化长期记忆抽取、沉淀与召回的目标实现 | 目标选型，当前尚未接入代码 |
-| 当前 Memory 实现 | `MemoryStore` + `MemoryManager` | 会话历史、关系记忆与可选语义检索 | 基础会话始终启用；长期能力按需装配 |
-| 关系持久化 | SQLAlchemy Async + MySQL / PostgreSQL | 当前长期记忆记录及业务数据访问基础设施 | `DATABASE_ENABLED` / `MEMORY_ENABLED` 按需装配 |
-| 向量检索 | Elasticsearch 或 PostgreSQL + pgvector | Memory 语义召回 | `MEMORY_VECTOR_BACKEND` 按需选择 |
-| 缓存与限流 | Redis | Redis 限流、可选压缩缓存与基础资源接入 | `REDIS_ENABLED` 按需装配 |
-| 消息基础设施 | Kafka / aiokafka | 异步事件发送基础设施 | `KAFKA_ENABLED` 按需装配 |
-| 协议安全 | PyJWT | JWT 认证中间件 | `AUTH_ENABLED` 按需装配 |
-| Prompt 存储 | Langfuse Prompt + Local YAML fallback | Prompt 远端管理与本地降级 | `PROMPT_ENABLED` 按需装配 |
-| 上下文压缩 | tiktoken + 可配置 LLM Summary | token budget、滚动摘要与 hybrid 压缩 | `COMPRESSION_ENABLED` 按需装配 |
-| 模型弹性 | 自研 Router / Retry / Timeout / Fallback | 模型选择、失败重试和降级链路 | `MODEL_RESILIENCE_ENABLED` 按需装配 |
-| 高级 Agent | Agents SDK 原生 HITL / Handoff + 进程内 Checkpoint | 人工审批恢复、专家转交与执行摘要 | 对应配置开关按需装配 |
-| 生命周期调度 | APScheduler | Memory 清理任务调度 | 装配 `MemoryManager` 后启用 |
-| 日志 | Python logging + 自定义 JSON Formatter | 请求上下文与结构化运行日志 | 核心基础设施 |
-| 测试与质量 | pytest / pytest-asyncio / Ruff / Black / mypy | 单元、集成、E2E 与静态质量检查 | 开发依赖 |
+平台面向业务选择的是能力项，而不是 Python、FastAPI、OpenAI Agents SDK 等基础技术栈。基础栈负责让工程可运行；下表列出 Harness 能装配或因依赖自动引入的能力，是后续脚手架进行选择、裁剪与生成配置的范围。
 
-选型原则是让 Agent 主执行链保持最小可运行，同时将 Memory、Observability、Auth、RateLimit 和外部资源能力交给 Harness 按配置装配，便于平台后续按能力组合生成工程。
+| 能力域 | 能力项 | 类型 / 状态 | 技术选型 | 当前技术实现方案 | 装配入口 |
+| --- | --- | --- | --- | --- | --- |
+| 工具执行 | `tool_registry` | runtime / 已实现，基础必选 | OpenAI Agents SDK `function_tool` | `ToolRegistry` 注册工具元数据并转换为 SDK Tool；审批策略可附加到工具定义 | Harness 默认创建 |
+| 模型访问 | `model_router` | runtime / 已实现，基础必选 | OpenAI Agents SDK + OpenAI-compatible API | `ModelRouter` 按任务选择默认或推理模型，并由 `AgentOrchestrator` 调用 SDK `Runner` | Harness 默认创建 |
+| 模型稳定性 | `model_resilience` | runtime / 部分实现 | 自研 Retry / Timeout / Fallback | 按弹性配置构建 runner 包装与 fallback 模型链，隔离模型调用故障 | `MODEL_RESILIENCE_ENABLED` |
+| 会话记录 | `session_store` | resource / 已实现 | MySQL + SQLAlchemy Async | 持久化用户会话、完整消息流水和后续事件扩展，供 UI 历史会话与审计使用 | `SESSION_STORE_ENABLED` |
+| 会话记忆 | `memory_session` | runtime / 已实现 | Redis ShortTermMemory / 进程内降级 | 在 Agent 执行前后读取、写入当前会话最近上下文；启用 Mem0 manager 时由 Redis 短期记忆承载 | 默认装配 |
+| 长期记忆 | `long_term_memory` | runtime / 已实现 | Mem0 | 由 Mem0 负责用户偏好与长期记忆抽取、写入和搜索；业务层不预判长期记忆类型 | `MEMORY_ENABLED` |
+| 长期记忆资源 | `memory_manager` | resource / 已实现，依赖自动引入 | Mem0 SDK | 持有 Mem0 适配器和 Redis 短期会话缓存；长期向量存储可选 Mem0 默认、pgvector 或 Elasticsearch；读取偏好时同一维度只注入最新生效项 | 选择长期记忆时自动引入 |
+| 语义召回 | `vector_search` | runtime / 已实现 | Mem0 Search + pgvector/ES 可选 | 由 Mem0 搜索返回偏好和长期记忆；偏好类查询会做冲突消解；向量后端通过 `MEMORY_VECTOR_STORE` 选择 | `MEMORY_ENABLED` |
+| Prompt 管理 | `prompt` | runtime / 已实现 | Langfuse Prompt + Local YAML | `PromptManager` 负责拉取、TTL 缓存与渲染；`CompositeStore` 支持远端失败时本地降级 | `PROMPT_ENABLED` |
+| 上下文治理 | `context_compression` | runtime / 已实现 | tiktoken + 可配置 LLM Summary | 提供 token budget 截断、rolling summary 与 hybrid 策略，在执行前压缩上下文 | `COMPRESSION_ENABLED` |
+| 人工审批 | `hitl` | runtime / 部分实现 | OpenAI Agents SDK 原生 HITL | 工具标记 `needs_approval` 触发中断；`/chat/resume` 与流式恢复接口处理同意或拒绝 | `HITL_ENABLED` |
+| 状态快照 | `checkpoint` | runtime / 部分实现 | 进程内 Checkpoint Manager | 保存执行摘要与状态展示信息，当前不等同于持久化 SDK `RunState` | `CHECKPOINT_ENABLED` |
+| Agent 协作 | `handoff` | runtime / 部分实现 | OpenAI Agents SDK 原生 Handoff | 按配置构建目标 Agent，并注入主 Agent 的 `handoffs` 列表完成专家转交 | `HANDOFF_ENABLED` |
+| 身份认证 | `auth` | protocol / 已实现 | PyJWT | `AuthPlugin` 在 HTTP 请求链解析 JWT，并写入 `request.state.principal` | `AUTH_ENABLED` |
+| 用户限流 | `rate_limit` | protocol / 已实现 | Token Bucket + Redis / Memory backend | `RateLimitPlugin` 默认使用 Auth 产生的 principal 作为限流键；可显式选择 IP 兼容策略 | `RATE_LIMIT_ENABLED` |
+| 可观测性 | `observability` | resource + protocol adapter / 已实现 | Langfuse + OpenTelemetry + OpenInference | `ObservabilityCapability` 由 Harness 管理 tracer 生命周期；HTTP plugin 只贡献请求 span 入口 | `LANGFUSE_ENABLED` |
 
-> Memory 现状说明：`Mem0` 是长期记忆能力的目标技术选型，但当前代码尚未引入 `mem0` 依赖或适配层；当前已运行的实现仍由 `MemoryStore`、`MemoryManager`、关系库与可选向量后端组成。后续接入 Mem0 时，可将其作为 `memory` capability 的实现替换或增强，而不改变 API 与 Harness 装配边界。
+装配边界：
+
+- `runtime` 能力进入 Agent 执行过程，由 `HarnessBuilder` 创建资源并注入 `AgentOrchestrator`。
+- `protocol` 能力进入 HTTP 请求链，当前显式顺序为 `RequestContext -> Observability -> Auth -> RateLimit`。
+- `resource` 能力由 Harness 负责初始化与释放，可向 runtime 或 protocol 提供共享资源。
+
+当前尚未形成独立 capability 的候选能力包括 `RAG`、`Audit` 和 Kafka 事件发布；它们属于后续平台能力规划，不应在当前能力清单中标记为已具备。
 
 ## 🧩 能力体系
 
@@ -104,8 +104,8 @@ CapabilityManifest(
 | `model_router` | runtime | ✅ 已实现 | 模型选择、任务类型推断 |
 | `model_resilience` | runtime | 🟡 部分实现 | 降级、重试、超时 runner 已具备 |
 | `memory_session` | runtime | ✅ 已实现 | 短期会话记忆 |
-| `long_term_memory` | runtime | 🟡 部分实现 | SQLAlchemy 关系存储支持 MySQL / PostgreSQL，仍需继续产品化 |
-| `vector_search` | runtime | ✅ 已实现 | `EmbeddingProvider` 驱动 ES / PostgreSQL pgvector 写入与语义检索 |
+| `long_term_memory` | runtime | ✅ 已实现 | Mem0 后端已接入 |
+| `vector_search` | runtime | ✅ 已实现 | Mem0 Search |
 | `prompt` | runtime | ✅ 已实现 | Harness 构建 PromptManager，并注入 Runtime |
 | `context_compression` | runtime | ✅ 已实现 | 支持 token budget、rolling summary、hybrid |
 | `auth` | protocol | ✅ 已实现 | JWT 中间件插件 |
@@ -275,8 +275,6 @@ RUN_EXTERNAL_TESTS=true make test-all
 
 ```bash
 MEMORY_ENABLED=false
-MEMORY_LONG_TERM_ENABLED=false
-MEMORY_VECTOR_BACKEND=none
 COMPRESSION_ENABLED=false
 PROMPT_ENABLED=false
 HITL_ENABLED=false
@@ -343,23 +341,35 @@ HANDOFF_AGENTS_JSON={"billing":{"description":"处理账单问题","instructions
 
 启用后，`HarnessBuilder` 装配静态专家 Agent，Runtime 将其作为 SDK 原生 `Agent.handoffs` 传入主 Agent。当前仅支持专家描述与指令，不包含专家专属工具集或动态路由规则。
 
-PostgreSQL + pgvector Memory Backend：
+Mem0 Memory Backend：
 
 ```bash
-DATABASE_ENABLED=true
-DATABASE_URL=postgresql+asyncpg://agent:password@localhost:5432/agent_harness
+SESSION_STORE_ENABLED=true
+DATABASE_URL=mysql+aiomysql://agent:secret@localhost:3306/agent
+REDIS_ENABLED=true
+REDIS_URL=redis://localhost:6379/0
 MEMORY_ENABLED=true
-MEMORY_LONG_TERM_ENABLED=true
-MEMORY_VECTOR_BACKEND=pgvector
-MEMORY_PGVECTOR_TABLE=memory_vectors
-MEMORY_EMBEDDING_PROVIDER=openai
-MEMORY_EMBEDDING_MODEL=text-embedding-3-small
-MEMORY_VECTOR_DIMENSION=1536
+MEMORY_MEM0_MODE=local
+MEMORY_VECTOR_STORE=none
+# MEMORY_VECTOR_STORE=pgvector 时配置 MEMORY_PGVECTOR_DATABASE_URL
+# MEMORY_VECTOR_STORE=elasticsearch 时配置 MEMORY_ES_HOSTS / MEMORY_ES_INDEX
+MEMORY_PREFERENCE_CACHE_TTL_SEC=900
+MEMORY_SESSION_SUMMARY_ENABLED=true
+MEMORY_SESSION_SUMMARY_CACHE_TTL=2592000
+MEMORY_SESSION_SUMMARY_INITIAL_MESSAGES=4
+MEMORY_SESSION_SUMMARY_UPDATE_MESSAGES=6
+MEMORY_SESSION_SUMMARY_MODEL=
+MEMORY_SESSION_SUMMARY_MAX_TOKENS=512
+# 可选：需要完全自定义 Mem0 OSS 配置时再设置 MEMORY_MEM0_CONFIG_JSON
 ```
 
-首次启用前执行 `config/memory_postgres_pgvector_migration.sql`。`MemoryManager` 在启用 `MEMORY_EMBEDDING_PROVIDER=openai` 后自动生成 embedding，并向 pgvector 写入/查询向量；关闭 provider 时只保留关系记忆，不产生外部 embedding 调用。
+会话记录、短期会话记忆、会话摘要、长期记忆分层管理：MySQL 保存完整会话与消息流水；Redis 保存当前会话最近上下文；MySQL 持久化 LLM 会话摘要并用 Redis 做快速缓存；Mem0 统一管理用户偏好、长期记忆抽取和语义检索。`before_run` 只读取已有摘要，不同步重建；`after_run` 后台更新摘要，避免请求链路被历史消息读取和 LLM 摘要阻塞。
 
-注意：只要 `MEMORY_ENABLED=true` 且数据库资源已可用，当前实现就会写入关系记忆记录；`MEMORY_LONG_TERM_ENABLED` 主要控制向量化和语义检索。基础会话记忆仍是进程内存储，尚未接入 Redis。
+Mem0 local 模式默认复用主模型配置：`llm.config` 使用 `OPENAI_API_KEY`、`OPENAI_BASE_URL` 和 `AGENT_MODEL_DEFAULT`；`embedder.config` 使用 `OPENAI_API_KEY`、`OPENAI_BASE_URL` 和 `MEMORY_EMBEDDING_MODEL`。传给 Mem0 SDK 时，网关地址字段使用 Mem0 兼容的 `openai_base_url`。
+
+长期写入边界：`after_run` 只异步过滤空内容、寒暄、工具失败和拒绝执行等明显噪声；通过过滤的 user/assistant 对话会提交给 Mem0，由 Mem0 判断是否抽取、合并、更新或忽略长期记忆。
+
+偏好记忆采用“保留历史、注入生效版本”的策略：写入时直接把 user/assistant messages 提交给 Mem0，由 Mem0 判断是否抽取为用户偏好或其他长期记忆；检索或注入上下文时，业务层再对偏好类结果做轻量冲突消解，同一偏好维度只保留最新一条。这样既不破坏 Mem0 中的历史记忆，又避免“中文回答”和“英文回答”等冲突偏好同时进入 prompt。使用 Mem0 Platform 时，将 `MEMORY_MEM0_MODE=platform` 并配置 `MEMORY_MEM0_API_KEY`。
 
 能力目录与依赖矩阵：
 
@@ -377,7 +387,7 @@ curl -X POST http://localhost:8080/health/capability-selection/validate \
   -d '{"selected":["vector_search","hitl"]}'
 ```
 
-响应中的 `resolved_selection` 包含基础能力与可自动装配的内部依赖，`external_requirements` 描述需要平台生成配置的外部资源。例如选择 `vector_search` 时，会推导 `long_term_memory`、内部 `memory_manager` 与 `embedding_provider`，并要求配置 `database` 及 `embedding_api`。
+响应中的 `resolved_selection` 包含基础能力与可自动装配的内部依赖，`external_requirements` 描述需要平台生成配置的外部资源。例如选择 `vector_search` 时，会推导 `long_term_memory` 与内部 `memory_manager`；Mem0 管理 embedding 与长期检索，不再要求业务数据库或单独的 embedding provider。
 
 ## 🛠️ 常用命令
 
@@ -413,7 +423,7 @@ venv/bin/python examples/handoff.py
 
 ## ⚠️ 当前限制
 
-- `vector_search` 已接入可配置 embedding 与 ES / PostgreSQL pgvector 后端；真实数据库扩展、索引规模和外部 Embeddings API 的性能仍需在部署环境验证。
+- `vector_search` 已切换为 Mem0 Search；检索质量、索引参数和成本仍需在真实数据规模下验证。
 - HITL 已支持配置驱动的 SDK 原生工具审批和 HTTP 恢复，审批状态当前仅保存在进程内，持久化与审计闭环仍待完善。
 - `checkpoint` 当前是进程内执行摘要快照，不承担 SDK 中断状态持久化或灾难恢复职责。
 - `handoff` 当前支持静态专家目标接入 SDK 原生转交，动态专家注册与专家工具集仍待后续评估。
@@ -424,7 +434,7 @@ venv/bin/python examples/handoff.py
 ## 🧭 下一步建议
 
 1. 在能力选择校验结果上定义模板裁剪规则和配置字段生成映射。
-2. 为 `EmbeddingProvider` 增加更多实现或批量化策略，并在真实数据规模下验证 ES / pgvector 索引参数。
+2. 为 Mem0 接入增加批量写入、成本观测、失败重试和租户隔离策略。
 3. 为 HITL 补充审批状态持久化、审批列表和审计闭环，避免生产环境由客户端长期保管 `RunState`。
 4. 输出能力依赖图和配置矩阵，作为平台勾选能力的元数据来源。
 

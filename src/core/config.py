@@ -61,6 +61,8 @@ class Settings:
     database_pool_timeout_seconds: float
     database_pool_recycle_seconds: int
     database_pool_pre_ping: bool
+    session_store_enabled: bool
+    session_store_auto_create: bool
     openai_api_key: str
     openai_base_url: str | None
     agent_model_default: str
@@ -69,18 +71,27 @@ class Settings:
     # Memory System Configuration
     memory_enabled: bool
     memory_short_term_ttl: int
-    memory_long_term_enabled: bool
+    memory_mem0_mode: str
+    memory_mem0_api_key: str
+    memory_mem0_config_json: str
+    memory_vector_store: str
+    memory_pgvector_database_url: str
+    memory_pgvector_table: str
     memory_es_hosts: str
     memory_es_index: str
-    memory_vector_backend: str
-    memory_pgvector_table: str
-    memory_embedding_provider: str
+    memory_preference_cache_ttl_sec: int
     memory_embedding_model: str
     memory_vector_dimension: int
     memory_max_context_turns: int
     memory_retrieval_top_k: int
     memory_importance_threshold: float
     memory_forgetting_enabled: bool
+    memory_session_summary_enabled: bool
+    memory_session_summary_cache_ttl: int
+    memory_session_summary_initial_messages: int
+    memory_session_summary_update_messages: int
+    memory_session_summary_model: str
+    memory_session_summary_max_tokens: int
     
     # Observability System Configuration
     observability_enabled: bool
@@ -116,7 +127,7 @@ class Settings:
     rate_limit_default_limit: int = 60
     rate_limit_default_window_sec: int = 60
     rate_limit_default_burst: int = 10
-    rate_limit_key_strategy: str = "principal_or_ip"
+    rate_limit_key_strategy: str = "principal"
     rate_limit_fail_open: bool = False
     rate_limit_routes: str = ""  # JSON string: {"/chat": {"limit": 5, "window_sec": 60, "burst": 1}}
     rate_limit_skip_paths: list = None  # type: ignore[assignment]
@@ -179,6 +190,8 @@ def get_settings() -> Settings:
         database_pool_timeout_seconds=float(os.getenv("DATABASE_POOL_TIMEOUT_SECONDS", "30")),
         database_pool_recycle_seconds=int(os.getenv("DATABASE_POOL_RECYCLE_SECONDS", "1800")),
         database_pool_pre_ping=os.getenv("DATABASE_POOL_PRE_PING", "true").lower() == "true",
+        session_store_enabled=os.getenv("SESSION_STORE_ENABLED", "false").lower() == "true",
+        session_store_auto_create=os.getenv("SESSION_STORE_AUTO_CREATE", "true").lower() == "true",
         openai_api_key=os.getenv("OPENAI_API_KEY", ""),
         openai_base_url=os.getenv("OPENAI_BASE_URL", "") or None,
         agent_model_default=os.getenv("AGENT_MODEL_DEFAULT", "gpt-4o-mini"),
@@ -186,12 +199,15 @@ def get_settings() -> Settings:
         # Memory Configuration
         memory_enabled=os.getenv("MEMORY_ENABLED", "false").lower() == "true",
         memory_short_term_ttl=int(os.getenv("MEMORY_SHORT_TERM_TTL", "3600")),
-        memory_long_term_enabled=os.getenv("MEMORY_LONG_TERM_ENABLED", "false").lower() == "true",
+        memory_mem0_mode=os.getenv("MEMORY_MEM0_MODE", "local"),
+        memory_mem0_api_key=os.getenv("MEMORY_MEM0_API_KEY", ""),
+        memory_mem0_config_json=os.getenv("MEMORY_MEM0_CONFIG_JSON", ""),
+        memory_vector_store=os.getenv("MEMORY_VECTOR_STORE", "none"),
+        memory_pgvector_database_url=os.getenv("MEMORY_PGVECTOR_DATABASE_URL", ""),
+        memory_pgvector_table=os.getenv("MEMORY_PGVECTOR_TABLE", "agent_memories"),
         memory_es_hosts=os.getenv("MEMORY_ES_HOSTS", "http://localhost:9200"),
         memory_es_index=os.getenv("MEMORY_ES_INDEX", "agent_memories"),
-        memory_vector_backend=os.getenv("MEMORY_VECTOR_BACKEND", "none"),
-        memory_pgvector_table=os.getenv("MEMORY_PGVECTOR_TABLE", "memory_vectors"),
-        memory_embedding_provider=os.getenv("MEMORY_EMBEDDING_PROVIDER", "none"),
+        memory_preference_cache_ttl_sec=int(os.getenv("MEMORY_PREFERENCE_CACHE_TTL_SEC", "900")),
         memory_embedding_model=os.getenv(
             "MEMORY_EMBEDDING_MODEL", "text-embedding-3-small"
         ),
@@ -200,6 +216,22 @@ def get_settings() -> Settings:
         memory_retrieval_top_k=int(os.getenv("MEMORY_RETRIEVAL_TOP_K", "3")),
         memory_importance_threshold=float(os.getenv("MEMORY_IMPORTANCE_THRESHOLD", "0.3")),
         memory_forgetting_enabled=os.getenv("MEMORY_FORGETTING_ENABLED", "true").lower() == "true",
+        memory_session_summary_enabled=os.getenv(
+            "MEMORY_SESSION_SUMMARY_ENABLED", "false"
+        ).lower() == "true",
+        memory_session_summary_cache_ttl=int(
+            os.getenv("MEMORY_SESSION_SUMMARY_CACHE_TTL", "2592000")
+        ),
+        memory_session_summary_initial_messages=int(
+            os.getenv("MEMORY_SESSION_SUMMARY_INITIAL_MESSAGES", "4")
+        ),
+        memory_session_summary_update_messages=int(
+            os.getenv("MEMORY_SESSION_SUMMARY_UPDATE_MESSAGES", "6")
+        ),
+        memory_session_summary_model=os.getenv("MEMORY_SESSION_SUMMARY_MODEL", ""),
+        memory_session_summary_max_tokens=int(
+            os.getenv("MEMORY_SESSION_SUMMARY_MAX_TOKENS", "512")
+        ),
         # Observability Configuration
         observability_enabled=os.getenv("LANGFUSE_ENABLED", "false").lower() == "true",
         # Human-in-the-Loop
@@ -230,7 +262,7 @@ def get_settings() -> Settings:
         rate_limit_default_limit=int(os.getenv("RATE_LIMIT_DEFAULT_LIMIT", "60")),
         rate_limit_default_window_sec=int(os.getenv("RATE_LIMIT_DEFAULT_WINDOW_SEC", "60")),
         rate_limit_default_burst=int(os.getenv("RATE_LIMIT_DEFAULT_BURST", "10")),
-        rate_limit_key_strategy=os.getenv("RATE_LIMIT_KEY_STRATEGY", "principal_or_ip"),
+        rate_limit_key_strategy=os.getenv("RATE_LIMIT_KEY_STRATEGY", "principal"),
         rate_limit_fail_open=os.getenv("RATE_LIMIT_FAIL_OPEN", "false").lower() == "true",
         rate_limit_routes=os.getenv("RATE_LIMIT_ROUTES", ""),
         rate_limit_skip_paths=_split_csv(os.getenv("RATE_LIMIT_SKIP_PATHS", "/health,/docs,/redoc,/openapi.json,/ui")),

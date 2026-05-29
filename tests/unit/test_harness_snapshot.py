@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -15,11 +15,19 @@ def _settings(**overrides):
         rate_limit_enabled=False,
         database_enabled=False,
         database_url="",
+        session_store_enabled=False,
+        session_store_auto_create=True,
+        redis_enabled=False,
         memory_enabled=False,
-        memory_long_term_enabled=False,
         memory_short_term_ttl=3600,
+        memory_mem0_mode="local",
+        memory_mem0_api_key="",
+        memory_mem0_config_json="",
+        memory_vector_store="pgvector",
+        memory_pgvector_table="agent_memories",
         memory_es_hosts="http://localhost:9200",
         memory_es_index="agent_memories",
+        memory_preference_cache_ttl_sec=900,
         memory_vector_dimension=1536,
         memory_max_context_turns=6,
         memory_retrieval_top_k=3,
@@ -63,7 +71,7 @@ def test_capability_snapshot_enabled_only_filters_disabled_capabilities():
 
     assert "auth" not in names
     assert "observability" in names
-    assert "tracing" in snapshot["provided"]
+    assert "langfuse" in snapshot["provided"]
 
 
 def test_harness_builder_enables_hitl_and_configures_sdk_tool_approval():
@@ -112,6 +120,27 @@ def test_harness_builder_enables_in_process_checkpoint_snapshots():
     assert "run_checkpoints" in snapshot["provided"]
 
 
+async def test_harness_owns_redis_lifecycle():
+    harness = HarnessBuilder(
+        _settings(
+            redis_enabled=True,
+            redis_url="redis://localhost:6379/0",
+            redis_slave_url=None,
+        )
+    ).build()
+    fake_redis = MagicMock()
+
+    with patch("src.harness.builder.init_redis", new=AsyncMock()) as init_redis, \
+         patch("src.harness.builder.get_redis_client", return_value=fake_redis), \
+         patch("src.harness.builder.close_redis", new=AsyncMock()) as close_redis:
+        await harness.setup()
+        await harness.teardown()
+
+    init_redis.assert_awaited_once_with("redis://localhost:6379/0", None)
+    close_redis.assert_awaited_once()
+    assert harness.context.get_resource("redis") is fake_redis
+
+
 def test_harness_builder_enables_native_handoff_targets():
     harness = HarnessBuilder(
         _settings(
@@ -131,6 +160,40 @@ def test_harness_builder_enables_native_handoff_targets():
     assert harness.runtime.handoff_mgr is not None
     assert "handoff" in names
     assert "agent_handoffs" in snapshot["provided"]
+
+
+def test_harness_context_and_runtime_share_same_memory_store_reference():
+    harness = HarnessBuilder(_settings()).build()
+
+    assert harness.context.get_resource("memory_store") is harness.memory_store
+    assert harness.runtime.memory_store is harness.memory_store
+
+
+def test_harness_builder_assembles_mem0_memory_without_database_resource():
+    harness = HarnessBuilder(_settings(memory_enabled=True)).build()
+
+    snapshot = harness.context.capability_snapshot(enabled_only=True)
+    names = {item["name"] for item in snapshot["capabilities"]}
+
+    assert harness.database_resource is None
+    assert harness.memory_manager is not None
+    assert harness.memory_manager.provider_name == "mem0"
+    assert "long_term_memory" in names
+    assert "vector_search" in names
+    assert snapshot["missing_dependencies"] == {}
+
+
+def test_harness_builder_assembles_session_store_from_database_resource():
+    harness = HarnessBuilder(
+        _settings(
+            session_store_enabled=True,
+            database_url="mysql+aiomysql://agent:secret@localhost/agent",
+        )
+    ).build()
+
+    assert harness.database_resource is not None
+    assert harness.session_store is not None
+    assert harness.context.get_resource("session_store") is harness.session_store
 
 
 @pytest.mark.asyncio

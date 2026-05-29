@@ -60,7 +60,7 @@ def test_memory_manager_selects_pgvector_for_postgres_database():
 
 
 def test_pgvector_backend_requires_postgres_database_url():
-    with pytest.raises(ValueError, match="PostgreSQL DATABASE_URL"):
+    with pytest.raises(ValueError, match="PostgreSQL database URL"):
         MemoryManager(
             _settings(
                 database_url="mysql+aiomysql://agent:secret@localhost/agent",

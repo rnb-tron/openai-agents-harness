@@ -10,6 +10,7 @@ Langfuse SDK 是同步的, 用 ``run_in_executor`` 包装为异步。
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 from src.capabilities.prompt.base import PromptStore, PromptTemplate
 from src.capabilities.prompt.errors import PromptFetchError
@@ -23,8 +24,9 @@ class LangfuseStore(PromptStore):
 
     name = "langfuse"
 
-    def __init__(self, default_label: str = "prod") -> None:
+    def __init__(self, default_label: str = "prod", client: Any | None = None) -> None:
         self._default_label = default_label
+        self._client = client
 
     async def fetch(
         self,
@@ -33,15 +35,7 @@ class LangfuseStore(PromptStore):
         version: str | int | None = None,
         label: str | None = None,
     ) -> PromptTemplate:
-        try:
-            from langfuse import get_client  # lazy import, 与 observability 解耦
-        except Exception as exc:  # pragma: no cover
-            raise PromptFetchError(f"langfuse not available: {exc}") from exc
-
-        try:
-            client = get_client()
-        except Exception as exc:
-            raise PromptFetchError(f"langfuse client unavailable: {exc}") from exc
+        client = self._get_client()
 
         eff_label = label or self._default_label
         loop = asyncio.get_running_loop()
@@ -70,10 +64,47 @@ class LangfuseStore(PromptStore):
             )
 
         return PromptTemplate(
-            name=name,
+            name=getattr(prompt_obj, "name", name),
             template=text,
             version=getattr(prompt_obj, "version", None),
             label=eff_label,
             source=self.name,
-            metadata={"langfuse_id": getattr(prompt_obj, "id", None)},
+            metadata={
+                "langfuse_id": getattr(prompt_obj, "id", None),
+                "langfuse_labels": getattr(prompt_obj, "labels", None),
+                "langfuse_tags": getattr(prompt_obj, "tags", None),
+                "langfuse_config": getattr(prompt_obj, "config", None),
+                "langfuse_is_fallback": getattr(prompt_obj, "is_fallback", None),
+            },
         )
+
+    def _get_client(self) -> Any:
+        if self._client is not None:
+            return self._client
+
+        try:
+            from src.capabilities.observability import get_config, get_tracer_manager
+
+            tracer_manager = get_tracer_manager()
+            if (
+                tracer_manager is not None
+                and tracer_manager.is_initialized
+                and tracer_manager.langfuse is not None
+            ):
+                return tracer_manager.langfuse
+
+            config = get_config()
+        except Exception:
+            config = None
+
+        try:
+            from langfuse import get_client  # lazy import, 与 observability 解耦
+        except Exception as exc:  # pragma: no cover
+            raise PromptFetchError(f"langfuse not available: {exc}") from exc
+
+        try:
+            if config is not None and getattr(config, "public_key", None):
+                return get_client(public_key=config.public_key)
+            return get_client()
+        except Exception as exc:
+            raise PromptFetchError(f"langfuse client unavailable: {exc}") from exc

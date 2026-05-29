@@ -11,7 +11,7 @@ from typing import Any
 
 try:
     import redis.asyncio as redis
-except ImportError:  # pragma: no cover - optional when Redis capability is disabled
+except ImportError:  # pragma: no cover - Redis 能力关闭时可不安装
     redis = Any
 
 from src.core.logging import service_logger
@@ -31,6 +31,7 @@ class ShortTermMemory:
         self.redis = redis_client
         self.ttl = ttl
         self._memory: dict[str, list[dict]] = {}  # 内存存储 (降级方案)
+        self._summaries: dict[str, dict] = {}
 
     async def append(
         self,
@@ -118,9 +119,11 @@ class ShortTermMemory:
         try:
             if self.redis:
                 key = f"memory:short_term:{session_id}"
-                await self.redis.delete(key)
+                summary_key = f"memory:short_summary:{session_id}"
+                await self.redis.delete(key, summary_key)
             else:
                 self._memory.pop(session_id, None)
+                self._summaries.pop(session_id, None)
 
             service_logger.info(f"Short-term memory cleared for session={session_id}")
             return True
@@ -172,12 +175,51 @@ class ShortTermMemory:
             service_logger.error(f"Failed to get all memories: {e}", exc_info=True)
             return []
 
+    async def save_summary(
+        self,
+        session_id: str,
+        summary: dict[str, Any],
+        ttl: int | None = None,
+    ) -> bool:
+        """保存会话摘要缓存。MySQL 是权威存储，Redis/内存只做快速读取。"""
+        try:
+            if self.redis:
+                key = f"memory:short_summary:{session_id}"
+                encoded = json.dumps(summary, ensure_ascii=False)
+                cache_ttl = self.ttl if ttl is None else ttl
+                if cache_ttl > 0:
+                    await self.redis.set(key, encoded, ex=cache_ttl)
+                else:
+                    await self.redis.set(key, encoded)
+            else:
+                self._summaries[session_id] = summary
+            return True
+        except Exception as e:
+            service_logger.error(f"Failed to save session summary: {e}", exc_info=True)
+            return False
+
+    async def get_summary(self, session_id: str) -> dict[str, Any] | None:
+        """读取会话摘要缓存。"""
+        try:
+            if self.redis:
+                key = f"memory:short_summary:{session_id}"
+                value = await self.redis.get(key)
+                if not value:
+                    return None
+                if isinstance(value, bytes):
+                    value = value.decode("utf-8")
+                return json.loads(value)
+            return self._summaries.get(session_id)
+        except Exception as e:
+            service_logger.error(f"Failed to get session summary: {e}", exc_info=True)
+            return None
+
 
 # 保持向后兼容的 MemoryStore (内存版)
 class MemoryStore:
-    """In-memory placeholder; can be replaced by Redis/vector store.
-    
-    向后兼容的旧版MemoryStore,建议使用ShortTermMemory替代
+    """内存版短期记忆占位实现。
+
+    这是向后兼容的旧版 ``MemoryStore``，新代码优先使用 ``ShortTermMemory``。
     """
 
     def __init__(self):

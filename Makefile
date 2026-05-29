@@ -3,7 +3,7 @@
 PYTHON ?= venv/bin/python
 PIP ?= venv/bin/pip
 
-.PHONY: help install dev run test test-integration test-e2e test-all clean format lint
+.PHONY: help install dev run run-prod test test-integration test-e2e test-all clean format lint
 
 help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'
@@ -17,6 +17,9 @@ dev: ## Install development dependencies
 
 run: ## Run the application
 	ENVTYPE=test $(PYTHON) -m uvicorn src.main:app --host 0.0.0.0 --port 8080 --reload
+
+run-prod: ## Run the application with production env
+	ENVTYPE=prod $(PYTHON) -m uvicorn src.main:app --host 0.0.0.0 --port 8080 --proxy-headers --forwarded-allow-ips '*'
 
 test: ## Run unit tests
 	$(PYTHON) -m pytest tests/unit -v
@@ -55,10 +58,10 @@ seed: ## Seed database with initial data
 	# Add seed commands here
 
 docker-build: ## Build Docker image
-	docker build -t openai-agent-sdk:latest -f docker/Dockerfile .
+	docker build -t openai-agent-sdk:prod -f docker/Dockerfile .
 
 docker-run: ## Run Docker container
-	docker-compose up -d
+	docker compose -f docker-compose.prod.yml up -d
 
 docker-stop: ## Stop Docker containers
-	docker-compose down
+	docker compose -f docker-compose.prod.yml down

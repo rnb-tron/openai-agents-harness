@@ -12,7 +12,7 @@
 4. 处理 SDK 原生 `interruptions` / `RunState` 审批恢复与 `Agent.handoffs`。
 5. 返回统一结果。
 
-资源创建与生命周期属于 `HarnessBuilder`；HTTP middleware 属于 `ProtocolPluginRegistry`。
+资源创建与生命周期属于 `HarnessBuilder`；HTTP middleware 按请求执行顺序由 `ProtocolRequestChain` 装配。
 
 ## 推荐装配
 
@@ -59,8 +59,8 @@ finally:
 
 | 配置 | 行为 | 当前边界 |
 | --- | --- | --- |
-| `MEMORY_ENABLED=true` | 有 `DATABASE_URL` 时装配 `MemoryManager` | 关系长期记录与基础 memory 写入绑定 |
-| `MEMORY_LONG_TERM_ENABLED=true` | 配合 vector/embedding 配置启用语义检索 | 需额外后端与 embedding API |
+| `MEMORY_ENABLED=true` | 装配 `Mem0MemoryManager` | 用户偏好、长期记忆和语义检索统一交给 Mem0；偏好结果在读取阶段按维度只注入最新生效项 |
+| `MEMORY_MEM0_MODE=platform` | 使用 Mem0 Platform | 需配置 `MEMORY_MEM0_API_KEY` |
 | `PROMPT_ENABLED=true` | 构建 `PromptManager`，主 Agent/摘要策略按需读取模板 | 读取失败可按配置回退 |
 | `COMPRESSION_ENABLED=true` | 在模型调用前压缩注入后的上下文 | 默认 fail-open |
 | `HITL_ENABLED=true` | 将指定工具映射为 SDK `needs_approval` | 审批存储当前为进程内 |

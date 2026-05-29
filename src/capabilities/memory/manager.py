@@ -75,15 +75,15 @@ class MemoryManager:
         )
 
     def _build_vector_store(self) -> VectorStore | None:
-        if not self.settings.memory_long_term_enabled:
+        if not getattr(self.settings, "memory_long_term_enabled", False):
             return None
 
         backend = getattr(self.settings, "memory_vector_backend", "none").strip().lower()
         if backend == "elasticsearch":
             return ElasticsearchVectorStore(
-                hosts=self.settings.memory_es_hosts,
-                index_name=self.settings.memory_es_index,
-                dimension=self.settings.memory_vector_dimension,
+                hosts=getattr(self.settings, "memory_es_hosts", "http://localhost:9200"),
+                index_name=getattr(self.settings, "memory_es_index", "agent_memories"),
+                dimension=getattr(self.settings, "memory_vector_dimension", 1536),
             )
         if backend in ("", "none"):
             return None
@@ -91,17 +91,17 @@ class MemoryManager:
             database_url = getattr(self.settings, "database_url", "")
             if not database_url.startswith(("postgresql", "postgres")):
                 raise ValueError(
-                    "MEMORY_VECTOR_BACKEND=pgvector requires a PostgreSQL DATABASE_URL"
+                    "Legacy pgvector memory backend requires a PostgreSQL database URL"
                 )
             return PostgresVectorStore(
                 session=self.db_session,
                 table_name=getattr(self.settings, "memory_pgvector_table", "memory_vectors"),
-                dimension=self.settings.memory_vector_dimension,
+                dimension=getattr(self.settings, "memory_vector_dimension", 1536),
             )
-        raise ValueError(f"Unsupported MEMORY_VECTOR_BACKEND: {backend}")
+        raise ValueError(f"Unsupported legacy memory vector backend: {backend}")
 
     def _build_embedding_provider(self) -> EmbeddingProvider | None:
-        if not self.settings.memory_long_term_enabled or not self.vector_store:
+        if not getattr(self.settings, "memory_long_term_enabled", False) or not self.vector_store:
             return None
 
         provider = getattr(self.settings, "memory_embedding_provider", "none").strip().lower()
@@ -116,9 +116,9 @@ class MemoryManager:
                     "memory_embedding_model",
                     "text-embedding-3-small",
                 ),
-                dimension=self.settings.memory_vector_dimension,
+                dimension=getattr(self.settings, "memory_vector_dimension", 1536),
             )
-        raise ValueError(f"Unsupported MEMORY_EMBEDDING_PROVIDER: {provider}")
+        raise ValueError(f"Unsupported legacy memory embedding provider: {provider}")
 
     async def init(self) -> None:
         """初始化记忆系统并创建所选向量后端的索引结构。"""
@@ -235,7 +235,8 @@ class MemoryManager:
             user_id=user_id,
             user_input=user_input,
             max_turns=max_turns or self.settings.memory_max_context_turns,
-            enable_retrieval=enable_retrieval and self.settings.memory_long_term_enabled,
+            enable_retrieval=enable_retrieval
+            and getattr(self.settings, "memory_long_term_enabled", False),
             retrieval_top_k=self.settings.memory_retrieval_top_k,
         )
 

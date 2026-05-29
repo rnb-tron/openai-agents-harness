@@ -10,13 +10,13 @@
 src.main:app
   -> src.api.app.create_app(settings)
      -> build_harness(settings)
-     -> build_protocol_registry(settings)
+     -> build_protocol_chain(settings)
      -> /chat, /chat/stream, /chat/resume, /memory/*, /health/*
 ```
 
 - `src/main.py` 仅导出 ASGI `app`。
 - `HarnessBuilder` 创建 Runtime、工具注册表、模型路由和可选资源。
-- `ProtocolPluginRegistry` 装配 Auth、RateLimit 与 Observability 的 HTTP 入口。
+- `ProtocolRequestChain` 以请求执行顺序显式装配 `RequestContext -> Observability -> Auth -> RateLimit`；观测资源生命周期由 Harness 管理。
 - `AgentOrchestrator` 使用 SDK `Agent`、`Runner`、原生 handoff 和审批恢复。
 
 ## 准备环境
@@ -96,29 +96,28 @@ COMPRESSION_STRATEGY=token_budget
 
 ```env
 MEMORY_ENABLED=true
-DATABASE_URL=postgresql+asyncpg://agent:password@localhost:5432/agent_harness
-
-# 可选语义检索
-MEMORY_LONG_TERM_ENABLED=true
-MEMORY_VECTOR_BACKEND=pgvector
-MEMORY_PGVECTOR_TABLE=memory_vectors
-MEMORY_EMBEDDING_PROVIDER=openai
-MEMORY_EMBEDDING_MODEL=text-embedding-3-small
-MEMORY_VECTOR_DIMENSION=1536
-```
-
-使用 `pgvector` 前先执行：
-
-```bash
-psql "$DATABASE_URL" -f config/memory_postgres_pgvector_migration.sql
+REDIS_ENABLED=true
+SESSION_STORE_ENABLED=true
+DATABASE_URL=mysql+aiomysql://agent:secret@localhost:3306/agent
+MEMORY_MEM0_MODE=local
+MEMORY_VECTOR_STORE=none
+MEMORY_PREFERENCE_CACHE_TTL_SEC=900
+MEMORY_SESSION_SUMMARY_ENABLED=true
+MEMORY_SESSION_SUMMARY_CACHE_TTL=2592000
+MEMORY_SESSION_SUMMARY_INITIAL_MESSAGES=4
+MEMORY_SESSION_SUMMARY_UPDATE_MESSAGES=6
 ```
 
 说明：
 
-- 基础 `memory_session` 使用进程内 `MemoryStore`，始终参与 Runtime。
-- `MEMORY_ENABLED=true` 且提供 `DATABASE_URL` 时装配 `MemoryManager` 和关系长期记录。
-- `MEMORY_LONG_TERM_ENABLED=true`、向量后端和 embedding provider 都配置后，才会执行语义写入与检索。
-- 当前 Runtime 尚未把 Redis 注入短期会话存储；`REDIS_ENABLED` 主要供基础设施与 Redis 限流使用。
+- `SESSION_STORE_ENABLED=true` 时使用 MySQL 持久化会话列表和完整消息流水。
+- `REDIS_ENABLED=true` 且 `MEMORY_ENABLED=true` 时，短期会话记忆写入 Redis。
+- `MEMORY_SESSION_SUMMARY_ENABLED=true` 时，`after_run` 后台使用 LLM 更新会话摘要，摘要持久化到 MySQL 并缓存到 Redis。
+- `MEMORY_ENABLED=true` 时装配 `Mem0MemoryManager`，由 Mem0 管理用户偏好、长期记忆和语义检索。
+- Mem0 local 模式默认继承 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`AGENT_MODEL_DEFAULT` 和 `MEMORY_EMBEDDING_MODEL`。
+- 偏好记忆采用“保留历史、注入生效版本”：同一偏好维度只把最新一条注入上下文，避免语言、格式等偏好冲突。
+- `MEMORY_MEM0_MODE=platform` 时需要配置 `MEMORY_MEM0_API_KEY`。
+- `MEMORY_VECTOR_STORE=pgvector` 时配置 `MEMORY_PGVECTOR_DATABASE_URL`；`MEMORY_VECTOR_STORE=elasticsearch` 时配置 `MEMORY_ES_HOSTS` 和 `MEMORY_ES_INDEX`。
 
 ### HITL 审批恢复
 
@@ -186,7 +185,7 @@ curl -X POST http://localhost:8080/health/capability-selection/validate \
   -d '{"selected":["vector_search","hitl"]}'
 ```
 
-选择 `vector_search` 会自动解析 `long_term_memory`、`memory_manager` 与 `embedding_provider` 等内部要求，并报告 `database` 与 `embedding_api` 等外部资源。
+选择 `vector_search` 会自动解析 `long_term_memory` 与 `memory_manager` 等内部要求；Mem0 管理长期检索所需的 embedding 与存储配置。
 
 ## 测试
 

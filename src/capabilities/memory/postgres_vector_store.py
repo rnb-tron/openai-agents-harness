@@ -1,4 +1,4 @@
-"""PostgreSQL pgvector-backed memory vector store."""
+"""基于 PostgreSQL pgvector 的记忆向量存储。"""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ class PostgresVectorStore:
         dimension: int = 1536,
     ) -> None:
         if not self._VALID_IDENTIFIER.fullmatch(table_name):
-            raise ValueError("MEMORY_PGVECTOR_TABLE must be a valid SQL identifier")
+            raise ValueError("pgvector memory table name must be a valid SQL identifier")
         if dimension <= 0:
             raise ValueError("MEMORY_VECTOR_DIMENSION must be greater than zero")
         self.session = session

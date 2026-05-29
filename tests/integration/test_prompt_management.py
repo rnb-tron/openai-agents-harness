@@ -20,6 +20,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from src.capabilities.prompt import (  # noqa: E402
     CompositeStore,
+    LangfuseStore,
     LocalYamlStore,
     PromptCapability,
     PromptFetchError,
@@ -179,6 +180,27 @@ def test_manager_missing_var_keeps_placeholder() -> None:
     assert rendered.text == "Hello Bob, you are {role}."
 
 
+def test_manager_renders_langfuse_double_brace_template() -> None:
+    tpls = {
+        "greeting": PromptTemplate(
+            name="greeting",
+            template="Hello {{ user_name }}, you are {{role}}.",
+            version=3,
+            label="prod",
+            source="langfuse",
+            metadata={"langfuse_labels": ["prod"], "langfuse_tags": ["agent"]},
+        )
+    }
+    mgr = PromptManager(_FakeStore(tpls))
+    rendered = asyncio.run(mgr.get("greeting", user_name="Alice"))
+
+    assert rendered.text == "Hello Alice, you are {role}."
+    md = rendered.to_metadata()
+    assert md["label"] == "prod"
+    assert md["langfuse_labels"] == ["prod"]
+    assert md["langfuse_tags"] == ["agent"]
+
+
 def test_manager_cache_hit() -> None:
     tpls = {
         "x": PromptTemplate(name="x", template="payload-{n}", source="fake"),
@@ -231,6 +253,35 @@ def test_composite_falls_back_on_primary_error() -> None:
     assert tpl.template == "from-yaml"
     assert "composite:" in tpl.source, f"expected composite:* prefix, got {tpl.source}"
     assert fallback.fetch_count == 1
+
+
+def test_langfuse_store_reuses_injected_client() -> None:
+    class FakePrompt:
+        name = "agents.main_chat"
+        prompt = "Hello {{name}}"
+        version = 7
+        labels = ["prod"]
+        tags = ["main"]
+        config = {"temperature": 0.2}
+        is_fallback = False
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def get_prompt(self, name, **kwargs):
+            self.calls.append((name, kwargs))
+            return FakePrompt()
+
+    client = FakeClient()
+    store = LangfuseStore(default_label="prod", client=client)
+    tpl = asyncio.run(store.fetch("agents.main_chat"))
+
+    assert tpl.template == "Hello {{name}}"
+    assert tpl.version == 7
+    assert tpl.label == "prod"
+    assert tpl.metadata["langfuse_labels"] == ["prod"]
+    assert client.calls == [("agents.main_chat", {"label": "prod"})]
 
 
 def test_composite_propagates_when_both_fail() -> None:
@@ -343,9 +394,11 @@ if __name__ == "__main__":
         test_local_yaml_store_not_found,
         test_manager_render_with_vars,
         test_manager_missing_var_keeps_placeholder,
+        test_manager_renders_langfuse_double_brace_template,
         test_manager_cache_hit,
         test_manager_cache_ttl_expires,
         test_composite_falls_back_on_primary_error,
+        test_langfuse_store_reuses_injected_client,
         test_composite_propagates_when_both_fail,
         test_warmup_failure_does_not_crash,
         test_main_chat_fallback_when_get_fails,

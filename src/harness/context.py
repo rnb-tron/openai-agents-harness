@@ -1,4 +1,4 @@
-"""Shared harness context for resources, registries, and runtime state."""
+"""Harness 共享上下文，集中放置资源、注册表和运行态信息。"""
 
 from __future__ import annotations
 
@@ -19,6 +19,12 @@ from src.harness.manifest import CapabilityManifest
 
 @dataclass
 class HarnessContext:
+    """装配图和命名资源视图。
+
+    ``resources`` 保存由外部 owner 持有的对象引用，通常 owner 是 ``Harness``；
+    在这里注册 manager 或 store 不会重新分配或复制资源。
+    """
+
     config: HarnessConfig
     settings: Settings
     tool_registry: ToolRegistry
@@ -46,7 +52,7 @@ class HarnessContext:
         return [cap.manifest for cap in capabilities]
 
     def capability_snapshot(self, *, enabled_only: bool = False) -> dict[str, Any]:
-        """Return a scaffold-generator friendly view of registered capabilities."""
+        """返回适合脚手架读取的已注册能力快照。"""
         capabilities = (
             self.capability_registry.enabled
             if enabled_only
@@ -76,12 +82,12 @@ class HarnessContext:
         }
 
     def capability_catalog(self) -> dict[str, Any]:
-        """Return all available capability metadata for scaffold selection."""
+        """返回可供脚手架选择的完整能力元数据。"""
         assembled = {cap.manifest.name: cap for cap in self.capability_registry.all}
         enabled = {cap.manifest.name for cap in self.capability_registry.enabled}
         enabled.update(
             name
-            for name in ("tool_registry", "memory_manager", "embedding_provider")
+            for name in ("tool_registry", "session_store", "memory_manager")
             if name in self.provides or name in self.resources
         )
         manifests = available_capability_manifests()
@@ -129,7 +135,7 @@ class HarnessContext:
         }
 
     def validate_capability_selection(self, selected: list[str]) -> dict[str, object]:
-        """Validate a prospective scaffold selection against known metadata."""
+        """基于已知元数据校验一次候选能力选择。"""
         return validate_capability_selection(selected)
 
     def provided_names(self, *, enabled_only: bool = True) -> set[str]:
@@ -154,4 +160,4 @@ class HarnessContext:
             detail = ", ".join(
                 f"{cap}: {deps}" for cap, deps in sorted(missing.items())
             )
-            raise ValueError(f"Missing capability dependencies: {detail}")
+            raise ValueError(f"能力依赖缺失: {detail}")

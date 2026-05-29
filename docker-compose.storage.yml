@@ -1,0 +1,76 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: agent-harness-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: agent_harness
+      MYSQL_USER: agent
+      MYSQL_PASSWORD: agent_pass
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    ports:
+      - "13306:3306"
+    volumes:
+      - agent_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -proot --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7.4
+    container_name: agent-harness-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - agent_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.5
+    container_name: agent-harness-es
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+    volumes:
+      - agent_es_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9200 >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  pgvector:
+    image: pgvector/pgvector:pg16
+    container_name: agent-harness-pgvector
+    environment:
+      POSTGRES_DB: agent_memory
+      POSTGRES_USER: agent
+      POSTGRES_PASSWORD: agent_pass
+      TZ: Asia/Shanghai
+    ports:
+      - "15432:5432"
+    volumes:
+      - agent_pgvector_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agent -d agent_memory"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  agent_mysql_data:
+  agent_redis_data:
+  agent_es_data:
+  agent_pgvector_data:

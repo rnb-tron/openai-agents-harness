@@ -6,12 +6,14 @@
 
 启用 `LANGFUSE_ENABLED=true` 时：
 
-1. `ObservabilityPlugin` 由 `src.api.middleware.assembler` 装配。
-2. 应用启动期初始化 `TracerManager`，校验 Langfuse 凭证并安装 `OpenAIAgentsInstrumentor`。
-3. HTTP interceptor 为请求创建 OpenTelemetry span，并返回 `X-Trace-ID`。
-4. 基础 Request Context 始终返回 `X-Request-ID`，供日志和 trace 关联。
+1. `HarnessBuilder` 装配 `ObservabilityCapability`，由 capability 生命周期初始化/关闭 `TracerManager`。
+2. 初始化阶段校验 Langfuse 凭证并安装 `OpenAIAgentsInstrumentor`。
+3. 协议层 `ObservabilityPlugin` 仅安装 HTTP interceptor，为请求创建 span 并返回 `X-Trace-ID`。
+4. 该 interceptor 位于 Auth 与 RateLimit 外侧，因此认证失败与限流拒绝也可观测。
+5. 基础 Request Context 始终返回 `X-Request-ID`，供日志和 trace 关联。
 
-`ObservabilityCapability` 同时出现在 Harness capability snapshot 中，用于表达已启用的观测资源。
+因此能力资源所有权在 Harness 中，HTTP 入口适配仍位于显式的
+`ProtocolRequestChain` 中。
 
 ## 配置
 
@@ -76,7 +78,7 @@ async def cache_lookup() -> None:
 
 ## Prompt 集成
 
-Prompt 管理由 `src/capabilities/prompt/` 独立提供；选择 Langfuse 作为 prompt backend 时可与同一服务配合使用，但它不是 ObservabilityPlugin 自动完成的附加功能。
+Prompt 管理由 `src/capabilities/prompt/` 独立提供；选择 Langfuse 作为 prompt backend 时可与同一服务配合使用，但它不是 ObservabilityCapability 自动完成的附加功能。
 
 ## 测试与示例
 
@@ -91,6 +93,7 @@ venv/bin/python examples/observability.py
 ## 相关文件
 
 - `src/capabilities/observability/plugin.py`
+- `src/capabilities/observability/capability.py`
 - `src/capabilities/observability/tracer.py`
 - `src/capabilities/observability/middleware.py`
 - `src/api/middleware/request_context.py`

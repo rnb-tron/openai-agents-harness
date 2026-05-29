@@ -29,3 +29,21 @@ def install_request_context(app: FastAPI) -> None:
         finally:
             reset_log_context(context_token)
             reset_rid(rid_token)
+
+
+class RequestContextPlugin:
+    """Always-on outer protocol plugin providing request/log correlation IDs."""
+
+    name = "request_context"
+
+    def is_enabled(self) -> bool:
+        return True
+
+    def install(self, app: FastAPI) -> None:
+        install_request_context(app)
+
+    async def setup(self) -> None:
+        return None
+
+    async def teardown(self) -> None:
+        return None

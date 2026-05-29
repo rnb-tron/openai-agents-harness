@@ -2,18 +2,23 @@
 
 from src.api.middleware.auth.plugin import AuthPlugin
 from src.api.middleware.rate_limit.plugin import RateLimitPlugin
-from src.api.middleware.registry import ProtocolPluginRegistry
-from src.capabilities.observability.plugin import ObservabilityPlugin
+from src.api.middleware.chain import ProtocolRequestChain
+from src.api.middleware.request_context import RequestContextPlugin
 
 
-def build_protocol_registry(settings) -> ProtocolPluginRegistry:
-    """构建 HTTP 接入链；Observability 仅在此贡献其请求追踪入口。"""
-    registry = ProtocolPluginRegistry()
-    for plugin in (
-        ObservabilityPlugin.from_settings(settings),
+def build_protocol_chain(settings) -> ProtocolRequestChain:
+    """按外到内的请求执行顺序构建 HTTP 接入链。
+
+    请求执行顺序为 ``RequestContext -> Auth -> RateLimit``：
+    RequestContext 始终在最外层创建请求关联 ID；
+    RateLimit 位于 Auth 之后，使用认证产生的 principal 作为用户维度限流键。
+    """
+    declared_request_order = (
+        RequestContextPlugin(),
         AuthPlugin.from_settings(settings),
         RateLimitPlugin.from_settings(settings),
-    ):
-        if plugin.is_enabled():
-            registry.register(plugin)
-    return registry
+    )
+    enabled_request_order = tuple(
+        plugin for plugin in declared_request_order if plugin.is_enabled()
+    )
+    return ProtocolRequestChain(enabled_request_order)
