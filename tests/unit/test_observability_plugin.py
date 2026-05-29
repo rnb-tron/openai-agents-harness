@@ -1,13 +1,8 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from src.capabilities.observability import ObservabilityConfig, ObservabilityPlugin
+from src.capabilities.observability import ObservabilityPlugin
 from src.api.middleware.request_context import install_request_context
-
-
-class _FakeTracer:
-    pass
-
 
 def test_observability_plugin_disabled_is_noop():
     app = FastAPI()
@@ -29,7 +24,6 @@ def test_observability_plugin_installs_request_trace_headers():
     app = FastAPI()
     plugin = ObservabilityPlugin(
         enabled=True,
-        config=ObservabilityConfig(enabled=False),
     )
 
     plugin.install(app)
@@ -46,25 +40,8 @@ def test_observability_plugin_installs_request_trace_headers():
     assert response.headers["X-Trace-ID"]
 
 
-async def test_observability_plugin_lifecycle_uses_injected_hooks():
-    calls = []
+async def test_observability_protocol_adapter_has_no_resource_lifecycle():
+    plugin = ObservabilityPlugin(enabled=True)
 
-    async def init(config):
-        calls.append(("init", config.enabled))
-        return _FakeTracer()
-
-    async def shutdown():
-        calls.append(("shutdown", None))
-
-    plugin = ObservabilityPlugin(
-        enabled=True,
-        config=ObservabilityConfig(enabled=True),
-        init_fn=init,
-        shutdown_fn=shutdown,
-    )
-
-    await plugin.setup()
-    await plugin.teardown()
-    await plugin.teardown()
-
-    assert calls == [("init", True), ("shutdown", None)]
+    assert await plugin.setup() is None
+    assert await plugin.teardown() is None

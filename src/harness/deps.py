@@ -1,4 +1,4 @@
-"""FastAPI dependencies for the assembled harness."""
+"""已装配 Harness 的 FastAPI 依赖。"""
 
 from __future__ import annotations
 

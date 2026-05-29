@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from src.capabilities.observability import ObservabilityCapability
+from src.capabilities.observability import ObservabilityCapability, ObservabilityConfig
 from src.harness.builder import HarnessBuilder
 from src.harness.config import HarnessConfig
 from src.harness.manifest import CapabilityKind
@@ -38,9 +38,8 @@ def _settings(**overrides):
 def test_observability_marker_describes_tracing_outputs():
     cap = ObservabilityCapability(enabled=True)
 
-    assert cap.manifest.kind == CapabilityKind.RESOURCE
-    assert "tracing" in cap.manifest.provides
-    assert "log_correlation" in cap.manifest.provides
+    assert cap.manifest.kind == CapabilityKind.RUNTIME
+    assert cap.manifest.provides == ("langfuse",)
     assert "opentelemetry" in cap.manifest.tags
 
 
@@ -59,5 +58,28 @@ def test_harness_builder_registers_observability_when_enabled():
     provided = harness.context.provided_names()
 
     assert "observability" in enabled
-    assert "tracing" in provided
-    assert "log_correlation" in provided
+    assert "langfuse" in provided
+
+
+async def test_observability_capability_owns_resource_lifecycle():
+    calls = []
+
+    async def init(config):
+        calls.append(("init", config.enabled))
+        return object()
+
+    async def shutdown():
+        calls.append(("shutdown", None))
+
+    capability = ObservabilityCapability(
+        enabled=True,
+        config=ObservabilityConfig(enabled=True),
+        init_fn=init,
+        shutdown_fn=shutdown,
+    )
+
+    await capability.setup()
+    await capability.teardown()
+    await capability.teardown()
+
+    assert calls == [("init", True), ("shutdown", None)]

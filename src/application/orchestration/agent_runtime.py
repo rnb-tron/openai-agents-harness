@@ -108,7 +108,7 @@ class AgentOrchestrator:
         self.checkpoint_mgr = None
         self._advanced_execution: dict[str, dict[str, Any]] = {}
 
-        # Capability Registry: 所有可插拔能力的统一调度入口
+        # 能力注册表：所有可插拔能力的统一调度入口
         self.registry = capability_registry or CapabilityRegistry()
         if tracing_disabled is not None:
             set_tracing_disabled(tracing_disabled)
@@ -122,14 +122,21 @@ class AgentOrchestrator:
             )
         )
         long_term_enabled = self.settings.memory_enabled and memory_manager is not None
-        self.registry.register(LongTermMemoryCapability(enabled=long_term_enabled))
+        self.registry.register(
+            LongTermMemoryCapability(enabled=long_term_enabled)
+        )
         self.registry.register(
             VectorSearchCapability(
                 enabled=(
                     long_term_enabled
-                    and getattr(memory_manager, "vector_store", None) is not None
-                    and getattr(memory_manager, "embedding_provider", None) is not None
-                )
+                    and (
+                        bool(getattr(memory_manager, "supports_vector_search", False))
+                        or (
+                            getattr(memory_manager, "vector_store", None) is not None
+                            and getattr(memory_manager, "embedding_provider", None) is not None
+                        )
+                    )
+                ),
             )
         )
 
@@ -199,7 +206,7 @@ class AgentOrchestrator:
         user_input: str,
         trace_name: str,
     ):
-        """Create the Langfuse root observation when observability is active."""
+        """可观测启用时创建 Langfuse 根 observation。"""
         tracer_manager = get_tracer_manager()
         langfuse = (
             tracer_manager.langfuse
@@ -221,7 +228,7 @@ class AgentOrchestrator:
                 user_id=session.user_id,
                 tags=["chat"],
             ):
-                # Self-hosted deployments may still render legacy trace-level I/O columns.
+                # 自建 Langfuse 仍可能展示旧版 trace 级 input/output 列。
                 langfuse.set_current_trace_io(input=user_input)
                 yield observation
 
@@ -265,6 +272,14 @@ class AgentOrchestrator:
             return [executing_agent]
         return ["MinimalChatAgent", executing_agent]
 
+    async def _memory_size(self, session_id: str) -> int:
+        if self.memory_manager is not None and hasattr(self.memory_manager, "short_term"):
+            try:
+                return len(await self.memory_manager.short_term.get_all(session_id))
+            except Exception:
+                logger.warning("memory_size_read_failed", extra={"session_id": session_id})
+        return len(self.memory_store.get(session_id))
+
     def advanced_state(
         self,
         session_id: str,
@@ -272,7 +287,7 @@ class AgentOrchestrator:
         executing_agent: str | None = None,
         agent_path: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Return UI-facing evidence for optional advanced agent capabilities."""
+        """返回 UI 验收 advanced agent 能力时需要的状态证据。"""
         if executing_agent is not None or agent_path is not None:
             self._advanced_execution[session_id] = {
                 "executing_agent": executing_agent,
@@ -417,7 +432,7 @@ class AgentOrchestrator:
                 "output": None,
                 "model": selected_model,
                 "tool_calls": [],
-                "memory_size": len(self.memory_store.get(session.session_id)),
+                "memory_size": await self._memory_size(session.session_id),
                 "interrupted": True,
                 "interruptions": approval_requests,
                 "run_state": run_state,
@@ -444,7 +459,7 @@ class AgentOrchestrator:
             "output": ctx.final_output,
             "model": selected_model,
             "tool_calls": ctx.tool_calls,
-            "memory_size": len(self.memory_store.get(session.session_id)),
+            "memory_size": await self._memory_size(session.session_id),
         }
         executing_agent = self._execution_agent_name(run_result)
         result["advanced"] = self.advanced_state(
@@ -478,10 +493,10 @@ class AgentOrchestrator:
         session: AgentSession,
         user_input: str,
     ) -> AsyncIterator[dict[str, Any]]:
-        """Run one selected model and yield text deltas followed by the completed response.
+        """运行已选模型，先产出文本增量，最后产出完整结果。
 
-        Retry and fallback remain on ``run``: once deltas have been delivered,
-        transparently restarting with another model would corrupt the client-visible stream.
+        重试和模型 fallback 仍保留在非流式 ``run`` 上；一旦流式增量已经发给客户端，
+        再透明切换模型会破坏客户端可见的输出流。
         """
         if not self.settings.openai_api_key:
             raise RuntimeError("OPENAI_API_KEY is required for /chat endpoint")
@@ -574,7 +589,7 @@ class AgentOrchestrator:
                     "output": None,
                     "model": selected_model,
                     "tool_calls": [],
-                    "memory_size": len(self.memory_store.get(session.session_id)),
+                    "memory_size": await self._memory_size(session.session_id),
                     "interrupted": True,
                     "interruptions": approval_requests,
                     "run_state": run_state,
@@ -602,7 +617,7 @@ class AgentOrchestrator:
                 "output": ctx.final_output,
                 "model": selected_model,
                 "tool_calls": ctx.tool_calls,
-                "memory_size": len(self.memory_store.get(session.session_id)),
+                "memory_size": await self._memory_size(session.session_id),
                 "interrupted": False,
                 "advanced": self.advanced_state(
                     session.session_id,
@@ -664,7 +679,7 @@ class AgentOrchestrator:
         always: bool = False,
         rejection_message: str | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
-        """Resume an approved SDK interruption while streaming the final response."""
+        """审批后恢复 SDK 中断，并流式返回最终响应。"""
         with self._observe_agent_run(
             session=session,
             user_input=user_input,
@@ -699,7 +714,7 @@ class AgentOrchestrator:
         tool_name: str,
         tool_args: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Finish a declined action without letting the model invent its result."""
+        """完成被拒绝的动作，避免模型编造工具执行结果。"""
         ctx.final_output = (
             f"操作已被拒绝，未执行工具 {tool_name}。"
             "因此无法基于该工具的查询结果提供信息或建议。"
@@ -721,7 +736,7 @@ class AgentOrchestrator:
             "output": ctx.final_output,
             "model": selected_model,
             "tool_calls": ctx.tool_calls,
-            "memory_size": len(self.memory_store.get(session.session_id)),
+            "memory_size": await self._memory_size(session.session_id),
             "interrupted": False,
             "decision": "rejected",
             "tool_executed": False,
@@ -747,7 +762,7 @@ class AgentOrchestrator:
         always: bool = False,
         rejection_message: str | None = None,
     ) -> dict[str, Any]:
-        """Resume an OpenAI Agents SDK interrupted run after a human decision."""
+        """人工决策后恢复 OpenAI Agents SDK 中断运行。"""
         if not self.settings.openai_api_key:
             raise RuntimeError("OPENAI_API_KEY is required for /chat endpoint")
 
@@ -858,7 +873,7 @@ class AgentOrchestrator:
                 "output": None,
                 "model": selected_model,
                 "tool_calls": [],
-                "memory_size": len(self.memory_store.get(session.session_id)),
+                "memory_size": await self._memory_size(session.session_id),
                 "interrupted": True,
                 "interruptions": approval_requests,
                 "run_state": next_state,
@@ -882,7 +897,7 @@ class AgentOrchestrator:
             "output": ctx.final_output,
             "model": selected_model,
             "tool_calls": ctx.tool_calls,
-            "memory_size": len(self.memory_store.get(session.session_id)),
+            "memory_size": await self._memory_size(session.session_id),
             "interrupted": False,
         }
         executing_agent = self._execution_agent_name(run_result)
@@ -907,7 +922,7 @@ class AgentOrchestrator:
         always: bool = False,
         rejection_message: str | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
-        """Stream the continuation after an approval decision."""
+        """审批决策后流式返回后续执行结果。"""
         if not approved:
             result = await self._resume_with_approval(
                 session,
@@ -1025,7 +1040,7 @@ class AgentOrchestrator:
                     "output": None,
                     "model": selected_model,
                     "tool_calls": [],
-                    "memory_size": len(self.memory_store.get(session.session_id)),
+                    "memory_size": await self._memory_size(session.session_id),
                     "interrupted": True,
                     "interruptions": requests,
                     "run_state": next_state,
@@ -1053,7 +1068,7 @@ class AgentOrchestrator:
                 "output": ctx.final_output,
                 "model": selected_model,
                 "tool_calls": ctx.tool_calls,
-                "memory_size": len(self.memory_store.get(session.session_id)),
+                "memory_size": await self._memory_size(session.session_id),
                 "interrupted": False,
                 "advanced": self.advanced_state(
                     session.session_id,

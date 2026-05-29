@@ -34,7 +34,7 @@ class RateLimitPlugin:
         default_limit: int = 60,
         default_window_sec: int = 60,
         default_burst: int = 10,
-        key_strategy: str = "principal_or_ip",
+        key_strategy: str = "principal",
         fail_open: bool = False,
         route_overrides: Optional[dict[str, dict[str, int]]] = None,
         skip_paths: Optional[list[str]] = None,
@@ -98,7 +98,7 @@ class RateLimitPlugin:
             default_limit=int(getattr(settings, "rate_limit_default_limit", 60)),
             default_window_sec=int(getattr(settings, "rate_limit_default_window_sec", 60)),
             default_burst=int(getattr(settings, "rate_limit_default_burst", 10)),
-            key_strategy=getattr(settings, "rate_limit_key_strategy", "principal_or_ip"),
+            key_strategy=getattr(settings, "rate_limit_key_strategy", "principal"),
             fail_open=bool(getattr(settings, "rate_limit_fail_open", False)),
             route_overrides=route_overrides,
             skip_paths=list(getattr(settings, "rate_limit_skip_paths", _DEFAULT_SKIP_PATHS)),
@@ -137,7 +137,7 @@ class RateLimitPlugin:
         if self._key_strategy == "principal":
             user = principal.user_id if principal and not principal.is_anonymous else "anonymous"
             return RateLimitKey(dim="user", value=user, route=path)
-        # principal_or_ip (default)
+        # Compatibility strategy for deployments that explicitly opt into IP fallback.
         if principal and not principal.is_anonymous:
             return RateLimitKey(dim="user", value=principal.user_id, route=path)
         return RateLimitKey(dim="ip", value=ip, route=path)

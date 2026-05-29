@@ -19,7 +19,9 @@ from src.core.logging import setup_logger
 
 logger = setup_logger("capabilities.prompt.manager")
 
-# 用于检测渲染后仍残留的 {var} 占位符 (排除字面 {{ }} 转义)
+# 用于检测渲染后仍残留的占位符。
+# Langfuse Prompt Management 使用 {{var}}; 本地 YAML 兼容既有 {var} 写法。
+_LANGFUSE_PLACEHOLDER_RE = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}")
 _PLACEHOLDER_RE = re.compile(r"(?<!\{)\{([a-zA-Z_][a-zA-Z0-9_]*)\}(?!\})")
 
 
@@ -78,10 +80,10 @@ class PromptManager:
 
         cache_hit, tpl = await self._fetch_with_cache(cache_key, name, version, eff_label)
 
-        text = tpl.template.format_map(_DefaultDict(vars))
+        text = self._render_template(tpl.template, vars)
 
         # 检测渲染后仍残留的占位符 (排除字面 {{ }})
-        leftovers = _PLACEHOLDER_RE.findall(text)
+        leftovers = _LANGFUSE_PLACEHOLDER_RE.findall(text) + _PLACEHOLDER_RE.findall(text)
         if leftovers:
             logger.warning(
                 "prompt_unresolved_placeholders",
@@ -97,8 +99,10 @@ class PromptManager:
             name=tpl.name,
             text=text,
             version=tpl.version,
+            label=tpl.label,
             source=tpl.source,
             rendered_vars=dict(vars),
+            metadata=dict(tpl.metadata),
             cache_hit=cache_hit,
             duration_ms=duration_ms,
         )
@@ -161,3 +165,15 @@ class PromptManager:
             if self._cache_ttl > 0:
                 self._cache[cache_key] = (time.time() + self._cache_ttl, tpl)
             return False, tpl
+
+    def _render_template(self, template: str, vars: dict[str, Any]) -> str:
+        """Render Langfuse ``{{var}}`` and local YAML ``{var}`` placeholders."""
+
+        def _replace_langfuse(match: re.Match[str]) -> str:
+            key = match.group(1)
+            if key not in vars:
+                return match.group(0)
+            return str(vars[key])
+
+        rendered = _LANGFUSE_PLACEHOLDER_RE.sub(_replace_langfuse, template)
+        return rendered.format_map(_DefaultDict(vars))

@@ -1,4 +1,4 @@
-"""Structured harness config facade over the existing Settings object."""
+"""基于现有 Settings 的 Harness 结构化配置外观。"""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Any
 
 @dataclass(frozen=True)
 class RuntimeConfig:
-    """Runtime-level switches derived from capability choices."""
+    """由能力选择推导出的运行时开关。"""
 
     tracing_disabled: bool = False
 
@@ -28,7 +28,7 @@ class CapabilitySwitches:
 
 @dataclass(frozen=True)
 class HarnessConfig:
-    """A lightweight, scaffold-friendly view of application settings."""
+    """面向脚手架的轻量应用配置视图。"""
 
     settings: Any
     runtime: RuntimeConfig

@@ -4,6 +4,14 @@ from src.capabilities.plugin import Capability, CapabilityRegistry, RunContext, 
 from src.harness.manifest import CapabilityKind, CapabilityManifest
 
 
+def test_capability_kind_uses_lifecycle_responsibility_only():
+    assert {kind.value for kind in CapabilityKind} == {
+        "runtime",
+        "protocol",
+        "governance",
+    }
+
+
 class _RecorderCapability(Capability):
     def __init__(self, name: str, order: int, calls: list[str]):
         self.name = name

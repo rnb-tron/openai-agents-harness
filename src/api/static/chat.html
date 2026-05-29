@@ -79,6 +79,84 @@
         padding: 16px 18px;
       }
 
+      .sidebar {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+
+      .session-tools {
+        border-top: 1px solid var(--line);
+        padding: 14px 18px;
+        min-height: 0;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .session-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+
+      .session-actions button {
+        padding: 8px 10px;
+      }
+
+      .session-list {
+        min-height: 120px;
+        overflow: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding-right: 2px;
+      }
+
+      .session-item {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: #f8fafd;
+        padding: 9px;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 8px;
+        align-items: start;
+      }
+
+      .session-item.active {
+        border-color: var(--primary);
+        background: #eef4ff;
+      }
+
+      .session-open {
+        padding: 0;
+        text-align: left;
+        color: var(--ink);
+        background: transparent;
+        font-weight: 600;
+      }
+
+      .session-open:hover {
+        color: var(--primary);
+      }
+
+      .session-meta {
+        display: block;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 400;
+        margin-top: 4px;
+        word-break: break-all;
+      }
+
+      .session-delete {
+        color: #a13e36;
+        background: #fcefed;
+        padding: 6px 8px;
+      }
+
       label {
         display: block;
         font-size: 12px;
@@ -287,6 +365,8 @@
       .inspection {
         display: flex;
         flex-direction: column;
+        min-height: 0;
+        overflow: auto;
       }
 
       .advanced {
@@ -355,6 +435,43 @@
         padding: 7px 10px;
       }
 
+      .storage {
+        padding: 14px 15px;
+        border-bottom: 1px solid var(--line);
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .storage-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+
+      .storage-actions button {
+        padding: 7px 9px;
+      }
+
+      .storage h3 {
+        margin: 10px 0 6px;
+        color: var(--ink);
+        font-size: 12px;
+      }
+
+      .storage-list {
+        border-radius: 7px;
+        background: #f7f9fc;
+        color: #40536d;
+        min-height: 30px;
+        max-height: 105px;
+        overflow: auto;
+        padding: 7px 8px;
+        line-height: 1.55;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
       #raw-response {
         margin: 0;
         flex: 1;
@@ -391,7 +508,7 @@
       <span>POST /chat/stream · POST /chat/resume/stream · GET /advanced/sessions/{id}</span>
     </header>
     <main>
-      <section class="panel">
+      <section class="panel sidebar">
         <div class="panel-title">请求设置</div>
         <div class="settings">
           <div id="health" class="health">正在连接本地服务...</div>
@@ -407,7 +524,15 @@
             <label for="auth-token">Bearer Token（启用 Auth 时填写）</label>
             <input id="auth-token" type="password" data-testid="auth-token" placeholder="JWT token">
           </div>
-          <button id="new-session" class="secondary" data-testid="new-session" type="button">新建会话并清空记录</button>
+          <button id="new-session" class="secondary" data-testid="new-session" type="button">新建会话</button>
+        </div>
+        <div class="panel-title">会话列表</div>
+        <div class="session-tools">
+          <div class="session-actions">
+            <button id="refresh-sessions" class="secondary" type="button">刷新会话</button>
+            <button id="delete-session" class="secondary" type="button">删除当前</button>
+          </div>
+          <div id="session-list" class="session-list">尚未加载会话</div>
         </div>
       </section>
 
@@ -446,6 +571,21 @@
           <div id="checkpoint-records" class="state-list">尚无检查点</div>
           <button id="refresh-advanced" class="secondary refresh-state" type="button">刷新 Advanced 状态</button>
         </div>
+        <div class="panel-title">存储验收</div>
+        <div class="storage" data-testid="storage-state">
+          <div class="storage-actions">
+            <button id="refresh-storage" class="secondary" type="button">刷新存储状态</button>
+            <button id="search-memory" class="secondary" type="button">搜索长期记忆</button>
+          </div>
+          <h3>MySQL 会话记录</h3>
+          <div id="session-records" class="storage-list">尚未刷新</div>
+          <h3>MySQL 当前消息</h3>
+          <div id="message-records" class="storage-list">尚未刷新</div>
+          <h3>Redis 短期记忆 / Mem0 状态</h3>
+          <div id="memory-stats" class="storage-list">尚未刷新</div>
+          <h3>Mem0 长期记忆搜索</h3>
+          <div id="memory-search-results" class="storage-list">点击“搜索长期记忆”</div>
+        </div>
         <div class="panel-title">最近响应 JSON</div>
         <div class="raw">
           <pre id="raw-response" data-testid="raw-response">等待请求...</pre>
@@ -469,8 +609,14 @@
       const handoffTargets = document.querySelector("#handoff-targets");
       const approvalRecords = document.querySelector("#approval-records");
       const checkpointRecords = document.querySelector("#checkpoint-records");
+      const sessionRecords = document.querySelector("#session-records");
+      const messageRecords = document.querySelector("#message-records");
+      const memoryStats = document.querySelector("#memory-stats");
+      const memorySearchResults = document.querySelector("#memory-search-results");
+      const sessionList = document.querySelector("#session-list");
       let pendingApproval = null;
       let currentAdvanced = {};
+      let cachedSessions = [];
 
       function newSessionId() {
         return globalThis.crypto && crypto.randomUUID
@@ -481,6 +627,7 @@
       function setSession(id) {
         sessionInput.value = id;
         localStorage.setItem("agent-chat-session", id);
+        markActiveSession();
       }
 
       function addMessage(role, text, meta = "") {
@@ -497,6 +644,14 @@
         messages.appendChild(bubble);
         messages.scrollTop = messages.scrollHeight;
         return bubble;
+      }
+
+      function clearMessages(text = "当前会话没有历史消息，发送消息开始测试。") {
+        messages.replaceChildren();
+        const placeholder = document.createElement("div");
+        placeholder.className = "empty";
+        placeholder.textContent = text;
+        messages.appendChild(placeholder);
       }
 
       function updateMessage(bubble, text, meta = "") {
@@ -563,6 +718,230 @@
         }
         const body = await response.json();
         renderAdvanced(body.data);
+      }
+
+      function unwrapData(body) {
+        return body && Object.prototype.hasOwnProperty.call(body, "data") ? body.data : body;
+      }
+
+      async function fetchJson(url, options = {}) {
+        const response = await fetch(url, options);
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(`${url} HTTP ${response.status}: ${text.slice(0, 160)}`);
+        }
+        return unwrapData(await response.json());
+      }
+
+      function renderSessions(items) {
+        cachedSessions = Array.isArray(items) ? items : [];
+        if (!Array.isArray(items) || items.length === 0) {
+          sessionRecords.textContent = "没有查到当前用户的会话记录";
+          sessionList.textContent = "没有会话记录";
+          return;
+        }
+        sessionRecords.textContent = items
+          .map((item) => `${item.id}\n${item.title || "(无标题)"} · ${item.status} · ${item.updated_at || "-"}`)
+          .join("\n\n");
+        sessionList.replaceChildren();
+        for (const item of items) {
+          const row = document.createElement("div");
+          row.className = `session-item ${item.id === sessionInput.value ? "active" : ""}`;
+          row.dataset.sessionId = item.id;
+
+          const open = document.createElement("button");
+          open.className = "session-open";
+          open.type = "button";
+          open.textContent = item.title || "(无标题)";
+          const meta = document.createElement("span");
+          meta.className = "session-meta";
+          meta.textContent = `${item.updated_at || "-"} · ${item.id}`;
+          open.appendChild(meta);
+          open.addEventListener("click", () => {
+            withFeedback(() => openSession(item.id));
+          });
+
+          const remove = document.createElement("button");
+          remove.className = "session-delete";
+          remove.type = "button";
+          remove.textContent = "删";
+          remove.title = "删除会话";
+          remove.addEventListener("click", (event) => {
+            event.stopPropagation();
+            withFeedback(() => deleteSession(item.id));
+          });
+
+          row.append(open, remove);
+          sessionList.appendChild(row);
+        }
+        markActiveSession();
+      }
+
+      function markActiveSession() {
+        for (const row of sessionList.querySelectorAll(".session-item")) {
+          row.classList.toggle("active", row.dataset.sessionId === sessionInput.value);
+        }
+      }
+
+      function renderMessages(items) {
+        if (!Array.isArray(items) || items.length === 0) {
+          messageRecords.textContent = "当前 session 没有持久化消息";
+          clearMessages();
+          return;
+        }
+        messageRecords.textContent = items
+          .map((item) => `${item.role}${item.model ? ` · ${item.model}` : ""}: ${item.content}`)
+          .join("\n\n");
+        messages.replaceChildren();
+        for (const item of items) {
+          addMessage(item.role === "user" ? "user" : "assistant", item.content, item.model ? `model: ${item.model}` : "");
+        }
+      }
+
+      function renderMemoryStats(stats) {
+        const recent = stats.short_term_recent || [];
+        const summary = [
+          `backend: ${stats.backend || "memory_store"}`,
+          `vector_store: ${stats.vector_store || "-"}`,
+          `short_term_backend: ${stats.short_term_backend || stats.short_term?.backend || "-"}`,
+          `short_term_count: ${stats.short_term_count ?? stats.short_term?.messages ?? 0}`,
+          `session_summary: ${stats.session_summary ? "available" : "-"}`,
+          `summary_covered_messages: ${stats.session_summary?.covered_message_count ?? "-"}`,
+          `preference_cache_users: ${stats.preference_cache_users ?? "-"}`,
+          `pending_sessions: ${stats.pending_sessions ?? "-"}`
+        ];
+        if (stats.session_summary?.summary) {
+          summary.push(`\n会话摘要：\n${stats.session_summary.summary}`);
+        }
+        if (!recent.length) {
+          memoryStats.textContent = `${summary.join("\n")}\n\n最近短期记忆：暂无`;
+          return;
+        }
+        const lines = recent.map((item, index) => {
+          const role = item.role || "unknown";
+          const timestamp = item.timestamp ? ` · ${item.timestamp}` : "";
+          return `[${index + 1}] ${role}${timestamp}\n${item.content || ""}`;
+        });
+        memoryStats.textContent = `${summary.join("\n")}\n\n最近短期记忆：\n${lines.join("\n\n")}`;
+      }
+
+      async function refreshStorage() {
+        const userId = encodeURIComponent(userInput.value.trim() || "anonymous");
+        const sessionId = encodeURIComponent(sessionInput.value);
+        const [sessions, stats] = await Promise.all([
+          fetchJson(`/chat/sessions?limit=10&user_id=${userId}`, {headers: headers()}).catch((error) => ({error: error.message})),
+          fetchJson(`/memory/stats?user_id=${userId}&session_id=${sessionId}`, {headers: headers()}).catch((error) => ({error: error.message}))
+        ]);
+
+        if (sessions.error) {
+          sessionRecords.textContent = `会话记录不可用：${sessions.error}`;
+          messageRecords.textContent = "会话记录不可用";
+        } else {
+          renderSessions(sessions);
+          const messages = await fetchJson(`/chat/sessions/${sessionId}/messages?limit=20`, {headers: headers()})
+            .catch((error) => ({error: error.message}));
+          if (messages.error) {
+            messageRecords.textContent = `当前消息不可用：${messages.error}`;
+          } else {
+            renderMessages(messages);
+          }
+        }
+
+        if (stats.error) {
+          memoryStats.textContent = `记忆状态不可用：${stats.error}`;
+        } else {
+          renderMemoryStats(stats);
+        }
+      }
+
+      async function refreshSessionList() {
+        const userId = encodeURIComponent(userInput.value.trim() || "anonymous");
+        const sessions = await fetchJson(`/chat/sessions?limit=20&user_id=${userId}`, {headers: headers()});
+        renderSessions(sessions);
+        return sessions;
+      }
+
+      async function loadCurrentMessages() {
+        const sessionId = encodeURIComponent(sessionInput.value);
+        const loadedMessages = await fetchJson(`/chat/sessions/${sessionId}/messages?limit=100`, {headers: headers()});
+        renderMessages(loadedMessages);
+        return loadedMessages;
+      }
+
+      async function openSession(sessionId) {
+        setSession(sessionId);
+        clearPending();
+        currentAdvanced = {};
+        renderAdvanced();
+        await loadCurrentMessages();
+        await refreshAdvanced();
+        await refreshStorage();
+      }
+
+      async function deleteSession(sessionId = sessionInput.value) {
+        if (!sessionId) {
+          return;
+        }
+        if (!confirm("确认删除这个会话及其消息记录吗？")) {
+          return;
+        }
+        const userId = encodeURIComponent(userInput.value.trim() || "anonymous");
+        await fetchJson(`/chat/sessions/${encodeURIComponent(sessionId)}?user_id=${userId}`, {
+          method: "DELETE",
+          headers: headers()
+        });
+        const sessions = await refreshSessionList();
+        if (sessions.length > 0) {
+          await openSession(sessions[0].id);
+        } else {
+          startNewSessionView();
+        }
+      }
+
+      async function createNewSession() {
+        const body = await fetchJson("/chat/sessions", {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify({
+            session_id: newSessionId(),
+            user_id: userInput.value.trim() || null,
+            title: "新会话"
+          })
+        });
+        setSession(body.id);
+        startNewSessionView();
+        await refreshSessionList();
+        markActiveSession();
+        await refreshStorage();
+      }
+
+      function startNewSessionView() {
+        currentAdvanced = {};
+        renderAdvanced();
+        clearPending();
+        rawResponse.textContent = "等待请求...";
+        sessionRecords.textContent = "新会话尚未持久化";
+        messageRecords.textContent = "发送消息后会写入 MySQL";
+        memoryStats.textContent = "发送消息后可查看 Redis 短期记忆";
+        memorySearchResults.textContent = "点击“搜索长期记忆”";
+        clearMessages("新会话已准备好，发送消息开始测试。");
+      }
+
+      async function searchLongTermMemory() {
+        const query = messageInput.value.trim() || "用户偏好 项目 记住";
+        const body = await fetchJson("/memory/search", {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify({
+            query,
+            user_id: userInput.value.trim() || "anonymous",
+            top_k: 5
+          })
+        });
+        const results = body.results || [];
+        memorySearchResults.textContent = results.length
+          ? results.map((item, index) => `[${index + 1}] ${item.content || item.memory || JSON.stringify(item)}`).join("\n\n")
+          : "没有搜索到长期记忆";
       }
 
       function showPending(data, originalMessage) {
@@ -642,6 +1021,7 @@
                 }
                 addMessage("system", "请求已暂停，等待人工审批。");
                 showPending(data, message);
+                await refreshStorage();
               } else {
                 if (!assistantBubble) {
                   assistantBubble = addMessage("assistant", "");
@@ -651,6 +1031,8 @@
                   data.output || streamedOutput || "(无文本输出)",
                   `model: ${data.model} · memory: ${data.memory_size}`
                 );
+                await refreshSessionList();
+                await refreshStorage();
               }
             }
           }
@@ -743,6 +1125,7 @@
                   resumed.output || streamedOutput || "(无文本输出)",
                   `model: ${resumed.model} · resumed`
                 );
+                await refreshStorage();
               }
             }
           }
@@ -795,18 +1178,24 @@
         withFeedback(() => refreshAdvanced());
       });
 
+      document.querySelector("#refresh-storage").addEventListener("click", () => {
+        withFeedback(() => refreshStorage());
+      });
+
+      document.querySelector("#refresh-sessions").addEventListener("click", () => {
+        withFeedback(() => refreshSessionList());
+      });
+
+      document.querySelector("#delete-session").addEventListener("click", () => {
+        withFeedback(() => deleteSession());
+      });
+
+      document.querySelector("#search-memory").addEventListener("click", () => {
+        withFeedback(() => searchLongTermMemory());
+      });
+
       document.querySelector("#new-session").addEventListener("click", () => {
-        setSession(newSessionId());
-        currentAdvanced = {};
-        renderAdvanced();
-        messages.replaceChildren();
-        clearPending();
-        rawResponse.textContent = "等待请求...";
-        const placeholder = document.createElement("div");
-        placeholder.className = "empty";
-        placeholder.textContent = "新会话已准备好，发送消息开始测试。";
-        messages.appendChild(placeholder);
-        withFeedback(() => refreshAdvanced());
+        withFeedback(() => createNewSession());
       });
 
       async function checkHealth() {
@@ -816,7 +1205,17 @@
             throw new Error();
           }
           health.textContent = "本地 API 已连接 · /health/ok";
-          await refreshAdvanced();
+          const sessions = await refreshSessionList().catch(() => []);
+          const current = sessions.find((item) => item.id === sessionInput.value);
+          if (current) {
+            await openSession(current.id);
+          } else if (sessions.length > 0) {
+            await openSession(sessions[0].id);
+          } else {
+            clearMessages("没有找到本地历史会话，发送消息开始测试。");
+            await refreshAdvanced();
+            await refreshStorage();
+          }
         } catch (error) {
           health.classList.add("offline");
           health.textContent = "本地 API 未连接";

@@ -1,4 +1,4 @@
-"""Agent Harness assembly layer."""
+"""Agent Harness 装配层。"""
 
 from src.harness.manifest import CapabilityKind, CapabilityManifest
 

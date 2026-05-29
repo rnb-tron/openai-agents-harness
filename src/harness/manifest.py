@@ -1,8 +1,7 @@
-"""Capability metadata used by the harness builder.
+"""Harness builder 使用的能力元数据。
 
-The manifest is intentionally small. It gives the future scaffold generator
-enough structure to reason about capability composition without forcing every
-capability to adopt a heavy plugin framework immediately.
+Manifest 刻意保持很小：它给未来脚手架生成器足够的信息来推导能力组合，
+同时不强迫每个能力立即接入沉重的插件框架。
 """
 
 from __future__ import annotations
@@ -14,7 +13,7 @@ from enum import Enum
 class CapabilityKind(str, Enum):
     RUNTIME = "runtime"
     PROTOCOL = "protocol"
-    RESOURCE = "resource"
+    GOVERNANCE = "governance"
 
 
 @dataclass(frozen=True)

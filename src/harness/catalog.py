@@ -1,4 +1,4 @@
-"""Machine-readable capability catalog for scaffold planning."""
+"""面向脚手架规划的机器可读能力目录。"""
 
 from __future__ import annotations
 
@@ -34,27 +34,24 @@ TOOL_REGISTRY_MANIFEST = CapabilityManifest(
 
 MEMORY_MANAGER_MANIFEST = CapabilityManifest(
     name="memory_manager",
-    kind=CapabilityKind.RESOURCE,
+    kind=CapabilityKind.RUNTIME,
     config_section="memory",
-    depends_on=("database",),
     provides=("memory_manager",),
     install_order=19,
-    tags=("builder_resource",),
+    tags=("builder_resource", "mem0"),
 )
 
-EMBEDDING_PROVIDER_MANIFEST = CapabilityManifest(
-    name="embedding_provider",
-    kind=CapabilityKind.RESOURCE,
-    config_section="memory",
-    depends_on=("embedding_api",),
-    provides=("embedding_provider",),
-    install_order=20,
-    tags=("builder_resource",),
+SESSION_STORE_MANIFEST = CapabilityManifest(
+    name="session_store",
+    kind=CapabilityKind.RUNTIME,
+    config_section="session_store",
+    provides=("session_store", "chat_transcripts"),
+    install_order=18,
+    tags=("builder_resource", "mysql"),
 )
-
 
 def available_capability_manifests() -> list[CapabilityManifest]:
-    """Return manifests for capabilities the current Harness can assemble."""
+    """返回当前 Harness 能装配的能力清单。"""
     manifests = [
         TOOL_REGISTRY_MANIFEST,
         AuthCapability.manifest,
@@ -63,8 +60,8 @@ def available_capability_manifests() -> list[CapabilityManifest]:
         ModelRouterCapability.manifest,
         ModelResilienceCapability.manifest,
         PromptCapability.manifest,
+        SESSION_STORE_MANIFEST,
         MEMORY_MANAGER_MANIFEST,
-        EMBEDDING_PROVIDER_MANIFEST,
         MemoryCapability.manifest,
         LongTermMemoryCapability.manifest,
         VectorSearchCapability.manifest,
@@ -77,7 +74,7 @@ def available_capability_manifests() -> list[CapabilityManifest]:
 
 
 def validate_capability_selection(selected: list[str]) -> dict[str, object]:
-    """Resolve a platform capability selection without assembling a runtime."""
+    """在不装配运行时的情况下解析一次平台能力选择。"""
     manifests = available_capability_manifests()
     by_name = {manifest.name: manifest for manifest in manifests}
     requested = set(selected)

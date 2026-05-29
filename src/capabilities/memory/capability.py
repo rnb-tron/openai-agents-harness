@@ -1,4 +1,4 @@
-"""MemoryCapability: 把 MemoryStore + MemoryManager 适配为统一的 Capability
+"""记忆能力：把短期 store 和长期 manager 适配为统一能力。
 
 - 短期记忆 (MemoryStore) 始终启用, 由 ``before_run`` 注入对话上下文,
   ``after_run`` 写入用户输入与助手回复
@@ -80,12 +80,6 @@ class MemoryCapability(Capability):
 
     async def after_run(self, ctx: RunContext) -> None:
         """写入短期记忆;如启用长期记忆也同步写入"""
-        # 短期记忆 (同步, 内存级, 不会失败)
-        self._store.append(ctx.session_id, "user", ctx.user_input)
-        if ctx.final_output:
-            self._store.append(ctx.session_id, "assistant", ctx.final_output)
-
-        # 长期记忆 (异步, 失败不影响主流程)
         if self._long_term_enabled and self._manager is not None:
             try:
                 await self._manager.add_memory(
@@ -101,6 +95,7 @@ class MemoryCapability(Capability):
                         role="assistant",
                         content=ctx.final_output,
                     )
+                return
             except Exception as e:
                 logger.warning(
                     "memory_add_failed",
@@ -112,6 +107,11 @@ class MemoryCapability(Capability):
                     },
                 )
 
+        # 未启用 Mem0 manager 或 manager 失败时，退回进程内短期 store。
+        self._store.append(ctx.session_id, "user", ctx.user_input)
+        if ctx.final_output:
+            self._store.append(ctx.session_id, "assistant", ctx.final_output)
+
     @property
     def store(self) -> MemoryStore:
         """暴露底层 store, 供 Orchestrator 读取 memory_size 等指标"""
@@ -119,11 +119,11 @@ class MemoryCapability(Capability):
 
 
 class LongTermMemoryCapability(Capability):
-    """Marker capability for persistent long-term memory.
+    """长期记忆的标记能力。
 
-    Runtime reads/writes still happen inside ``MemoryCapability`` for now. This
-    marker makes the capability graph explicit for scaffold generation without
-    forcing a larger storage refactor in this step.
+    当前读写仍由 ``MemoryCapability`` 统一完成；这个标记能力的价值是让
+    scaffold/catalog 能清楚表达“长期记忆依赖 memory_manager”，同时避免在
+    这一轮引入更大的存储重构。
     """
 
     name = "long_term_memory"
@@ -131,10 +131,10 @@ class LongTermMemoryCapability(Capability):
         name="long_term_memory",
         kind=CapabilityKind.RUNTIME,
         config_section="memory",
-        depends_on=("database", "memory_manager"),
+        depends_on=("memory_manager",),
         provides=("long_term_memory",),
         install_order=21,
-        tags=("marker",),
+        tags=("mem0",),
     )
 
     def __init__(self, enabled: bool) -> None:
@@ -145,17 +145,17 @@ class LongTermMemoryCapability(Capability):
 
 
 class VectorSearchCapability(Capability):
-    """Marker capability for vector-backed memory search."""
+    """语义记忆检索的标记能力。"""
 
     name = "vector_search"
     manifest = CapabilityManifest(
         name="vector_search",
         kind=CapabilityKind.RUNTIME,
         config_section="memory",
-        depends_on=("long_term_memory", "embedding_provider"),
+        depends_on=("long_term_memory",),
         provides=("vector_search",),
         install_order=22,
-        tags=("marker",),
+        tags=("mem0",),
     )
 
     def __init__(self, enabled: bool) -> None:
