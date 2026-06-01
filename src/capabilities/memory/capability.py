@@ -1,8 +1,7 @@
-"""记忆能力：把短期 store 和长期 manager 适配为统一能力。
+"""记忆能力：把 Mem0 manager 适配为运行时上下文能力。
 
-- 短期记忆 (MemoryStore) 始终启用, 由 ``before_run`` 注入对话上下文,
-  ``after_run`` 写入用户输入与助手回复
-- 长期记忆 (MemoryManager) 可选启用, 失败自动降级到短期记忆
+- 启用 ``MEMORY_ENABLED`` 后，由 Mem0 manager 统一读取短期/长期记忆；
+- 未启用或 manager 失败时，不再写入进程内兜底，直接以无记忆上下文继续。
 """
 
 from __future__ import annotations
@@ -17,7 +16,7 @@ logger = setup_logger("capabilities.memory.capability")
 
 
 class MemoryCapability(Capability):
-    """记忆能力适配器, 统一短期 / 长期记忆的注入与写入"""
+    """记忆能力适配器。"""
 
     name = "memory_session"
     manifest = CapabilityManifest(
@@ -37,15 +36,13 @@ class MemoryCapability(Capability):
     ) -> None:
         self._store = memory_store
         self._manager = memory_manager
-        # 仅当外部启用且确实注入了 manager 时才走长期记忆
         self._long_term_enabled = long_term_enabled and memory_manager is not None
 
     def is_enabled(self) -> bool:
-        # 短期记忆是基础能力, 始终启用; 长期是否启用由内部判断
         return True
 
     async def before_run(self, ctx: RunContext) -> None:
-        """构建携带历史的 ``ctx.enriched_input``"""
+        """构建携带记忆上下文的 ``ctx.enriched_input``。"""
         memory_context = ""
         if self._long_term_enabled and self._manager is not None:
             try:
@@ -64,9 +61,6 @@ class MemoryCapability(Capability):
                         "error": str(e),
                     },
                 )
-                memory_context = self._store.render_context(ctx.session_id)
-        else:
-            memory_context = self._store.render_context(ctx.session_id)
 
         if memory_context:
             ctx.enriched_input = (
@@ -79,7 +73,7 @@ class MemoryCapability(Capability):
             ctx.enriched_input = ctx.user_input
 
     async def after_run(self, ctx: RunContext) -> None:
-        """写入短期记忆;如启用长期记忆也同步写入"""
+        """写入 Mem0 manager；失败时不做进程内兜底。"""
         if self._long_term_enabled and self._manager is not None:
             try:
                 await self._manager.add_memory(
@@ -106,11 +100,6 @@ class MemoryCapability(Capability):
                         "error": str(e),
                     },
                 )
-
-        # 未启用 Mem0 manager 或 manager 失败时，退回进程内短期 store。
-        self._store.append(ctx.session_id, "user", ctx.user_input)
-        if ctx.final_output:
-            self._store.append(ctx.session_id, "assistant", ctx.final_output)
 
     @property
     def store(self) -> MemoryStore:

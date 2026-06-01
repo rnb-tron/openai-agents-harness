@@ -7,7 +7,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import case, delete, select
+from sqlalchemy import case, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.capabilities.session_store.models import (
@@ -23,8 +23,8 @@ logger = setup_logger("capabilities.session_store")
 class SessionStore:
     """持久化用户会话和完整消息流水。
 
-    这层只记录产品态会话数据，不参与 prompt 上下文拼接；短期上下文由 Redis
-    记忆层负责，长期记忆由 Mem0 负责。
+    这层记录产品态会话数据和完整消息流水；当 Redis 短期缓存未启用或 miss
+    时，记忆管理器会从这里读取最近消息作为短期原文记忆来源。
     """
 
     def __init__(self, session_factory: Callable[[], AsyncSession]) -> None:
@@ -238,6 +238,40 @@ class SessionStore:
                 .limit(limit)
             )
             return [self._message_to_dict(row) for row in rows.scalars()]
+
+    async def list_recent_messages(
+        self,
+        *,
+        session_id: str,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """读取最近 N 条消息，并按自然对话顺序返回。"""
+        async with self._session_factory() as db:
+            rows = await db.execute(
+                select(ChatMessageRecord)
+                .where(ChatMessageRecord.session_id == session_id)
+                .order_by(
+                    ChatMessageRecord.created_at.desc(),
+                    case(
+                        (ChatMessageRecord.role == "assistant", 0),
+                        (ChatMessageRecord.role == "user", 1),
+                        else_=2,
+                    ),
+                )
+                .limit(limit)
+            )
+            messages = [self._message_to_dict(row) for row in rows.scalars()]
+            return list(reversed(messages))
+
+    async def count_messages(self, session_id: str) -> int:
+        """统计会话消息数量，用于摘要更新的高水位判断。"""
+        async with self._session_factory() as db:
+            count = await db.scalar(
+                select(func.count())
+                .select_from(ChatMessageRecord)
+                .where(ChatMessageRecord.session_id == session_id)
+            )
+            return int(count or 0)
 
     async def get_summary(self, session_id: str) -> dict[str, Any] | None:
         async with self._session_factory() as db:

@@ -51,9 +51,9 @@ finally:
 | --- | --- |
 | `tool_registry` | 注册 `get_weather` 与 `add_numbers` SDK 工具 |
 | `model_router` | 选择默认模型或 reasoning 模型 |
-| `memory_session` | 使用进程内 `MemoryStore` 注入本会话历史 |
+| `memory_session` | 作为记忆 hook 入口；未启用 Mem0 manager 时不注入进程内历史 |
 
-`MemoryStore` 是基础会话上下文，不提供跨进程耐久性。
+会话历史由 `SessionStore` 持久化；上下文记忆由 `Mem0MemoryManager` 读取 Redis / MySQL / Mem0，不再使用进程内兜底。
 
 ## 可选 Runtime 能力
 
@@ -107,7 +107,7 @@ runtime = AgentOrchestrator(
 result = await runtime.run(AgentSession(session_id="s1"), "hello")
 ```
 
-涉及数据库、Prompt、HITL、Checkpoint 或 Handoff 时，使用 `HarnessBuilder` 可避免遗漏资源初始化和能力开关映射。
+`MemoryStore` 仅是兼容构造参数的空实现。涉及数据库、Prompt、HITL、Checkpoint 或 Handoff 时，使用 `HarnessBuilder` 可避免遗漏资源初始化和能力开关映射。
 
 ## 能力图
 

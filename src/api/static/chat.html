@@ -55,7 +55,7 @@
 
       main {
         display: grid;
-        grid-template-columns: 315px minmax(460px, 1fr) 330px;
+        grid-template-columns: 345px minmax(460px, 1fr) 330px;
         gap: 18px;
         padding: 18px;
         height: calc(100vh - 68px);
@@ -75,8 +75,12 @@
         font-size: 15px;
       }
 
+      .sidebar .panel-title {
+        padding: 12px 18px;
+      }
+
       .settings {
-        padding: 16px 18px;
+        padding: 10px 18px 12px;
       }
 
       .sidebar {
@@ -87,11 +91,12 @@
 
       .session-tools {
         border-top: 1px solid var(--line);
-        padding: 14px 18px;
+        padding: 10px 18px 14px;
         min-height: 0;
         flex: 1;
         display: flex;
         flex-direction: column;
+        overflow: hidden;
       }
 
       .session-actions {
@@ -106,7 +111,8 @@
       }
 
       .session-list {
-        min-height: 120px;
+        flex: 1;
+        min-height: 0;
         overflow: auto;
         display: flex;
         flex-direction: column;
@@ -159,9 +165,9 @@
 
       label {
         display: block;
-        font-size: 12px;
+        font-size: 11px;
         color: var(--muted);
-        margin: 0 0 7px;
+        margin: 0 0 5px;
       }
 
       input,
@@ -171,7 +177,7 @@
         border-radius: 8px;
         font: inherit;
         font-size: 13px;
-        padding: 10px 11px;
+        padding: 8px 10px;
         color: var(--ink);
         background: white;
       }
@@ -183,7 +189,7 @@
       }
 
       .field {
-        margin-bottom: 16px;
+        margin-bottom: 8px;
       }
 
       .read-only {
@@ -199,6 +205,10 @@
         font-weight: 600;
         padding: 10px 14px;
         transition: background 0.15s ease;
+      }
+
+      .settings button {
+        padding: 8px 10px;
       }
 
       button:disabled {
@@ -218,11 +228,11 @@
 
       .health {
         border-radius: 9px;
-        padding: 10px 12px;
-        font-size: 13px;
+        padding: 8px 10px;
+        font-size: 12px;
         background: #eef8f5;
         color: var(--success);
-        margin-bottom: 18px;
+        margin-bottom: 10px;
       }
 
       .health.offline {
@@ -559,7 +569,22 @@
       </section>
 
       <section class="panel inspection">
-        <div class="panel-title">Advanced 验收</div>
+        <div class="panel-title">记忆&amp;会话存储</div>
+        <div class="storage" data-testid="storage-state">
+          <div class="storage-actions">
+            <button id="refresh-storage" class="secondary" type="button">刷新存储状态</button>
+            <button id="search-memory" class="secondary" type="button">搜索长期记忆</button>
+          </div>
+          <h3>当前消息</h3>
+          <div id="message-records" class="storage-list">尚未刷新</div>
+          <h3>会话 summary</h3>
+          <div id="session-summary" class="storage-list">尚未刷新</div>
+          <h3>Redis 短期记忆 / Mem0 状态</h3>
+          <div id="memory-stats" class="storage-list">尚未刷新</div>
+          <h3>Mem0 长期记忆搜索</h3>
+          <div id="memory-search-results" class="storage-list">点击“搜索长期记忆”</div>
+        </div>
+        <div class="panel-title">Runtime Control</div>
         <div class="advanced" data-testid="advanced-state">
           <div id="advanced-enabled" class="capability-badges"></div>
           <div class="advanced-row"><span>执行 Agent</span><strong id="executing-agent">-</strong></div>
@@ -569,22 +594,7 @@
           <div id="approval-records" class="state-list">尚无审批</div>
           <h3>Checkpoint</h3>
           <div id="checkpoint-records" class="state-list">尚无检查点</div>
-          <button id="refresh-advanced" class="secondary refresh-state" type="button">刷新 Advanced 状态</button>
-        </div>
-        <div class="panel-title">存储验收</div>
-        <div class="storage" data-testid="storage-state">
-          <div class="storage-actions">
-            <button id="refresh-storage" class="secondary" type="button">刷新存储状态</button>
-            <button id="search-memory" class="secondary" type="button">搜索长期记忆</button>
-          </div>
-          <h3>MySQL 会话记录</h3>
-          <div id="session-records" class="storage-list">尚未刷新</div>
-          <h3>MySQL 当前消息</h3>
-          <div id="message-records" class="storage-list">尚未刷新</div>
-          <h3>Redis 短期记忆 / Mem0 状态</h3>
-          <div id="memory-stats" class="storage-list">尚未刷新</div>
-          <h3>Mem0 长期记忆搜索</h3>
-          <div id="memory-search-results" class="storage-list">点击“搜索长期记忆”</div>
+          <button id="refresh-advanced" class="secondary refresh-state" type="button">刷新 Runtime 状态</button>
         </div>
         <div class="panel-title">最近响应 JSON</div>
         <div class="raw">
@@ -609,8 +619,8 @@
       const handoffTargets = document.querySelector("#handoff-targets");
       const approvalRecords = document.querySelector("#approval-records");
       const checkpointRecords = document.querySelector("#checkpoint-records");
-      const sessionRecords = document.querySelector("#session-records");
       const messageRecords = document.querySelector("#message-records");
+      const sessionSummary = document.querySelector("#session-summary");
       const memoryStats = document.querySelector("#memory-stats");
       const memorySearchResults = document.querySelector("#memory-search-results");
       const sessionList = document.querySelector("#session-list");
@@ -736,13 +746,9 @@
       function renderSessions(items) {
         cachedSessions = Array.isArray(items) ? items : [];
         if (!Array.isArray(items) || items.length === 0) {
-          sessionRecords.textContent = "没有查到当前用户的会话记录";
           sessionList.textContent = "没有会话记录";
           return;
         }
-        sessionRecords.textContent = items
-          .map((item) => `${item.id}\n${item.title || "(无标题)"} · ${item.status} · ${item.updated_at || "-"}`)
-          .join("\n\n");
         sessionList.replaceChildren();
         for (const item of items) {
           const row = document.createElement("div");
@@ -805,14 +811,9 @@
           `vector_store: ${stats.vector_store || "-"}`,
           `short_term_backend: ${stats.short_term_backend || stats.short_term?.backend || "-"}`,
           `short_term_count: ${stats.short_term_count ?? stats.short_term?.messages ?? 0}`,
-          `session_summary: ${stats.session_summary ? "available" : "-"}`,
-          `summary_covered_messages: ${stats.session_summary?.covered_message_count ?? "-"}`,
           `preference_cache_users: ${stats.preference_cache_users ?? "-"}`,
           `pending_sessions: ${stats.pending_sessions ?? "-"}`
         ];
-        if (stats.session_summary?.summary) {
-          summary.push(`\n会话摘要：\n${stats.session_summary.summary}`);
-        }
         if (!recent.length) {
           memoryStats.textContent = `${summary.join("\n")}\n\n最近短期记忆：暂无`;
           return;
@@ -825,6 +826,23 @@
         memoryStats.textContent = `${summary.join("\n")}\n\n最近短期记忆：\n${lines.join("\n\n")}`;
       }
 
+      function renderSessionSummary(stats) {
+        const summary = stats?.session_summary;
+        if (!summary) {
+          sessionSummary.textContent = "当前 session 暂无 summary；达到阈值后 after_run 会后台生成。";
+          return;
+        }
+        const lines = [
+          `covered_messages: ${summary.covered_message_count ?? "-"}`,
+          `model: ${summary.model || "-"}`,
+          `version: ${summary.version ?? "-"}`,
+          `updated_at: ${summary.updated_at || "-"}`,
+          "",
+          summary.summary || "summary 内容为空"
+        ];
+        sessionSummary.textContent = lines.join("\n");
+      }
+
       async function refreshStorage() {
         const userId = encodeURIComponent(userInput.value.trim() || "anonymous");
         const sessionId = encodeURIComponent(sessionInput.value);
@@ -834,11 +852,10 @@
         ]);
 
         if (sessions.error) {
-          sessionRecords.textContent = `会话记录不可用：${sessions.error}`;
           messageRecords.textContent = "会话记录不可用";
         } else {
           renderSessions(sessions);
-          const messages = await fetchJson(`/chat/sessions/${sessionId}/messages?limit=20`, {headers: headers()})
+          const messages = await fetchJson(`/chat/sessions/${sessionId}/messages?limit=20&recent=true`, {headers: headers()})
             .catch((error) => ({error: error.message}));
           if (messages.error) {
             messageRecords.textContent = `当前消息不可用：${messages.error}`;
@@ -849,7 +866,9 @@
 
         if (stats.error) {
           memoryStats.textContent = `记忆状态不可用：${stats.error}`;
+          sessionSummary.textContent = `会话 summary 不可用：${stats.error}`;
         } else {
+          renderSessionSummary(stats);
           renderMemoryStats(stats);
         }
       }
@@ -920,8 +939,8 @@
         renderAdvanced();
         clearPending();
         rawResponse.textContent = "等待请求...";
-        sessionRecords.textContent = "新会话尚未持久化";
         messageRecords.textContent = "发送消息后会写入 MySQL";
+        sessionSummary.textContent = "达到 summary 阈值后会在这里展示";
         memoryStats.textContent = "发送消息后可查看 Redis 短期记忆";
         memorySearchResults.textContent = "点击“搜索长期记忆”";
         clearMessages("新会话已准备好，发送消息开始测试。");

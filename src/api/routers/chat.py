@@ -83,7 +83,11 @@ async def _persist_chat_turn(
     except Exception as exc:
         logger.warning(
             "session_store_append_turn_failed",
-            extra={"session_id": session_id, "error_type": type(exc).__name__},
+            extra={
+                "session_id": session_id,
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            },
         )
 
 
@@ -317,6 +321,7 @@ async def create_chat_session(
 async def list_chat_messages(
     session_id: str,
     limit: int = 100,
+    recent: bool = False,
     principal: Principal = Depends(get_current_principal),
     harness: Harness = Depends(get_harness),
 ):
@@ -330,7 +335,11 @@ async def list_chat_messages(
     requester = _resolve_user_id(principal, None)
     if requester is not None and session["user_id"] != requester:
         raise HTTPException(status_code=403, detail="session forbidden")
-    return create_success_response(data=await store.list_messages(session_id=session_id, limit=limit))
+    if recent:
+        messages = await store.list_recent_messages(session_id=session_id, limit=limit)
+    else:
+        messages = await store.list_messages(session_id=session_id, limit=limit)
+    return create_success_response(data=messages)
 
 
 @router.delete("/sessions/{session_id}")

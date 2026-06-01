@@ -106,13 +106,15 @@ MEMORY_SESSION_SUMMARY_ENABLED=true
 MEMORY_SESSION_SUMMARY_CACHE_TTL=2592000
 MEMORY_SESSION_SUMMARY_INITIAL_MESSAGES=4
 MEMORY_SESSION_SUMMARY_UPDATE_MESSAGES=6
+MEMORY_SESSION_SUMMARY_MAX_SOURCE_MESSAGES=20
 ```
 
 说明：
 
 - `SESSION_STORE_ENABLED=true` 时使用 MySQL 持久化会话列表和完整消息流水。
-- `REDIS_ENABLED=true` 且 `MEMORY_ENABLED=true` 时，短期会话记忆写入 Redis。
-- `MEMORY_SESSION_SUMMARY_ENABLED=true` 时，`after_run` 后台使用 LLM 更新会话摘要，摘要持久化到 MySQL 并缓存到 Redis。
+- `REDIS_ENABLED=true` 且 `MEMORY_ENABLED=true` 时，短期会话记忆写入 Redis；读取时 Redis miss 会回退到 MySQL 近 N 轮消息。
+- 不启用 Redis 时，短期原文记忆直接从 MySQL 会话消息读取。
+- `MEMORY_SESSION_SUMMARY_ENABLED=true` 时，`after_run` 后台使用 LLM 更新会话摘要，摘要持久化到 MySQL 并缓存到 Redis；无 Redis 时只读写 MySQL，不使用进程内兜底。
 - `MEMORY_ENABLED=true` 时装配 `Mem0MemoryManager`，由 Mem0 管理用户偏好、长期记忆和语义检索。
 - Mem0 local 模式默认继承 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`AGENT_MODEL_DEFAULT` 和 `MEMORY_EMBEDDING_MODEL`。
 - 偏好记忆采用“保留历史、注入生效版本”：同一偏好维度只把最新一条注入上下文，避免语言、格式等偏好冲突。

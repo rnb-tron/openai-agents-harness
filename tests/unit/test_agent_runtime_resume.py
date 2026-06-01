@@ -311,10 +311,11 @@ async def test_streamed_run_yields_text_delta_and_completed_result():
     )
     langfuse.set_current_trace_io.assert_any_call(input="answer")
     langfuse.set_current_trace_io.assert_any_call(output="完成")
-    observation.update.assert_called_once_with(
-        output="完成",
-        metadata={"model": "stream-model", "interrupted": False},
-    )
+    update_kwargs = observation.update.call_args.kwargs
+    assert update_kwargs["output"] == "完成"
+    assert update_kwargs["metadata"]["model"] == "stream-model"
+    assert update_kwargs["metadata"]["interrupted"] is False
+    assert "tools" in update_kwargs["metadata"]
 
 
 @pytest.mark.asyncio

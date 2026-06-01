@@ -1,8 +1,7 @@
 """Langfuse 可观测能力配置"""
 
 import os
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
 
 DEFAULT_LANGFUSE_BASE_URL = "http://agent-otel-test.ke.com"
 
@@ -54,9 +53,16 @@ class ObservabilityConfig:
             enabled=os.getenv("LANGFUSE_ENABLED", "false").lower() == "true",
             tracing_enabled=os.getenv("LANGFUSE_TRACING_ENABLED", "true").lower() == "true",
             metrics_enabled=os.getenv("LANGFUSE_METRICS_ENABLED", "true").lower() == "true",
+            batch_size=int(os.getenv("LANGFUSE_BATCH_SIZE", "100")),
+            flush_interval=float(os.getenv("LANGFUSE_FLUSH_INTERVAL", "5.0")),
             sampling_rate=float(os.getenv("LANGFUSE_SAMPLING_RATE", "1.0")),
             mask_pii=os.getenv("LANGFUSE_MASK_PII", "true").lower() == "true",
+            request_timeout=int(os.getenv("LANGFUSE_REQUEST_TIMEOUT", "30")),
+            max_retries=int(os.getenv("LANGFUSE_MAX_RETRIES", "3")),
+            retry_delay=float(os.getenv("LANGFUSE_RETRY_DELAY", "1.0")),
             environment=os.getenv("APP_PROFILE", "development"),
+            application=os.getenv("APP_NAME", "openai-agent-sdk"),
+            version=os.getenv("APP_VERSION", "0.1.0"),
         )
     
     def validate(self) -> bool:
@@ -71,5 +77,11 @@ class ObservabilityConfig:
         
         if not 0.0 <= self.sampling_rate <= 1.0:
             raise ValueError("LANGFUSE_SAMPLING_RATE must be between 0.0 and 1.0")
+        if self.batch_size <= 0:
+            raise ValueError("LANGFUSE_BATCH_SIZE must be positive")
+        if self.flush_interval <= 0:
+            raise ValueError("LANGFUSE_FLUSH_INTERVAL must be positive")
+        if self.request_timeout <= 0:
+            raise ValueError("LANGFUSE_REQUEST_TIMEOUT must be positive")
         
         return True

@@ -8,35 +8,34 @@
 Runtime
   -> SessionStore                  # MySQL: 会话列表与完整消息流水
   -> MemoryCapability
-     -> MemoryStore                  # 未启用 Mem0 时的进程内降级
      -> Mem0MemoryManager (optional) # MEMORY_ENABLED=true
         -> ShortTermMemory           # Redis: 当前会话最近上下文
         -> Mem0                      # 用户偏好、长期记忆、语义检索
 ```
 
-`HarnessBuilder` 在 `SESSION_STORE_ENABLED=true` 时装配 MySQL 会话仓储，在 `MEMORY_ENABLED=true` 时统一装配 `Mem0MemoryManager`。Mem0 管理长期记忆、用户偏好和语义检索；短期会话记忆优先使用 Redis，Redis 未启用时降级为进程内存。
+`HarnessBuilder` 在 `SESSION_STORE_ENABLED=true` 时装配 MySQL 会话仓储，在 `MEMORY_ENABLED=true` 时统一装配 `Mem0MemoryManager`。Mem0 管理长期记忆、用户偏好和语义检索；短期会话记忆优先使用 Redis，Redis 未启用或 miss 时从 MySQL 会话记录读取最近消息，不使用进程内兜底。
 
 ## 存储分层
 
 | 层次 | 存储 | 生命周期 | 用途 |
 | --- | --- | --- | --- |
 | 会话记录 | MySQL | 长期持久化 | 保存会话列表、完整 user/assistant 消息流水，供 UI 回放、审计和后续事件扩展使用 |
-| 短期会话记忆 | Redis / 进程内降级 | 会话级 TTL | 保存当前会话最近上下文，参与下一次 `before_run` 上下文拼接 |
+| 短期会话记忆 | Redis + MySQL 兜底 | Redis 会话级 TTL，MySQL 长期持久化 | Redis 保存当前会话最近上下文；Redis 未启用或 miss 时从 MySQL 会话消息读取近 N 轮 |
 | 会话摘要 | MySQL + Redis 缓存 | MySQL 长期持久化，Redis 长 TTL 缓存 | 用 LLM 滚动压缩当前会话状态，作为短期原文过期后的连续性兜底 |
 | 长期记忆 | Mem0 + 可选 pgvector / Elasticsearch | 用户级长期持久化 | 抽取用户偏好、长期事实和可语义召回的历史信息 |
 
-会话记录和记忆不是同一个概念：MySQL 消息流水负责“发生过什么”；Redis 原文窗口负责“最近细节”；MySQL 会话摘要负责“会话连续性兜底”；Mem0 负责“用户级稳定记忆”。删除会话时会删除 MySQL 会话消息和摘要，并清理该 session 的短期记忆；用户级长期记忆默认保留。
+会话记录和记忆不是同一个概念：MySQL 消息流水负责“发生过什么”，也是短期原文的权威兜底；Redis 原文窗口负责“最近细节”的快速读取；MySQL 会话摘要负责“会话连续性兜底”；Mem0 负责“用户级稳定记忆”。删除会话时会删除 MySQL 会话消息和摘要，并清理该 session 的短期记忆；用户级长期记忆默认保留。
 
 ## 实际开关语义
 
 | 配置 | 当前行为 |
 | --- | --- |
-| 默认配置 | `MemoryStore` 保存当前进程内的聊天历史并注入下一次运行 |
+| 默认配置 | 不启用记忆上下文；需要会话历史时启用 `SESSION_STORE_ENABLED=true`，需要上下文记忆时启用 `MEMORY_ENABLED=true` |
 | `SESSION_STORE_ENABLED=true` | 使用业务数据库持久化 `chat_sessions` / `chat_messages` |
 | `MEMORY_ENABLED=true` | 装配 `Mem0MemoryManager`，由 Mem0 管理用户偏好和长期记忆 |
 | `MEMORY_MEM0_MODE=local` | 使用 Mem0 OSS 本地模式 |
 | `MEMORY_MEM0_MODE=platform` | 使用 Mem0 Platform，需要 `MEMORY_MEM0_API_KEY` |
-| `REDIS_ENABLED=true` | `Mem0MemoryManager.short_term` 使用 Redis 保存短期会话记忆 |
+| `REDIS_ENABLED=true` | `Mem0MemoryManager.short_term` 使用 Redis 保存短期会话记忆；读取时 Redis 优先，miss 后读 MySQL |
 | `MEMORY_VECTOR_STORE=pgvector/elasticsearch` | Mem0 本地模式使用指定向量后端 |
 | `MEMORY_SESSION_SUMMARY_ENABLED=true` | 启用 LLM 会话摘要；摘要持久化到 MySQL，并缓存到 Redis |
 
@@ -92,6 +91,7 @@ MEMORY_SESSION_SUMMARY_INITIAL_MESSAGES=4
 MEMORY_SESSION_SUMMARY_UPDATE_MESSAGES=6
 MEMORY_SESSION_SUMMARY_MODEL=
 MEMORY_SESSION_SUMMARY_MAX_TOKENS=512
+MEMORY_SESSION_SUMMARY_MAX_SOURCE_MESSAGES=20
 # 可选：需要完全自定义 Mem0 OSS 配置时再设置 MEMORY_MEM0_CONFIG_JSON
 ```
 
@@ -110,8 +110,8 @@ MEMORY_MEM0_API_KEY=your-mem0-api-key
 ### 不装配 `MemoryManager`
 
 ```text
-before_run: MemoryStore.render_context(session_id) -> ctx.enriched_input
-after_run:  user/output -> MemoryStore
+before_run: 不注入记忆上下文
+after_run:  不写入进程内记忆
 ```
 
 ### 装配 `MemoryManager`
@@ -119,9 +119,8 @@ after_run:  user/output -> MemoryStore
 ```text
 before_run: MemoryManager.get_context() -> preference cache + optional long-term retrieval
                                       -> session summary cache/store
-                                      -> recent short-term messages
-after_run:  user/output -> MemoryStore
-            user/output -> Mem0MemoryManager.add_memory()
+                                      -> recent short-term messages from Redis or MySQL
+after_run:  user/output -> Mem0MemoryManager.add_memory()
                        -> Redis short-term raw messages
                        -> async noise filter
                        -> Mem0.add()
