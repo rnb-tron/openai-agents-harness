@@ -1,6 +1,8 @@
-"""
-Short-Term Memory Store
-短期记忆存储 - Redis增强版
+"""短期记忆缓存。
+
+短期原文记忆只使用 Redis 承载；会话记录的权威存储是 MySQL，由
+``SessionStore`` 回源。这里不提供进程内降级，避免线上多会话场景中内存
+不可控增长。
 """
 
 from __future__ import annotations
@@ -18,20 +20,18 @@ from src.core.logging import service_logger
 
 
 class ShortTermMemory:
-    """短期记忆 - 基于Redis实现,支持TTL自动过期"""
+    """短期记忆缓存 - 基于 Redis 实现，支持 TTL 自动过期。"""
 
     def __init__(self, redis_client: redis.Redis | None = None, ttl: int = 3600):
         """
         初始化短期记忆
 
         Args:
-            redis_client: Redis客户端 (如果为None则使用内存存储)
-            ttl: 记忆过期时间 (秒),默认3600秒(1小时)
+            redis_client: Redis 客户端；为空时表示短期缓存不可用。
+            ttl: 记忆过期时间，单位秒。
         """
         self.redis = redis_client
         self.ttl = ttl
-        self._memory: dict[str, list[dict]] = {}  # 内存存储 (降级方案)
-        self._summaries: dict[str, dict] = {}
 
     async def append(
         self,
@@ -60,17 +60,15 @@ class ShortTermMemory:
                 "metadata": metadata or {},
             }
 
-            if self.redis:
-                # Redis存储
-                key = f"memory:short_term:{session_id}"
-                await self.redis.rpush(key, json.dumps(memory_item, ensure_ascii=False))
-                await self.redis.expire(key, self.ttl)
-            else:
-                # 内存存储
-                self._memory.setdefault(session_id, []).append(memory_item)
-                # 限制内存存储大小 (最多保留100条)
-                if len(self._memory[session_id]) > 100:
-                    self._memory[session_id] = self._memory[session_id][-100:]
+            if not self.redis:
+                service_logger.debug(
+                    f"Short-term Redis unavailable, skip cache append: session={session_id}"
+                )
+                return True
+
+            key = f"memory:short_term:{session_id}"
+            await self.redis.rpush(key, json.dumps(memory_item, ensure_ascii=False))
+            await self.redis.expire(key, self.ttl)
 
             service_logger.debug(f"Short-term memory appended for session={session_id}")
             return True
@@ -91,16 +89,12 @@ class ShortTermMemory:
             list[dict]: 记忆列表
         """
         try:
-            if self.redis:
-                # Redis存储
-                key = f"memory:short_term:{session_id}"
-                # 获取最后 max_turns*2 条消息 (每轮2条: user + assistant)
-                messages = await self.redis.lrange(key, -(max_turns * 2), -1)
-                return [json.loads(msg) for msg in messages]
-            else:
-                # 内存存储
-                memories = self._memory.get(session_id, [])
-                return memories[-(max_turns * 2):] if memories else []
+            if not self.redis:
+                return []
+
+            key = f"memory:short_term:{session_id}"
+            messages = await self.redis.lrange(key, -(max_turns * 2), -1)
+            return [json.loads(msg) for msg in messages]
 
         except Exception as e:
             service_logger.error(f"Failed to get recent memories: {e}", exc_info=True)
@@ -121,9 +115,6 @@ class ShortTermMemory:
                 key = f"memory:short_term:{session_id}"
                 summary_key = f"memory:short_summary:{session_id}"
                 await self.redis.delete(key, summary_key)
-            else:
-                self._memory.pop(session_id, None)
-                self._summaries.pop(session_id, None)
 
             service_logger.info(f"Short-term memory cleared for session={session_id}")
             return True
@@ -143,11 +134,11 @@ class ShortTermMemory:
             int: 剩余秒数 (-1表示永不过期, -2表示不存在)
         """
         try:
-            if self.redis:
-                key = f"memory:short_term:{session_id}"
-                return await self.redis.ttl(key)
-            else:
-                return -1 if session_id in self._memory else -2
+            if not self.redis:
+                return -2
+
+            key = f"memory:short_term:{session_id}"
+            return await self.redis.ttl(key)
 
         except Exception as e:
             service_logger.error(f"Failed to get TTL: {e}", exc_info=True)
@@ -164,12 +155,12 @@ class ShortTermMemory:
             list[dict]: 所有记忆列表
         """
         try:
-            if self.redis:
-                key = f"memory:short_term:{session_id}"
-                messages = await self.redis.lrange(key, 0, -1)
-                return [json.loads(msg) for msg in messages]
-            else:
-                return self._memory.get(session_id, [])
+            if not self.redis:
+                return []
+
+            key = f"memory:short_term:{session_id}"
+            messages = await self.redis.lrange(key, 0, -1)
+            return [json.loads(msg) for msg in messages]
 
         except Exception as e:
             service_logger.error(f"Failed to get all memories: {e}", exc_info=True)
@@ -181,18 +172,18 @@ class ShortTermMemory:
         summary: dict[str, Any],
         ttl: int | None = None,
     ) -> bool:
-        """保存会话摘要缓存。MySQL 是权威存储，Redis/内存只做快速读取。"""
+        """保存会话摘要缓存。MySQL 是权威存储，Redis 只做快速读取。"""
         try:
-            if self.redis:
-                key = f"memory:short_summary:{session_id}"
-                encoded = json.dumps(summary, ensure_ascii=False)
-                cache_ttl = self.ttl if ttl is None else ttl
-                if cache_ttl > 0:
-                    await self.redis.set(key, encoded, ex=cache_ttl)
-                else:
-                    await self.redis.set(key, encoded)
+            if not self.redis:
+                return True
+
+            key = f"memory:short_summary:{session_id}"
+            encoded = json.dumps(summary, ensure_ascii=False)
+            cache_ttl = self.ttl if ttl is None else ttl
+            if cache_ttl > 0:
+                await self.redis.set(key, encoded, ex=cache_ttl)
             else:
-                self._summaries[session_id] = summary
+                await self.redis.set(key, encoded)
             return True
         except Exception as e:
             service_logger.error(f"Failed to save session summary: {e}", exc_info=True)
@@ -201,43 +192,45 @@ class ShortTermMemory:
     async def get_summary(self, session_id: str) -> dict[str, Any] | None:
         """读取会话摘要缓存。"""
         try:
-            if self.redis:
-                key = f"memory:short_summary:{session_id}"
-                value = await self.redis.get(key)
-                if not value:
-                    return None
-                if isinstance(value, bytes):
-                    value = value.decode("utf-8")
-                return json.loads(value)
-            return self._summaries.get(session_id)
+            if not self.redis:
+                return None
+
+            key = f"memory:short_summary:{session_id}"
+            value = await self.redis.get(key)
+            if not value:
+                return None
+            if isinstance(value, bytes):
+                value = value.decode("utf-8")
+            return json.loads(value)
         except Exception as e:
             service_logger.error(f"Failed to get session summary: {e}", exc_info=True)
             return None
 
 
-# 保持向后兼容的 MemoryStore (内存版)
 class MemoryStore:
-    """内存版短期记忆占位实现。
+    """兼容旧构造参数的空记忆存储。
 
-    这是向后兼容的旧版 ``MemoryStore``，新代码优先使用 ``ShortTermMemory``。
+    生产链路不再使用进程内会话记忆兜底；完整会话记录由 MySQL 保存，短期
+    缓存由 Redis 保存。这个类只保留旧测试和构造函数需要的方法签名。
     """
 
     def __init__(self):
-        self._memory: dict[str, list[dict[str, str]]] = {}
+        pass
 
     def append(self, session_id: str, role: str, content: str) -> None:
-        self._memory.setdefault(session_id, []).append({"role": role, "content": content})
+        return None
 
     def get(self, session_id: str) -> list[dict[str, str]]:
-        return self._memory.get(session_id, [])
+        return []
 
     def clear(self, session_id: str) -> None:
-        self._memory.pop(session_id, None)
+        return None
 
     def stats(self) -> dict:
         return {
-            "sessions": len(self._memory),
-            "messages": sum(len(items) for items in self._memory.values()),
+            "sessions": 0,
+            "messages": 0,
+            "backend": "disabled",
         }
 
     def render_context(self, session_id: str, max_turns: int = 6) -> str:

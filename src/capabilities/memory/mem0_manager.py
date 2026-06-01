@@ -36,9 +36,11 @@ class Mem0MemoryManager:
 
     运行时契约：
     - ``get_context`` 在 BEFORE_RUN 阶段调用，负责拼接用户偏好、相关长期
-      记忆和当前会话最近几轮消息；
-    - ``add_memory`` 在 AFTER_RUN 阶段调用，始终更新短期会话记忆；长期
-      记忆只做异步噪声过滤，是否抽取、合并或忽略交给 Mem0 决定。
+      记忆和当前会话最近几轮消息。最近消息 Redis 优先，Redis 不可用或
+      miss 时从 MySQL 会话记录回源；
+    - ``add_memory`` 在 AFTER_RUN 阶段调用，写入 Redis 短期缓存并异步更新
+      会话摘要；长期记忆只做异步噪声过滤，是否抽取、合并或忽略交给 Mem0
+      决定。
     """
 
     provider_name = "mem0"
@@ -207,23 +209,25 @@ class Mem0MemoryManager:
             return True
 
         user_content = self._pending_user_inputs.pop(session_id, "")
-        if not await self._should_submit_to_mem0(user_content, content):
-            return True
-
         messages = [
             {"role": "user", "content": user_content},
             {"role": "assistant", "content": content},
         ]
+        self._schedule_session_summary_update(
+            session_id=session_id,
+            user_id=user_id,
+            latest_messages=messages,
+        )
+
+        if not await self._should_submit_to_mem0(user_content, content):
+            return True
+
         mem0_metadata = {
             "source": "chat",
             "source_session_id": session_id,
             "memory_type": memory_type,
             **(metadata or {}),
         }
-        self._schedule_session_summary_update(
-            session_id=session_id,
-            user_id=user_id,
-        )
         try:
             await self._add_to_mem0(
                 messages,
@@ -266,7 +270,7 @@ class Mem0MemoryManager:
         max_turns: int | None = None,
         enable_retrieval: bool = True,
     ) -> str:
-        short_memories = await self.short_term.get_recent(
+        short_memories = await self._get_recent_short_memories(
             session_id,
             max_turns or self.settings.memory_max_context_turns,
         )
@@ -286,6 +290,61 @@ class Mem0MemoryManager:
             short_memories=short_memories,
             current_input=user_input,
         )
+
+    async def _get_recent_short_memories(
+        self,
+        session_id: str,
+        max_turns: int,
+    ) -> list[dict[str, Any]]:
+        memories = await self.short_term.get_recent(session_id, max_turns)
+        if memories:
+            return memories
+        if self._session_store is None:
+            return []
+        messages = await self._list_recent_session_messages(
+            session_id=session_id,
+            limit=max_turns * 2,
+        )
+        return [
+            {
+                "role": item.get("role", "unknown"),
+                "content": item.get("content", ""),
+                "timestamp": item.get("created_at"),
+                "metadata": {
+                    **(item.get("metadata") or {}),
+                    "source": "mysql_session_store",
+                    "message_id": item.get("id"),
+                },
+            }
+            for item in messages
+            if item.get("content")
+        ]
+
+    async def _list_recent_session_messages(
+        self,
+        *,
+        session_id: str,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        if self._session_store is None:
+            return []
+        if hasattr(self._session_store, "list_recent_messages"):
+            return await self._session_store.list_recent_messages(
+                session_id=session_id,
+                limit=limit,
+            )
+        messages = await self._session_store.list_messages(
+            session_id=session_id,
+            limit=limit,
+        )
+        return messages[-limit:] if limit > 0 else []
+
+    async def _count_session_messages(self, session_id: str, fallback_count: int) -> int:
+        if self._session_store is None:
+            return fallback_count
+        if hasattr(self._session_store, "count_messages"):
+            return await self._session_store.count_messages(session_id)
+        return fallback_count
 
     async def _get_preferences(self, user_id: str) -> list[dict[str, Any]]:
         ttl = getattr(self.settings, "memory_preference_cache_ttl_sec", 900)
@@ -601,11 +660,21 @@ class Mem0MemoryManager:
         )
         return str(stored["summary"])
 
-    def _schedule_session_summary_update(self, *, session_id: str, user_id: str) -> None:
+    def _schedule_session_summary_update(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        latest_messages: list[dict[str, Any]] | None = None,
+    ) -> None:
         if not getattr(self.settings, "memory_session_summary_enabled", False):
             return
         task = asyncio.create_task(
-            self.update_session_summary(session_id=session_id, user_id=user_id)
+            self.update_session_summary(
+                session_id=session_id,
+                user_id=user_id,
+                latest_messages=latest_messages,
+            )
         )
         self._summary_tasks.add(task)
         task.add_done_callback(self._summary_tasks.discard)
@@ -621,14 +690,36 @@ class Mem0MemoryManager:
                 extra={"error_type": type(exc).__name__, "error": str(exc)},
             )
 
-    async def update_session_summary(self, *, session_id: str, user_id: str) -> bool:
+    async def update_session_summary(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        latest_messages: list[dict[str, Any]] | None = None,
+    ) -> bool:
         if not getattr(self.settings, "memory_session_summary_enabled", False):
             return False
         if self._session_store is None:
             return False
 
-        messages = await self.short_term.get_all(session_id)
         stored_summary = await self._session_store.get_summary(session_id)
+        covered_count = int((stored_summary or {}).get("covered_message_count") or 0)
+        messages = await self.short_term.get_all(session_id)
+        message_count = len(messages)
+        if not messages:
+            message_count = await self._count_session_messages(session_id, 0)
+            if message_count > 0:
+                source_limit = min(
+                    message_count,
+                    getattr(self.settings, "memory_session_summary_max_source_messages", 20),
+                )
+                messages = await self._list_recent_session_messages(
+                    session_id=session_id,
+                    limit=source_limit,
+                )
+            if latest_messages:
+                messages = [*messages, *latest_messages]
+                message_count += len(latest_messages)
         if not messages:
             if stored_summary:
                 await self.short_term.save_summary(
@@ -638,8 +729,6 @@ class Mem0MemoryManager:
                 )
             return False
 
-        message_count = len(messages)
-        covered_count = int((stored_summary or {}).get("covered_message_count") or 0)
         initial_threshold = getattr(self.settings, "memory_session_summary_initial_messages", 4)
         update_threshold = getattr(self.settings, "memory_session_summary_update_messages", 6)
         should_create = stored_summary is None and message_count >= initial_threshold
@@ -653,7 +742,13 @@ class Mem0MemoryManager:
                 )
             return False
 
-        new_messages = messages if stored_summary is None else messages[covered_count:]
+        if stored_summary is None:
+            new_messages = messages
+        else:
+            recent_offset = max(0, covered_count - (message_count - len(messages)))
+            new_messages = messages[recent_offset:]
+            if not new_messages:
+                new_messages = messages
         summary_text = await self._generate_session_summary(
             previous_summary=(stored_summary or {}).get("summary"),
             messages=new_messages,
@@ -761,6 +856,28 @@ class Mem0MemoryManager:
         self._pending_user_inputs.pop(session_id, None)
         return await self.short_term.clear(session_id)
 
+    async def clear_user_memories(self, user_id: str) -> bool:
+        self._preference_cache.pop(user_id, None)
+        return await self._delete_mem0_memories(user_id=user_id)
+
+    async def _delete_mem0_memories(self, **filters: str | None) -> bool:
+        filters = {key: value for key, value in filters.items() if value}
+        if not filters:
+            return True
+        try:
+            await self._call("delete_all", **filters)
+            return True
+        except Exception as exc:
+            service_logger.warning(
+                "mem0_delete_all_failed",
+                extra={
+                    "filters": filters,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+            )
+            return False
+
     async def get_stats(
         self,
         user_id: str | None = None,
@@ -771,7 +888,7 @@ class Mem0MemoryManager:
         return {
             "backend": "mem0",
             "user_id": user_id,
-            "short_term_backend": "redis" if self.short_term.redis is not None else "memory",
+            "short_term_backend": "redis" if self.short_term.redis is not None else "disabled",
             "short_term_session_id": session_id,
             "short_term_count": len(recent),
             "short_term_recent": recent[-10:],

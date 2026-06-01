@@ -7,10 +7,10 @@ from src.api.middleware.request_context import RequestContextPlugin
 
 
 def build_protocol_chain(settings) -> ProtocolRequestChain:
-    """按外到内的请求执行顺序构建 HTTP 接入链。
+    """构建 HTTP 接入链。
 
     请求执行顺序为 ``RequestContext -> Auth -> RateLimit``：
-    RequestContext 始终在最外层创建请求关联 ID；
+    RequestContext 创建请求关联 ID；
     RateLimit 位于 Auth 之后，使用认证产生的 principal 作为用户维度限流键。
     """
     declared_request_order = (

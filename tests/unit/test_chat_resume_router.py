@@ -10,6 +10,7 @@ from src.api.routers.chat import (
     ChatRequest,
     ChatResumeRequest,
     chat_stream,
+    list_chat_messages,
     resume_chat,
     resume_chat_stream,
 )
@@ -26,6 +27,40 @@ class _StreamingRuntime:
         yield {"type": "start", "session_id": session.session_id, "model": "test-model"}
         yield {"type": "delta", "delta": "完成"}
         yield {"type": "done", "data": {"session_id": session.session_id, "output": "完成"}}
+
+
+class _MessageStore:
+    def __init__(self):
+        self.recent_calls = []
+        self.list_calls = []
+
+    async def get_session(self, session_id):
+        return {"id": session_id, "user_id": "auth-user"}
+
+    async def list_messages(self, **kwargs):
+        self.list_calls.append(kwargs)
+        return [{"content": "old"}]
+
+    async def list_recent_messages(self, **kwargs):
+        self.recent_calls.append(kwargs)
+        return [{"content": "new"}]
+
+
+@pytest.mark.asyncio
+async def test_list_chat_messages_can_return_recent_messages():
+    store = _MessageStore()
+
+    response = await list_chat_messages(
+        "session-1",
+        limit=20,
+        recent=True,
+        principal=Principal(user_id="auth-user", is_anonymous=False),
+        harness=SimpleNamespace(session_store=store),
+    )
+
+    assert response.data == [{"content": "new"}]
+    assert store.recent_calls == [{"session_id": "session-1", "limit": 20}]
+    assert store.list_calls == []
 
 
 @pytest.mark.asyncio

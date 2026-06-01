@@ -3,12 +3,14 @@ from types import SimpleNamespace
 import pytest
 
 from src.capabilities.memory.mem0_manager import Mem0MemoryManager
+from src.capabilities.memory.store import ShortTermMemory
 
 
 class _FakeMem0Client:
     def __init__(self):
         self.add_calls = []
         self.search_calls = []
+        self.delete_all_calls = []
 
     def add(self, messages, **kwargs):
         self.add_calls.append({"messages": messages, **kwargs})
@@ -22,6 +24,10 @@ class _FakeMem0Client:
                 {"memory": f"memory for {query}", "score": 0.9},
             ]
         }
+
+    def delete_all(self, **kwargs):
+        self.delete_all_calls.append(kwargs)
+        return {"message": "deleted"}
 
 
 class _FakeSummaryClient:
@@ -42,10 +48,12 @@ class _FakeSummaryClient:
 
 
 class _FakeSessionStore:
-    def __init__(self, summary=None):
+    def __init__(self, summary=None, messages=None):
         self.summary = summary
+        self.messages = messages or []
         self.upsert_calls = []
         self.get_calls = 0
+        self.list_message_calls = []
 
     async def get_summary(self, session_id):
         self.get_calls += 1
@@ -63,6 +71,18 @@ class _FakeSessionStore:
             "metadata": kwargs.get("metadata") or {},
         }
         return self.summary
+
+    async def list_messages(self, **kwargs):
+        self.list_message_calls.append(kwargs)
+        return self.messages[: kwargs.get("limit", len(self.messages))]
+
+    async def list_recent_messages(self, **kwargs):
+        self.list_message_calls.append(kwargs)
+        limit = kwargs.get("limit", len(self.messages))
+        return self.messages[-limit:] if limit else []
+
+    async def count_messages(self, session_id):
+        return len(self.messages)
 
 
 def _settings(**overrides):
@@ -90,6 +110,7 @@ def _settings(**overrides):
         memory_session_summary_update_messages=6,
         memory_session_summary_model="",
         memory_session_summary_max_tokens=512,
+        memory_session_summary_max_source_messages=20,
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
@@ -125,7 +146,18 @@ async def test_mem0_manager_skips_low_value_long_term_write():
     await manager.add_memory("s1", "u1", "assistant", "收到")
 
     assert client.add_calls == []
-    assert await manager.short_term.get_recent("s1", 2)
+    assert await manager.short_term.get_recent("s1", 2) == []
+
+
+@pytest.mark.asyncio
+async def test_short_term_memory_does_not_use_in_process_fallback():
+    memory = ShortTermMemory(redis_client=None, ttl=3600)
+
+    assert await memory.append("s1", "user", "你好")
+    assert await memory.get_recent("s1", 2) == []
+    assert await memory.get_all("s1") == []
+    assert await memory.get_summary("s1") is None
+    assert await memory.get_ttl("s1") == -2
 
 
 @pytest.mark.asyncio
@@ -310,8 +342,52 @@ async def test_mem0_manager_reads_session_summary_from_store_without_rebuilding(
 
 
 @pytest.mark.asyncio
+async def test_mem0_manager_falls_back_to_mysql_messages_when_short_term_empty():
+    store = _FakeSessionStore(
+        messages=[
+            {
+                "id": "m1",
+                "role": "user",
+                "content": "我要验证 MySQL 兜底",
+                "created_at": "2026-06-01T10:00:00",
+            },
+            {
+                "id": "m2",
+                "role": "assistant",
+                "content": "可以在 Redis miss 时读取会话记录。",
+                "created_at": "2026-06-01T10:00:01",
+            },
+        ]
+    )
+    manager = Mem0MemoryManager(
+        _settings(),
+        client=_FakeMem0Client(),
+        session_store=store,
+    )
+
+    context = await manager.get_context(
+        session_id="s1",
+        user_id="u1",
+        user_input="继续",
+        max_turns=1,
+        enable_retrieval=False,
+    )
+
+    assert "我要验证 MySQL 兜底" in context
+    assert "可以在 Redis miss 时读取会话记录。" in context
+    assert store.list_message_calls == [{"session_id": "s1", "limit": 2}]
+
+
+@pytest.mark.asyncio
 async def test_mem0_manager_updates_session_summary_after_threshold():
-    store = _FakeSessionStore()
+    store = _FakeSessionStore(
+        messages=[
+            {"id": "m1", "role": "user", "content": "我想设计短期摘要"},
+            {"id": "m2", "role": "assistant", "content": "可以用 Redis 缓存和 MySQL 持久化"},
+            {"id": "m3", "role": "user", "content": "summary 不要短 TTL"},
+            {"id": "m4", "role": "assistant", "content": "MySQL 作为权威存储"},
+        ]
+    )
     summary_client = _FakeSummaryClient(content="当前任务：设计 memory summary")
     manager = Mem0MemoryManager(
         _settings(
@@ -322,19 +398,61 @@ async def test_mem0_manager_updates_session_summary_after_threshold():
         session_store=store,
         summary_client=summary_client,
     )
-    await manager.short_term.append("s1", "user", "我想设计短期摘要")
-    await manager.short_term.append("s1", "assistant", "可以用 Redis 缓存和 MySQL 持久化")
-    await manager.short_term.append("s1", "user", "summary 不要短 TTL")
-    await manager.short_term.append("s1", "assistant", "MySQL 作为权威存储")
-
     updated = await manager.update_session_summary(session_id="s1", user_id="u1")
 
     assert updated is True
     assert len(summary_client.calls) == 1
     assert store.upsert_calls[0]["covered_message_count"] == 4
     assert store.upsert_calls[0]["summary"] == "当前任务：设计 memory summary"
-    cached = await manager.short_term.get_summary("s1")
-    assert cached["summary"] == "当前任务：设计 memory summary"
+    assert await manager.short_term.get_summary("s1") is None
+
+
+@pytest.mark.asyncio
+async def test_mem0_manager_summarizes_latest_turn_before_session_store_persist():
+    store = _FakeSessionStore(messages=[])
+    summary_client = _FakeSummaryClient(content="当前任务：测试 summary 触发")
+    manager = Mem0MemoryManager(
+        _settings(
+            memory_session_summary_enabled=True,
+            memory_session_summary_initial_messages=2,
+            memory_session_summary_update_messages=2,
+        ),
+        client=_FakeMem0Client(),
+        session_store=store,
+        summary_client=summary_client,
+    )
+
+    await manager.add_memory("s1", "u1", "user", "介绍三国演义")
+    await manager.add_memory("s1", "u1", "assistant", "《三国演义》是历史演义小说。")
+    await manager.close()
+
+    assert len(summary_client.calls) == 1
+    assert store.upsert_calls[0]["covered_message_count"] == 2
+    assert store.upsert_calls[0]["summary"] == "当前任务：测试 summary 触发"
+
+
+@pytest.mark.asyncio
+async def test_mem0_manager_clear_session_keeps_long_term_memories():
+    client = _FakeMem0Client()
+    manager = Mem0MemoryManager(_settings(), client=client)
+    await manager.add_memory("s1", "u1", "user", "请记住这个会话信息")
+
+    assert await manager.clear_session("s1") is True
+
+    assert client.delete_all_calls == []
+    assert "s1" not in manager._pending_user_inputs
+
+
+@pytest.mark.asyncio
+async def test_mem0_manager_clear_user_deletes_user_scoped_long_term_memories():
+    client = _FakeMem0Client()
+    manager = Mem0MemoryManager(_settings(), client=client)
+    manager._preference_cache["u1"] = (9999999999, [])
+
+    assert await manager.clear_user_memories("u1") is True
+
+    assert client.delete_all_calls == [{"user_id": "u1"}]
+    assert "u1" not in manager._preference_cache
 
 
 def test_mem0_manager_builds_pgvector_config_from_memory_database_url():

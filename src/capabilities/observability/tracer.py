@@ -1,6 +1,6 @@
 """Langfuse + OpenTelemetry Trace 管理器"""
 
-import logging
+import re
 from typing import Optional, Any
 
 from langfuse import Langfuse
@@ -10,6 +10,35 @@ from src.capabilities.observability.config import ObservabilityConfig
 from src.core.logging import setup_logger
 
 logger = setup_logger("observability.tracer")
+
+_EMAIL_RE = re.compile(r"(?<=.).(?=[^@\s]*?@)")
+_PHONE_RE = re.compile(r"(?<!\d)(\+?\d[\d\s-]{6,}\d)(?!\d)")
+_SECRET_RE = re.compile(r"\b(?:sk|pk|lf)[-_][A-Za-z0-9_-]{8,}\b")
+_BEARER_RE = re.compile(r"Bearer\s+[A-Za-z0-9._~-]+", re.IGNORECASE)
+
+
+def _mask_pii(*, data: Any, **_: Any) -> Any:
+    """Best-effort JSON-serializable masking for common secrets and PII."""
+    if isinstance(data, str):
+        masked = _EMAIL_RE.sub("*", data)
+        masked = _SECRET_RE.sub("[secret]", masked)
+        masked = _PHONE_RE.sub("[phone]", masked)
+        return _BEARER_RE.sub("Bearer [redacted]", masked)
+    if isinstance(data, list):
+        return [_mask_pii(data=item) for item in data]
+    if isinstance(data, tuple):
+        return [_mask_pii(data=item) for item in data]
+    if isinstance(data, dict):
+        result: dict[Any, Any] = {}
+        for key, value in data.items():
+            key_text = str(key).lower()
+            sensitive_keys = ("password", "secret", "token", "api_key", "authorization")
+            if any(token in key_text for token in sensitive_keys):
+                result[key] = "[redacted]"
+            else:
+                result[key] = _mask_pii(data=value)
+        return result
+    return data
 
 
 class TracerManager:
@@ -39,7 +68,14 @@ class TracerManager:
                 public_key=self.config.public_key,
                 secret_key=self.config.secret_key,
                 base_url=self.config.base_url,
+                timeout=self.config.request_timeout,
                 tracing_enabled=self.config.tracing_enabled,
+                flush_at=self.config.batch_size,
+                flush_interval=self.config.flush_interval,
+                environment=self.config.environment,
+                release=self.config.version,
+                sample_rate=self.config.sampling_rate,
+                mask=_mask_pii if self.config.mask_pii else None,
             )
             
             # 验证连接

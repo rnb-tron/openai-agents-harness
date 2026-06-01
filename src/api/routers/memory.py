@@ -26,6 +26,11 @@ class MemoryClearRequest(BaseModel):
     session_id: str = Field(..., description="会话ID")
 
 
+class MemoryClearUserRequest(BaseModel):
+    """清空用户级长期记忆请求"""
+    user_id: str = Field(..., description="用户ID")
+
+
 @router.post("/search")
 async def search_memories(
     request: MemorySearchRequest,
@@ -68,7 +73,7 @@ async def clear_session_memory(
     """
     清空会话记忆
     
-    清除指定会话的短期和长期记忆
+    清除指定会话的短期记忆。长期记忆是用户级资产，需要显式调用用户级清理接口。
     """
     try:
         if harness.memory_manager is not None:
@@ -90,6 +95,32 @@ async def clear_session_memory(
     except Exception as e:
         service_logger.error(f"Clear session memory failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Clear memory failed: {e}")
+
+
+@router.post("/clear-user")
+async def clear_user_memories(
+    request: MemoryClearUserRequest,
+    harness: Harness = Depends(get_harness),
+):
+    """清空指定用户的 Mem0 长期记忆。"""
+    try:
+        if harness.memory_manager is None:
+            return create_error_response(message="MEMORY_ENABLED is false")
+        clear_user = getattr(harness.memory_manager, "clear_user_memories", None)
+        if clear_user is None:
+            return create_error_response(message="memory manager does not support user clear")
+        success = await clear_user(request.user_id)
+        if not success:
+            return create_error_response(message="Failed to clear user memories")
+        return create_success_response(
+            data={
+                "user_id": request.user_id,
+                "cleared": True,
+            }
+        )
+    except Exception as e:
+        service_logger.error(f"Clear user memories failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Clear user memories failed: {e}")
 
 
 @router.get("/stats")

@@ -347,7 +347,7 @@ flowchart TD
 - 读取 Checkpoint 配置并按需注册进程内执行快照能力。
 - 读取 Handoff 专家配置并将目标 Agent 挂载到 SDK 主 Agent。
 - 创建 `ModelRouter` 和模型弹性配置。
-- 创建 `MemoryStore`。
+- 创建兼容旧构造参数的空 `MemoryStore`；实际记忆读写由 `Mem0MemoryManager`、Redis 和 MySQL 承担。
 - 按需创建一套共享 `DatabaseResource`，避免能力各自创建连接池。
 - 按需创建 `MemoryManager`。
 - 按需创建 `PromptManager`。
@@ -389,7 +389,7 @@ HTTP 接入部分由 `src/api/app.py` 和 `ProtocolRequestChain` 负责装配。
 
 当 `HANDOFF_ENABLED=true` 时，`HANDOFF_AGENTS_JSON` 描述静态专家 Agent 的名称、描述与指令。`HarnessBuilder` 装配 `HandoffManager`，Runtime 使用与主 Agent 相同的当前模型构造专家目标并传入 SDK 原生 `handoffs`。本阶段不扩展专家专属工具和动态路由，以保持配置契约轻量。
 
-Memory 当前包含四层存储语义：MySQL `session_store` 保存会话列表和完整消息流水；`memory_session` 保存当前会话最近上下文，启用 `MEMORY_ENABLED=true` 且 `REDIS_ENABLED=true` 时由 Redis 承载；`session_summary` 使用 LLM 生成会话滚动摘要，MySQL 持久化、Redis 缓存，作为短期原文过期后的连续性兜底；`long_term_memory` 统一装配 `Mem0MemoryManager`，由 Mem0 负责用户偏好、长期记忆抽取和搜索。业务层不在写入阶段预判长期记忆类型，只在读取和上下文注入阶段对偏好类结果做冲突消解，同一偏好维度只保留最新生效项。
+Memory 当前包含四层存储语义：MySQL `session_store` 保存会话列表和完整消息流水，也是短期原文记忆的权威兜底；`memory_session` 保存当前会话最近上下文，启用 `MEMORY_ENABLED=true` 且 `REDIS_ENABLED=true` 时由 Redis 承载，读取时 Redis 优先、miss 后读 MySQL 近 N 轮，不使用进程内兜底；`session_summary` 使用 LLM 生成会话滚动摘要，MySQL 持久化、Redis 缓存，作为短期原文过期后的连续性兜底；`long_term_memory` 统一装配 `Mem0MemoryManager`，由 Mem0 负责用户偏好、长期记忆抽取和搜索。业务层不在写入阶段预判长期记忆类型，只在读取和上下文注入阶段对偏好类结果做冲突消解，同一偏好维度只保留最新生效项。
 
 ## 🏭 脚手架生成适配
 

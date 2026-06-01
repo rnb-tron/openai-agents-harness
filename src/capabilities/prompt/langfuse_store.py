@@ -10,6 +10,7 @@ Langfuse SDK 是同步的, 用 ``run_in_executor`` 包装为异步。
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 
 from src.capabilities.prompt.base import PromptStore, PromptTemplate
@@ -56,11 +57,12 @@ class LangfuseStore(PromptStore):
                 f"langfuse get_prompt failed for '{name}': {exc}"
             ) from exc
 
-        # langfuse PromptClient: .prompt (str) / .version / .name
-        text = getattr(prompt_obj, "prompt", None)
-        if text is None or not isinstance(text, str):
+        # langfuse PromptClient: .prompt can be text or chat messages.
+        raw_prompt = getattr(prompt_obj, "prompt", None)
+        text = self._coerce_prompt_text(raw_prompt)
+        if text is None:
             raise PromptFetchError(
-                f"langfuse prompt '{name}' returned non-text payload: {type(text).__name__}"
+                f"langfuse prompt '{name}' returned unsupported payload: {type(raw_prompt).__name__}"
             )
 
         return PromptTemplate(
@@ -75,8 +77,29 @@ class LangfuseStore(PromptStore):
                 "langfuse_tags": getattr(prompt_obj, "tags", None),
                 "langfuse_config": getattr(prompt_obj, "config", None),
                 "langfuse_is_fallback": getattr(prompt_obj, "is_fallback", None),
+                "langfuse_prompt_type": "chat" if isinstance(raw_prompt, list) else "text",
             },
         )
+
+    @staticmethod
+    def _coerce_prompt_text(prompt: Any) -> str | None:
+        if isinstance(prompt, str):
+            return prompt
+        if not isinstance(prompt, list):
+            return None
+
+        lines: list[str] = []
+        for item in prompt:
+            if isinstance(item, dict):
+                role = item.get("role") or "message"
+                content = item.get("content")
+                if isinstance(content, str):
+                    lines.append(f"{role}: {content}")
+                elif content is not None:
+                    lines.append(f"{role}: {json.dumps(content, ensure_ascii=False)}")
+            elif isinstance(item, str):
+                lines.append(item)
+        return "\n".join(lines) if lines else None
 
     def _get_client(self) -> Any:
         if self._client is not None:

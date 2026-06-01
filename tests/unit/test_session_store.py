@@ -37,6 +37,31 @@ async def test_session_store_persists_sessions_and_messages(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_session_store_lists_recent_messages_in_chat_order(tmp_path):
+    database = DatabaseResource(
+        DatabaseConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'sessions.db'}")
+    )
+    await database.create_all()
+    store = SessionStore(database.session)
+
+    for index in range(3):
+        await store.append_turn(
+            session_id="session-1",
+            user_id="user-1",
+            user_input=f"用户消息 {index}",
+            assistant_output=f"助手消息 {index}",
+        )
+
+    recent = await store.list_recent_messages(session_id="session-1", limit=2)
+    count = await store.count_messages("session-1")
+
+    assert count == 6
+    assert [item["content"] for item in recent] == ["用户消息 2", "助手消息 2"]
+
+    await database.close()
+
+
+@pytest.mark.asyncio
 async def test_session_store_creates_empty_session(tmp_path):
     database = DatabaseResource(
         DatabaseConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'sessions.db'}")

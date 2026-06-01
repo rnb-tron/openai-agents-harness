@@ -92,6 +92,7 @@ class Settings:
     memory_session_summary_update_messages: int
     memory_session_summary_model: str
     memory_session_summary_max_tokens: int
+    memory_session_summary_max_source_messages: int
     
     # Observability System Configuration
     observability_enabled: bool
@@ -231,6 +232,9 @@ def get_settings() -> Settings:
         memory_session_summary_model=os.getenv("MEMORY_SESSION_SUMMARY_MODEL", ""),
         memory_session_summary_max_tokens=int(
             os.getenv("MEMORY_SESSION_SUMMARY_MAX_TOKENS", "512")
+        ),
+        memory_session_summary_max_source_messages=int(
+            os.getenv("MEMORY_SESSION_SUMMARY_MAX_SOURCE_MESSAGES", "20")
         ),
         # Observability Configuration
         observability_enabled=os.getenv("LANGFUSE_ENABLED", "false").lower() == "true",

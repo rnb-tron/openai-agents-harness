@@ -284,6 +284,31 @@ def test_langfuse_store_reuses_injected_client() -> None:
     assert client.calls == [("agents.main_chat", {"label": "prod"})]
 
 
+def test_langfuse_store_accepts_chat_prompt_payload() -> None:
+    class FakePrompt:
+        name = "agents.main_chat"
+        prompt = [
+            {"role": "system", "content": "You are {{role}}."},
+            {"role": "user", "content": {"type": "placeholder", "name": "input"}},
+        ]
+        version = 8
+        labels = ["prod"]
+        tags = []
+        config = {}
+        is_fallback = False
+
+    class FakeClient:
+        def get_prompt(self, name, **kwargs):
+            return FakePrompt()
+
+    store = LangfuseStore(default_label="prod", client=FakeClient())
+    tpl = asyncio.run(store.fetch("agents.main_chat"))
+
+    assert tpl.template.startswith("system: You are {{role}}.")
+    assert "user:" in tpl.template
+    assert tpl.metadata["langfuse_prompt_type"] == "chat"
+
+
 def test_composite_propagates_when_both_fail() -> None:
     class FailingPrimary:
         name = "langfuse"
@@ -399,6 +424,7 @@ if __name__ == "__main__":
         test_manager_cache_ttl_expires,
         test_composite_falls_back_on_primary_error,
         test_langfuse_store_reuses_injected_client,
+        test_langfuse_store_accepts_chat_prompt_payload,
         test_composite_propagates_when_both_fail,
         test_warmup_failure_does_not_crash,
         test_main_chat_fallback_when_get_fails,

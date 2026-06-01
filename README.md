@@ -19,7 +19,7 @@
 
 ## 🧭 架构总览
 
-![Agent Harness Architecture](docs/assets/agent-harness-architecture-cn-v6.png)
+![Agent Harness Architecture](docs/assets/agent-harness-architecture-cn-v7.png)
 
 ```mermaid
 flowchart TD
@@ -52,9 +52,10 @@ flowchart TD
 | 模型访问 | `model_router` | runtime / 已实现，基础必选 | OpenAI Agents SDK + OpenAI-compatible API | `ModelRouter` 按任务选择默认或推理模型，并由 `AgentOrchestrator` 调用 SDK `Runner` | Harness 默认创建 |
 | 模型稳定性 | `model_resilience` | runtime / 部分实现 | 自研 Retry / Timeout / Fallback | 按弹性配置构建 runner 包装与 fallback 模型链，隔离模型调用故障 | `MODEL_RESILIENCE_ENABLED` |
 | 会话记录 | `session_store` | resource / 已实现 | MySQL + SQLAlchemy Async | 持久化用户会话、完整消息流水和后续事件扩展，供 UI 历史会话与审计使用 | `SESSION_STORE_ENABLED` |
-| 会话记忆 | `memory_session` | runtime / 已实现 | Redis ShortTermMemory / 进程内降级 | 在 Agent 执行前后读取、写入当前会话最近上下文；启用 Mem0 manager 时由 Redis 短期记忆承载 | 默认装配 |
-| 长期记忆 | `long_term_memory` | runtime / 已实现 | Mem0 | 由 Mem0 负责用户偏好与长期记忆抽取、写入和搜索；业务层不预判长期记忆类型 | `MEMORY_ENABLED` |
-| 长期记忆资源 | `memory_manager` | resource / 已实现，依赖自动引入 | Mem0 SDK | 持有 Mem0 适配器和 Redis 短期会话缓存；长期向量存储可选 Mem0 默认、pgvector 或 Elasticsearch；读取偏好时同一维度只注入最新生效项 | 选择长期记忆时自动引入 |
+| 会话记忆 | `memory_session` | runtime / 已实现 | Redis ShortTermMemory + MySQL 回源 | 在 Agent 执行前后读取当前会话最近上下文；Redis 承载短期缓存，Redis 未启用或 miss 时读取 MySQL 最近消息，不使用进程内兜底 | 默认装配 |
+| 会话摘要 | `session_summary` | runtime / 已实现 | LLM Summary + MySQL + Redis Cache | `after_run` 后台滚动生成摘要，MySQL 持久化、Redis 可缓存；当前轮消息可直接触发 summary，不依赖路由层先落库 | `MEMORY_SESSION_SUMMARY_ENABLED` |
+| 长期记忆 | `long_term_memory` | runtime / 已实现 | Mem0 | 由 Mem0 负责用户偏好与长期记忆抽取、写入和搜索；删除会话不会删除长期记忆，用户级长期记忆需显式清理 | `MEMORY_ENABLED` |
+| 长期记忆资源 | `memory_manager` | resource / 已实现，依赖自动引入 | Mem0 SDK | 持有 Mem0 适配器和 Redis 短期会话缓存；长期向量存储可选 Mem0 默认、pgvector 或 Elasticsearch；读取偏好时同一维度只注入最新生效项；提供显式用户级清理接口 | 选择长期记忆时自动引入 |
 | 语义召回 | `vector_search` | runtime / 已实现 | Mem0 Search + pgvector/ES 可选 | 由 Mem0 搜索返回偏好和长期记忆；偏好类查询会做冲突消解；向量后端通过 `MEMORY_VECTOR_STORE` 选择 | `MEMORY_ENABLED` |
 | Prompt 管理 | `prompt` | runtime / 已实现 | Langfuse Prompt + Local YAML | `PromptManager` 负责拉取、TTL 缓存与渲染；`CompositeStore` 支持远端失败时本地降级 | `PROMPT_ENABLED` |
 | 上下文治理 | `context_compression` | runtime / 已实现 | tiktoken + 可配置 LLM Summary | 提供 token budget 截断、rolling summary 与 hybrid 策略，在执行前压缩上下文 | `COMPRESSION_ENABLED` |
@@ -68,10 +69,8 @@ flowchart TD
 装配边界：
 
 - `runtime` 能力进入 Agent 执行过程，由 `HarnessBuilder` 创建资源并注入 `AgentOrchestrator`。
-- `protocol` 能力进入 HTTP 请求链，当前显式顺序为 `RequestContext -> Observability -> Auth -> RateLimit`。
-- `resource` 能力由 Harness 负责初始化与释放，可向 runtime 或 protocol 提供共享资源。
-
-当前尚未形成独立 capability 的候选能力包括 `RAG`、`Audit` 和 Kafka 事件发布；它们属于后续平台能力规划，不应在当前能力清单中标记为已具备。
+- `protocol` 能力进入 HTTP 请求链，当前显式顺序为 `RequestContext -> Auth -> RateLimit`。
+- `governance` 能力由 Harness 负责初始化与释放。
 
 ## 🧩 能力体系
 
@@ -90,11 +89,11 @@ CapabilityManifest(
 
 能力类型：
 
-| 类型 | 说明 | 示例 |
-| --- | --- | --- |
-| `runtime` | 参与 Agent 执行生命周期 | `Memory`、`Prompt`、`Compression`、`Model Router` |
-| `protocol` | 参与 HTTP 请求生命周期 | Auth、RateLimit |
-| `resource` | 初始化或暴露基础设施/观测资源 | Observability |
+| 类型           | 说明 | 示例 |
+|--------------| --- | --- |
+| `runtime`    | 参与 Agent 执行生命周期 | `Memory`、`Prompt`、`Compression`、`Model Router` |
+| `protocol`   | 参与 HTTP 请求生命周期 | Auth、RateLimit |
+| `governance` | 平台治理、策略、审计、评估 | Observability |
 
 当前能力状态：
 
@@ -110,7 +109,7 @@ CapabilityManifest(
 | `context_compression` | runtime | ✅ 已实现 | 支持 token budget、rolling summary、hybrid |
 | `auth` | protocol | ✅ 已实现 | JWT 中间件插件 |
 | `rate_limit` | protocol | ✅ 已实现 | Redis/内存限流中间件插件 |
-| `observability` | resource | ✅ 已实现 | Langfuse/OpenTelemetry 生命周期，并向 HTTP 链路贡献追踪入口 |
+| `observability` | governance | ✅ 已实现 | Langfuse/OpenTelemetry 生命周期，并向 HTTP 链路贡献追踪入口 |
 | `hitl` | runtime | 🟡 部分实现 | 配置驱动装配，已接入 SDK 原生中断与 `POST /chat/resume` |
 | `checkpoint` | runtime | 🟡 部分实现 | 配置驱动的进程内执行快照，不等同于 SDK `RunState` 存储 |
 | `handoff` | runtime | 🟡 部分实现 | 配置驱动装配，主 Agent 已接入 SDK 原生 `handoffs` |
@@ -360,16 +359,30 @@ MEMORY_SESSION_SUMMARY_INITIAL_MESSAGES=4
 MEMORY_SESSION_SUMMARY_UPDATE_MESSAGES=6
 MEMORY_SESSION_SUMMARY_MODEL=
 MEMORY_SESSION_SUMMARY_MAX_TOKENS=512
+MEMORY_SESSION_SUMMARY_MAX_SOURCE_MESSAGES=20
 # 可选：需要完全自定义 Mem0 OSS 配置时再设置 MEMORY_MEM0_CONFIG_JSON
 ```
 
-会话记录、短期会话记忆、会话摘要、长期记忆分层管理：MySQL 保存完整会话与消息流水；Redis 保存当前会话最近上下文；MySQL 持久化 LLM 会话摘要并用 Redis 做快速缓存；Mem0 统一管理用户偏好、长期记忆抽取和语义检索。`before_run` 只读取已有摘要，不同步重建；`after_run` 后台更新摘要，避免请求链路被历史消息读取和 LLM 摘要阻塞。
+会话记录、短期会话记忆、会话摘要、长期记忆分层管理：
+
+- MySQL `session_store` 保存会话列表、完整消息流水和会话 summary，是会话审计、UI 回放和 Redis miss 回源的权威存储。
+- Redis `ShortTermMemory` 保存当前会话最近上下文和 summary 缓存，只做加速层；未启用 Redis 或 Redis miss 时读取 MySQL 最近 N 条消息，不使用进程内记忆兜底。
+- LLM 会话 summary 在 `after_run` 后台滚动生成，MySQL 持久化、Redis 可缓存；summary 更新会携带当前轮 user/assistant 消息，因此不依赖 `/chat/stream` 路由先把当前轮写入 MySQL。
+- Mem0 统一管理用户偏好、长期事实和语义召回；长期记忆是用户级资产，默认不随会话删除。
+
+运行时读取链路：`before_run` 读取用户偏好、相关长期记忆、已有会话 summary 和最近会话消息，并装配到输入上下文；它不会同步重建 summary，避免请求链路被历史消息读取和 LLM 摘要阻塞。
+
+运行时写入链路：`after_run` 写 Redis 短期原文缓存，后台更新会话 summary，并把通过噪声过滤的 user/assistant 对话提交给 Mem0。Mem0 自行判断是否抽取、合并、更新或忽略长期记忆。
 
 Mem0 local 模式默认复用主模型配置：`llm.config` 使用 `OPENAI_API_KEY`、`OPENAI_BASE_URL` 和 `AGENT_MODEL_DEFAULT`；`embedder.config` 使用 `OPENAI_API_KEY`、`OPENAI_BASE_URL` 和 `MEMORY_EMBEDDING_MODEL`。传给 Mem0 SDK 时，网关地址字段使用 Mem0 兼容的 `openai_base_url`。
 
-长期写入边界：`after_run` 只异步过滤空内容、寒暄、工具失败和拒绝执行等明显噪声；通过过滤的 user/assistant 对话会提交给 Mem0，由 Mem0 判断是否抽取、合并、更新或忽略长期记忆。
-
 偏好记忆采用“保留历史、注入生效版本”的策略：写入时直接把 user/assistant messages 提交给 Mem0，由 Mem0 判断是否抽取为用户偏好或其他长期记忆；检索或注入上下文时，业务层再对偏好类结果做轻量冲突消解，同一偏好维度只保留最新一条。这样既不破坏 Mem0 中的历史记忆，又避免“中文回答”和“英文回答”等冲突偏好同时进入 prompt。使用 Mem0 Platform 时，将 `MEMORY_MEM0_MODE=platform` 并配置 `MEMORY_MEM0_API_KEY`。
+
+记忆清理边界：
+
+- `DELETE /chat/sessions/{session_id}` 删除 MySQL 会话、消息、会话 summary，并清理该 session 的 Redis 短期记忆；它不会删除 Mem0 长期记忆。
+- `POST /memory/clear` 只清理指定 session 的短期记忆。
+- `POST /memory/clear-user` 显式清理指定用户的 Mem0 长期记忆，例如 `{"user_id":"ui-tester"}`。
 
 能力目录与依赖矩阵：
 

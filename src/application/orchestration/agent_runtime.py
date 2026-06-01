@@ -246,6 +246,7 @@ class AgentOrchestrator:
             metadata={
                 "model": result.get("model", ""),
                 "interrupted": bool(result.get("interrupted", False)),
+                **dict(result.get("metadata") or {}),
             },
         )
         tracer_manager = get_tracer_manager()
@@ -433,6 +434,7 @@ class AgentOrchestrator:
                 "model": selected_model,
                 "tool_calls": [],
                 "memory_size": await self._memory_size(session.session_id),
+                "metadata": dict(ctx.metadata),
                 "interrupted": True,
                 "interruptions": approval_requests,
                 "run_state": run_state,
@@ -460,6 +462,7 @@ class AgentOrchestrator:
             "model": selected_model,
             "tool_calls": ctx.tool_calls,
             "memory_size": await self._memory_size(session.session_id),
+            "metadata": dict(ctx.metadata),
         }
         executing_agent = self._execution_agent_name(run_result)
         result["advanced"] = self.advanced_state(
@@ -590,6 +593,7 @@ class AgentOrchestrator:
                     "model": selected_model,
                     "tool_calls": [],
                     "memory_size": await self._memory_size(session.session_id),
+                    "metadata": dict(ctx.metadata),
                     "interrupted": True,
                     "interruptions": approval_requests,
                     "run_state": run_state,
@@ -618,6 +622,7 @@ class AgentOrchestrator:
                 "model": selected_model,
                 "tool_calls": ctx.tool_calls,
                 "memory_size": await self._memory_size(session.session_id),
+                "metadata": dict(ctx.metadata),
                 "interrupted": False,
                 "advanced": self.advanced_state(
                     session.session_id,
@@ -737,6 +742,7 @@ class AgentOrchestrator:
             "model": selected_model,
             "tool_calls": ctx.tool_calls,
             "memory_size": await self._memory_size(session.session_id),
+            "metadata": dict(ctx.metadata),
             "interrupted": False,
             "decision": "rejected",
             "tool_executed": False,
@@ -874,6 +880,7 @@ class AgentOrchestrator:
                 "model": selected_model,
                 "tool_calls": [],
                 "memory_size": await self._memory_size(session.session_id),
+                "metadata": dict(ctx.metadata),
                 "interrupted": True,
                 "interruptions": approval_requests,
                 "run_state": next_state,
@@ -898,6 +905,7 @@ class AgentOrchestrator:
             "model": selected_model,
             "tool_calls": ctx.tool_calls,
             "memory_size": await self._memory_size(session.session_id),
+            "metadata": dict(ctx.metadata),
             "interrupted": False,
         }
         executing_agent = self._execution_agent_name(run_result)
@@ -1041,6 +1049,7 @@ class AgentOrchestrator:
                     "model": selected_model,
                     "tool_calls": [],
                     "memory_size": await self._memory_size(session.session_id),
+                    "metadata": dict(ctx.metadata),
                     "interrupted": True,
                     "interruptions": requests,
                     "run_state": next_state,
@@ -1069,6 +1078,7 @@ class AgentOrchestrator:
                 "model": selected_model,
                 "tool_calls": ctx.tool_calls,
                 "memory_size": await self._memory_size(session.session_id),
+                "metadata": dict(ctx.metadata),
                 "interrupted": False,
                 "advanced": self.advanced_state(
                     session.session_id,

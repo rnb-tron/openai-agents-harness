@@ -18,27 +18,24 @@ from src.capabilities.memory.models import MemoryRecord
 
 async def test_short_term_memory():
     """测试短期记忆"""
-    print("\n🧪 测试 1: Short-Term Memory (内存模式)")
+    print("\n🧪 测试 1: Short-Term Memory (无 Redis 不做内存兜底)")
     print("-" * 50)
     
     memory = ShortTermMemory(redis_client=None, ttl=3600)
     
-    # 添加记忆
+    # 没有 Redis 时 append 成功但不在进程内保存，读取应回源 MySQL。
     await memory.append("session1", "user", "你好")
     await memory.append("session1", "assistant", "你好!有什么我可以帮你的吗?")
     await memory.append("session1", "user", "Python怎么用?")
     
-    # 获取记忆
     memories = await memory.get_recent("session1", max_turns=2)
-    print(f"✅ 添加了3条记忆,获取到 {len(memories)} 条")
-    assert len(memories) == 3, f"期望3条,实际{len(memories)}条"
-    
-    for mem in memories:
-        print(f"  - {mem['role']}: {mem['content'][:30]}...")
+    print(f"✅ 无 Redis 时短期缓存读取到 {len(memories)} 条")
+    assert memories == []
     
     # 测试TTL
     ttl = await memory.get_ttl("session1")
     print(f"✅ TTL: {ttl}秒")
+    assert ttl == -2
     
     # 清空记忆
     await memory.clear("session1")
