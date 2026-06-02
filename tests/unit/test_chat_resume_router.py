@@ -46,6 +46,11 @@ class _MessageStore:
         return [{"content": "new"}]
 
 
+class _FailingTurnStore:
+    async def append_turn(self, **kwargs):
+        raise RuntimeError("mysql unavailable")
+
+
 @pytest.mark.asyncio
 async def test_list_chat_messages_can_return_recent_messages():
     store = _MessageStore()
@@ -81,6 +86,23 @@ async def test_chat_stream_emits_ndjson_and_uses_authenticated_identity():
     assert runtime.user_input == "回答我"
     assert events[1] == {"type": "delta", "delta": "完成"}
     assert events[-1]["type"] == "done"
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_reports_session_persist_failure():
+    runtime = _StreamingRuntime()
+
+    response = await chat_stream(
+        ChatRequest(message="回答我", session_id="session-1", user_id="body-user"),
+        Principal(user_id="auth-user", is_anonymous=False),
+        SimpleNamespace(runtime=runtime, session_store=_FailingTurnStore()),
+    )
+    chunks = [chunk async for chunk in response.body_iterator]
+    events = [json.loads(line) for chunk in chunks for line in chunk.splitlines()]
+
+    assert events[-1]["type"] == "error"
+    assert "session persist failed" in events[-1]["detail"]
+    assert all(event["type"] != "done" for event in events)
 
 
 @pytest.mark.asyncio

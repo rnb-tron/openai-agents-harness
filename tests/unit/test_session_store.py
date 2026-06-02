@@ -62,6 +62,56 @@ async def test_session_store_lists_recent_messages_in_chat_order(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_session_store_keeps_repeated_user_inputs_as_separate_turns(tmp_path):
+    database = DatabaseResource(
+        DatabaseConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'sessions.db'}")
+    )
+    await database.create_all()
+    store = SessionStore(database.session)
+
+    await store.append_turn(
+        session_id="session-1",
+        user_id="user-1",
+        user_input="介绍下三国演义这部小说",
+        assistant_output="《三国演义》是中国古典小说。",
+        model="qwen3.5-plus",
+    )
+    await store.append_turn(
+        session_id="session-1",
+        user_id="user-1",
+        user_input="以后回答尽量使用英文",
+        assistant_output="Understood. I will use English for my responses from now on.",
+        model="qwen3.5-plus",
+    )
+    await store.append_turn(
+        session_id="session-1",
+        user_id="user-1",
+        user_input="以后回答尽量使用英文",
+        assistant_output="Understood. I will continue to respond in English as requested.",
+        model="qwen3.5-plus",
+    )
+
+    messages = await store.list_messages(session_id="session-1")
+    recent = await store.list_recent_messages(session_id="session-1", limit=6)
+
+    assert await store.count_messages("session-1") == 6
+    assert [item["role"] for item in messages] == [
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+    ]
+    assert [item["content"] for item in messages] == [item["content"] for item in recent]
+    assert messages[2]["content"] == "以后回答尽量使用英文"
+    assert messages[4]["content"] == "以后回答尽量使用英文"
+    assert messages[3]["content"] != messages[5]["content"]
+
+    await database.close()
+
+
+@pytest.mark.asyncio
 async def test_session_store_creates_empty_session(tmp_path):
     database = DatabaseResource(
         DatabaseConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'sessions.db'}")

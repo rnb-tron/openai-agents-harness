@@ -85,6 +85,17 @@ class _FakeSessionStore:
         return len(self.messages)
 
 
+class _FakeShortTerm:
+    def __init__(self, memories):
+        self.memories = memories
+
+    async def get_recent(self, session_id, max_turns):
+        return self.memories
+
+    async def get_summary(self, session_id):
+        return None
+
+
 def _settings(**overrides):
     defaults = dict(
         memory_short_term_ttl=3600,
@@ -131,7 +142,8 @@ async def test_mem0_manager_persists_meaningful_user_assistant_pair():
     assert call["user_id"] == "u1"
     assert call["run_id"] == "s1"
     assert call["messages"][0]["role"] == "user"
-    assert call["messages"][1]["role"] == "assistant"
+    assert len(call["messages"]) == 1
+    assert call["metadata"]["memory_policy"] == "user_input_only"
     assert call["metadata"]["source_session_id"] == "s1"
     assert "memory_kind" not in call["metadata"]
     assert "preference_key" not in call["metadata"]
@@ -171,6 +183,7 @@ async def test_mem0_manager_submits_meaningful_pair_to_mem0_without_keyword_gate
     assert len(client.add_calls) == 1
     call = client.add_calls[0]
     assert call["messages"][0]["content"] == "我最近在做一个面向管理者的 agent harness 验收页面"
+    assert len(call["messages"]) == 1
     assert "memory_kind" not in call["metadata"]
 
 
@@ -198,7 +211,7 @@ async def test_mem0_manager_caches_preferences_and_gates_long_term_search():
         user_input="这个项目的记忆架构应该怎么做？",
     )
 
-    assert "=== User Preferences ===" in context
+    assert "=== Effective User Preferences (highest priority) ===" in context
     assert "=== Relevant Long-Term Memories ===" in context
     assert len(client.search_calls) == 2
 
@@ -376,6 +389,108 @@ async def test_mem0_manager_falls_back_to_mysql_messages_when_short_term_empty()
     assert "我要验证 MySQL 兜底" in context
     assert "可以在 Redis miss 时读取会话记录。" in context
     assert store.list_message_calls == [{"session_id": "s1", "limit": 2}]
+
+
+@pytest.mark.asyncio
+async def test_mem0_manager_filters_stale_preference_turns_from_recent_context():
+    client = _FakeMem0Client()
+    client.search = lambda *args, **kwargs: {  # noqa: E731
+        "results": [
+            {
+                "memory": (
+                    "Assistant agreed to adopt the user's preference for responding "
+                    "primarily in Chinese and leading with conclusions in future interactions"
+                ),
+                "metadata": {
+                    "memory_kind": "preference",
+                    "preference_keys": ["response_language", "answer_order"],
+                    "updated_at": "2026-06-02T14:57:07+08:00",
+                },
+            }
+        ]
+    }
+    store = _FakeSessionStore(
+        messages=[
+            {
+                "id": "m1",
+                "role": "user",
+                "content": "介绍三国演义这部小说",
+                "created_at": "2026-06-02T14:55:12",
+            },
+            {
+                "id": "m2",
+                "role": "assistant",
+                "content": "《三国演义》是中国古典四大名著之一。",
+                "created_at": "2026-06-02T14:55:12",
+            },
+            {
+                "id": "m3",
+                "role": "user",
+                "content": "以后回答尽量使用英文",
+                "created_at": "2026-06-02T14:55:35",
+            },
+            {
+                "id": "m4",
+                "role": "assistant",
+                "content": "Understood. I will use English for my responses from now on.",
+                "created_at": "2026-06-02T14:55:35",
+            },
+        ]
+    )
+    manager = Mem0MemoryManager(_settings(), client=client, session_store=store)
+
+    context = await manager.get_context(
+        session_id="s1",
+        user_id="u1",
+        user_input="介绍孙权的历史形象",
+        enable_retrieval=False,
+    )
+
+    assert "=== Effective User Preferences (highest priority) ===" in context
+    assert "primarily in Chinese" in context
+    assert "以后回答尽量使用英文" not in context
+    assert "I will use English for my responses" not in context
+    assert context.rfind("primarily in Chinese") > context.rfind("Recent Conversation")
+
+
+@pytest.mark.asyncio
+async def test_mem0_manager_filters_stale_preference_turns_from_redis_context():
+    client = _FakeMem0Client()
+    client.search = lambda *args, **kwargs: {  # noqa: E731
+        "results": [
+            {
+                "memory": "User prefers Chinese responses and conclusion first.",
+                "metadata": {
+                    "memory_kind": "preference",
+                    "preference_keys": ["response_language", "answer_order"],
+                    "updated_at": "2026-06-02T14:57:07+08:00",
+                },
+            }
+        ]
+    }
+    manager = Mem0MemoryManager(_settings(), client=client)
+    manager.short_term = _FakeShortTerm(
+        [
+            {"role": "user", "content": "介绍三国演义这部小说"},
+            {"role": "assistant", "content": "《三国演义》是中国古典四大名著之一。"},
+            {"role": "user", "content": "以后回答尽量使用英文"},
+            {
+                "role": "assistant",
+                "content": "Understood. I will use English for my responses from now on.",
+            },
+        ]
+    )
+
+    context = await manager.get_context(
+        session_id="s1",
+        user_id="u1",
+        user_input="介绍孙权的历史形象",
+        enable_retrieval=False,
+    )
+
+    assert "User prefers Chinese responses" in context
+    assert "以后回答尽量使用英文" not in context
+    assert "I will use English for my responses" not in context
 
 
 @pytest.mark.asyncio

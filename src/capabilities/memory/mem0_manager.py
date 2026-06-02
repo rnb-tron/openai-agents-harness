@@ -209,23 +209,25 @@ class Mem0MemoryManager:
             return True
 
         user_content = self._pending_user_inputs.pop(session_id, "")
-        messages = [
+        latest_messages = [
             {"role": "user", "content": user_content},
             {"role": "assistant", "content": content},
         ]
         self._schedule_session_summary_update(
             session_id=session_id,
             user_id=user_id,
-            latest_messages=messages,
+            latest_messages=latest_messages,
         )
 
         if not await self._should_submit_to_mem0(user_content, content):
             return True
 
+        messages = [{"role": "user", "content": user_content}]
         mem0_metadata = {
             "source": "chat",
             "source_session_id": session_id,
             "memory_type": memory_type,
+            "memory_policy": "user_input_only",
             **(metadata or {}),
         }
         try:
@@ -298,7 +300,11 @@ class Mem0MemoryManager:
     ) -> list[dict[str, Any]]:
         memories = await self.short_term.get_recent(session_id, max_turns)
         if memories:
-            return memories
+            return [
+                memory
+                for memory in memories
+                if not self._is_preference_turn(memory.get("content", ""))
+            ]
         if self._session_store is None:
             return []
         messages = await self._list_recent_session_messages(
@@ -317,7 +323,7 @@ class Mem0MemoryManager:
                 },
             }
             for item in messages
-            if item.get("content")
+            if item.get("content") and not self._is_preference_turn(item.get("content", ""))
         ]
 
     async def _list_recent_session_messages(
@@ -519,6 +525,36 @@ class Mem0MemoryManager:
             )
         )
 
+    @staticmethod
+    def _is_preference_turn(content: str) -> bool:
+        # TODO: DELETE _is_preference_turn
+        """判断短期会话消息是否只是偏好声明或偏好确认。
+
+        用户偏好由 Mem0 长期记忆统一去重、按更新时间选择；如果继续把这些
+        历史偏好声明放在 Recent Conversation 中，模型容易被同一会话里的旧
+        偏好覆盖。
+        """
+        text = content.strip().lower()
+        if not text:
+            return False
+        signals = (
+            "以后回答",
+            "后续回答",
+            "以后我会",
+            "请记住我的偏好",
+            "记住我的偏好",
+            "我的偏好",
+            "已记住您的偏好",
+            "已收到您的要求",
+            "from now on",
+            "my preference",
+            "user prefers",
+            "i will use english for my responses",
+            "i will continue to respond in english",
+            "i will present the conclusion first",
+        )
+        return any(signal in text for signal in signals)
+
     @classmethod
     def _select_effective_preferences(
         cls,
@@ -617,7 +653,11 @@ class Mem0MemoryManager:
 
     @staticmethod
     async def _should_submit_to_mem0(user_content: str, assistant_content: str) -> bool:
-        """只过滤明显噪声，语义层面的记忆抽取交给 Mem0。"""
+        """决定一轮对话是否需要交给 Mem0 抽取长期记忆。
+
+        这里只保留稳定边界：明显噪声、失败或拒绝输出不提交；
+        其它语义价值判断继续交给 Mem0。
+        """
         user_text = user_content.strip()
         assistant_text = assistant_content.strip()
         if not user_text or not assistant_text:
@@ -640,7 +680,9 @@ class Mem0MemoryManager:
             "tool call failed",
             "Traceback",
         )
-        return not any(marker in text for marker in blocked)
+        if any(marker in text for marker in blocked):
+            return False
+        return True
 
     async def _get_session_summary(self, session_id: str) -> str | None:
         if not getattr(self.settings, "memory_session_summary_enabled", False):
@@ -828,11 +870,6 @@ class Mem0MemoryManager:
         current_input: str,
     ) -> str:
         context_parts: list[str] = []
-        if preferences:
-            context_parts.append("=== User Preferences ===")
-            for idx, memory in enumerate(preferences, 1):
-                context_parts.append(f"[{idx}] {memory['content']}")
-            context_parts.append("")
         if long_memories:
             context_parts.append("=== Relevant Long-Term Memories ===")
             for idx, memory in enumerate(long_memories, 1):
@@ -848,6 +885,14 @@ class Mem0MemoryManager:
                 role = memory.get("role", "user")
                 content = memory.get("content", "")
                 context_parts.append(f"{role}: {content}")
+            context_parts.append("")
+        if preferences:
+            context_parts.append("=== Effective User Preferences (highest priority) ===")
+            context_parts.append(
+                "Follow these preferences over older preference statements in recent conversation."
+            )
+            for idx, memory in enumerate(preferences, 1):
+                context_parts.append(f"[{idx}] {memory['content']}")
             context_parts.append("")
         context_parts.append(f"user: {current_input}")
         return "\n".join(context_parts)

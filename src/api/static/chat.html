@@ -353,6 +353,18 @@
         margin-top: 12px;
       }
 
+      .approval-option {
+        align-items: center;
+        display: flex;
+        gap: 8px;
+        font-size: 12px;
+        margin-top: 10px;
+      }
+
+      .approval-option input {
+        accent-color: var(--primary);
+      }
+
       .approve {
         color: white;
         background: #168261;
@@ -554,6 +566,10 @@
         <div id="approval" class="approval" data-testid="approval">
           <h3>检测到需要人工审批的工具调用</h3>
           <div id="approval-detail"></div>
+          <label class="approval-option">
+            <input id="approval-always" type="checkbox" checked />
+            <span>批准本轮后续同类工具调用</span>
+          </label>
           <div class="approval-actions">
             <button id="approve" class="approve" type="button">批准并继续</button>
             <button id="reject" class="reject" type="button">拒绝并继续</button>
@@ -613,6 +629,7 @@
       const health = document.querySelector("#health");
       const approval = document.querySelector("#approval");
       const approvalDetail = document.querySelector("#approval-detail");
+      const approvalAlways = document.querySelector("#approval-always");
       const advancedEnabled = document.querySelector("#advanced-enabled");
       const executingAgent = document.querySelector("#executing-agent");
       const agentPath = document.querySelector("#agent-path");
@@ -627,6 +644,7 @@
       let pendingApproval = null;
       let currentAdvanced = {};
       let cachedSessions = [];
+      let memorySearchUserId = "";
 
       function newSessionId() {
         return globalThis.crypto && crypto.randomUUID
@@ -843,7 +861,16 @@
         sessionSummary.textContent = lines.join("\n");
       }
 
+      function syncLongTermMemoryUser() {
+        const currentUserId = userInput.value.trim() || "anonymous";
+        if (memorySearchUserId && memorySearchUserId !== currentUserId) {
+          memorySearchResults.textContent = "user_id 已变化，点击“搜索长期记忆”刷新用户级长期记忆";
+          memorySearchUserId = "";
+        }
+      }
+
       async function refreshStorage() {
+        syncLongTermMemoryUser();
         const userId = encodeURIComponent(userInput.value.trim() || "anonymous");
         const sessionId = encodeURIComponent(sessionInput.value);
         const [sessions, stats] = await Promise.all([
@@ -942,22 +969,23 @@
         messageRecords.textContent = "发送消息后会写入 MySQL";
         sessionSummary.textContent = "达到 summary 阈值后会在这里展示";
         memoryStats.textContent = "发送消息后可查看 Redis 短期记忆";
-        memorySearchResults.textContent = "点击“搜索长期记忆”";
         clearMessages("新会话已准备好，发送消息开始测试。");
       }
 
       async function searchLongTermMemory() {
-        const query = messageInput.value.trim() || "用户偏好 项目 记住";
+        const userId = userInput.value.trim() || "anonymous";
+        const query = "用户偏好 项目 记住 长期记忆";
         const body = await fetchJson("/memory/search", {
           method: "POST",
           headers: headers(),
           body: JSON.stringify({
             query,
-            user_id: userInput.value.trim() || "anonymous",
+            user_id: userId,
             top_k: 5
           })
         });
         const results = body.results || [];
+        memorySearchUserId = userId;
         memorySearchResults.textContent = results.length
           ? results.map((item, index) => `[${index + 1}] ${item.content || item.memory || JSON.stringify(item)}`).join("\n\n")
           : "没有搜索到长期记忆";
@@ -967,6 +995,7 @@
         pendingApproval = {data, originalMessage};
         const interruption = (data.interruptions || [])[0] || {};
         approvalDetail.textContent = `工具：${interruption.tool_name || "unknown"}`;
+        approvalAlways.checked = true;
         approval.classList.add("visible");
       }
 
@@ -1077,6 +1106,7 @@
           session_id: data.session_id,
           message: originalMessage,
           model: data.model,
+          always: approved ? approvalAlways.checked : false,
           user_id: userInput.value.trim() || null,
           rejection_message: approved ? null : "用户拒绝执行该工具，工具未运行。"
         };
@@ -1211,6 +1241,10 @@
 
       document.querySelector("#search-memory").addEventListener("click", () => {
         withFeedback(() => searchLongTermMemory());
+      });
+
+      userInput.addEventListener("change", () => {
+        syncLongTermMemoryUser();
       });
 
       document.querySelector("#new-session").addEventListener("click", () => {

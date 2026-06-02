@@ -10,13 +10,17 @@ from src.api.middleware.auth.base import Principal
 from src.api.middleware.auth.deps import get_current_principal
 from src.application.orchestration.agent_runtime import AgentSession
 from src.capabilities.session_store import SessionStore
-from src.core.logging import setup_logger
+from src.core.logging import log_event, setup_logger
 from src.harness.builder import Harness
 from src.harness.deps import get_harness
 from src.utils.response import create_success_response
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 logger = setup_logger("api.routers.chat")
+
+
+class SessionPersistError(Exception):
+    """会话持久化失败。"""
 
 
 class ChatRequest(BaseModel):
@@ -81,14 +85,15 @@ async def _persist_chat_turn(
             },
         )
     except Exception as exc:
-        logger.warning(
+        log_event(
+            logger,
             "session_store_append_turn_failed",
-            extra={
-                "session_id": session_id,
-                "error_type": type(exc).__name__,
-                "error": str(exc),
-            },
+            level=30,
+            session_id=session_id,
+            error_type=type(exc).__name__,
+            error=str(exc),
         )
+        raise SessionPersistError(f"session store append turn failed: {exc}") from exc
 
 
 async def _persist_resume_result(
@@ -117,10 +122,15 @@ async def _persist_resume_result(
             },
         )
     except Exception as exc:
-        logger.warning(
+        log_event(
+            logger,
             "session_store_append_resume_failed",
-            extra={"session_id": session_id, "error_type": type(exc).__name__},
+            level=30,
+            session_id=session_id,
+            error_type=type(exc).__name__,
+            error=str(exc),
         )
+        raise SessionPersistError(f"session store append resume failed: {exc}") from exc
 
 
 @router.post("")
@@ -145,6 +155,8 @@ async def chat(
             result=result,
             source="chat",
         )
+    except SessionPersistError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # pragma: no cover
@@ -179,6 +191,11 @@ async def chat_stream(
                         source="chat_stream",
                     )
                 yield json.dumps(event, ensure_ascii=False) + "\n"
+        except SessionPersistError as exc:
+            yield json.dumps(
+                {"type": "error", "detail": f"session persist failed: {exc}"},
+                ensure_ascii=False,
+            ) + "\n"
         except RuntimeError as exc:
             yield json.dumps({"type": "error", "detail": str(exc)}, ensure_ascii=False) + "\n"
         except Exception as exc:  # pragma: no cover
@@ -226,6 +243,8 @@ async def resume_chat(
             result=result,
             source="chat_resume",
         )
+    except SessionPersistError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # pragma: no cover
@@ -266,6 +285,11 @@ async def resume_chat_stream(
                         source="chat_resume_stream",
                     )
                 yield json.dumps(event, ensure_ascii=False) + "\n"
+        except SessionPersistError as exc:
+            yield json.dumps(
+                {"type": "error", "detail": f"session persist failed: {exc}"},
+                ensure_ascii=False,
+            ) + "\n"
         except (RuntimeError, ValueError) as exc:
             yield json.dumps({"type": "error", "detail": str(exc)}, ensure_ascii=False) + "\n"
         except Exception as exc:  # pragma: no cover
