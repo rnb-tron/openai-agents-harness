@@ -389,7 +389,7 @@ HTTP 接入部分由 `src/api/app.py` 和 `ProtocolRequestChain` 负责装配。
 
 当 `HANDOFF_ENABLED=true` 时，`HANDOFF_AGENTS_JSON` 描述静态专家 Agent 的名称、描述与指令。`HarnessBuilder` 装配 `HandoffManager`，Runtime 使用与主 Agent 相同的当前模型构造专家目标并传入 SDK 原生 `handoffs`。本阶段不扩展专家专属工具和动态路由，以保持配置契约轻量。
 
-Memory 当前包含四层存储语义：MySQL `session_store` 保存会话列表和完整消息流水，也是短期原文记忆的权威兜底；`memory_session` 保存当前会话最近上下文，启用 `MEMORY_ENABLED=true` 且 `REDIS_ENABLED=true` 时由 Redis 承载，读取时 Redis 优先、miss 后读 MySQL 近 N 轮，不使用进程内兜底；`session_summary` 使用 LLM 生成会话滚动摘要，MySQL 持久化、Redis 缓存，作为短期原文过期后的连续性兜底；`long_term_memory` 统一装配 `Mem0MemoryManager`，由 Mem0 负责用户偏好、长期记忆抽取和搜索。业务层不在写入阶段预判长期记忆类型，只在读取和上下文注入阶段对偏好类结果做冲突消解，同一偏好维度只保留最新生效项。
+Memory 当前包含四层存储语义：MySQL `session_store` 保存会话列表和完整消息流水，也是短期原文记忆的权威兜底；`memory_session` 保存当前会话最近上下文，启用 `MEMORY_SHORT_TERM_ENABLED=true` 且 `REDIS_ENABLED=true` 时由 Redis 承载，读取时 Redis 优先、miss 后读 MySQL 近 N 轮，不使用进程内兜底；`session_summary` 使用 LLM 生成会话滚动摘要，MySQL 持久化、Redis 缓存，作为短期原文过期后的连续性兜底；`long_term_memory` 由 `MEMORY_LONG_TERM_ENABLED=true` 启用，通过 Mem0 负责用户偏好、长期记忆抽取和搜索。业务层不在写入阶段预判长期记忆类型，只在读取和上下文注入阶段对偏好类结果做冲突消解，同一偏好维度只保留最新生效项。
 
 ## 🏭 脚手架生成适配
 

@@ -4,6 +4,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from agents.stream_events import AgentUpdatedStreamEvent, RawResponsesStreamEvent
+from openai.types.responses.response_reasoning_summary_text_delta_event import (
+    ResponseReasoningSummaryTextDeltaEvent,
+)
 from openai.types.responses.response_text_delta_event import ResponseTextDeltaEvent
 
 from src.application.orchestration.agent_runtime import AgentOrchestrator, AgentSession
@@ -20,7 +23,9 @@ def _settings():
         prompt_enabled=False,
         prompt_fail_open=True,
         compression_enabled=False,
-        memory_enabled=False,
+        memory_short_term_enabled=False,
+        memory_session_summary_enabled=False,
+        memory_long_term_enabled=False,
     )
 
 
@@ -237,13 +242,23 @@ async def test_streamed_run_yields_text_delta_and_completed_result():
         )
         yield AgentUpdatedStreamEvent(new_agent=SimpleNamespace(name="billing"))
         yield RawResponsesStreamEvent(
+            data=ResponseReasoningSummaryTextDeltaEvent(
+                delta="正在整理",
+                item_id="reasoning-1",
+                output_index=0,
+                sequence_number=2,
+                summary_index=0,
+                type="response.reasoning_summary_text.delta",
+            )
+        )
+        yield RawResponsesStreamEvent(
             data=ResponseTextDeltaEvent(
                 content_index=0,
                 delta="成",
                 item_id="message-1",
                 logprobs=[],
                 output_index=0,
-                sequence_number=2,
+                sequence_number=3,
                 type="response.output_text.delta",
             )
         )
@@ -290,6 +305,11 @@ async def test_streamed_run_yields_text_delta_and_completed_result():
     assert events[0]["type"] == "start"
     assert events[0]["advanced"]["executing_agent"] == "MinimalChatAgent"
     assert [event["delta"] for event in events if event["type"] == "delta"] == ["完", "成"]
+    assert [
+        event["delta"]
+        for event in events
+        if event["type"] == "reasoning_summary_delta"
+    ] == ["正在整理"]
     assert [event for event in events if event["type"] == "agent_updated"][0]["agent"] == "billing"
     assert events[-1]["type"] == "done"
     assert events[-1]["data"]["output"] == "完成"
@@ -316,6 +336,33 @@ async def test_streamed_run_yields_text_delta_and_completed_result():
     assert update_kwargs["metadata"]["model"] == "stream-model"
     assert update_kwargs["metadata"]["interrupted"] is False
     assert "tools" in update_kwargs["metadata"]
+
+
+def test_runtime_adds_reasoning_summary_model_settings_when_enabled():
+    settings = _settings()
+    settings.reasoning_summary_enabled = True
+    settings.reasoning_summary_mode = "concise"
+    orchestrator = AgentOrchestrator(
+        tool_registry=ToolRegistry(),
+        memory_store=MemoryStore(),
+        model_router=ModelRouter(),
+        settings=settings,
+    )
+
+    with patch(
+        "src.application.orchestration.agent_runtime.OpenAIChatCompletionsModel",
+    ), patch(
+        "src.application.orchestration.agent_runtime.Agent",
+        return_value=MagicMock(),
+    ) as agent_cls:
+        orchestrator._build_agent(
+            model="gpt-5-mini",
+            client=MagicMock(),
+            instructions="answer",
+        )
+
+    model_settings = agent_cls.call_args.kwargs["model_settings"]
+    assert model_settings.reasoning.summary == "concise"
 
 
 @pytest.mark.asyncio

@@ -21,8 +21,7 @@ def _settings(**overrides):
         memory_es_hosts="http://localhost:9200",
         memory_es_index="agent_memories",
         memory_vector_dimension=3,
-        memory_importance_threshold=0.3,
-        memory_retrieval_top_k=3,
+        memory_long_term_context_max_memories=3,
         openai_api_key="",
         openai_base_url=None,
     )

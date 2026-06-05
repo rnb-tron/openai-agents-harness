@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from agents import Agent
@@ -10,10 +11,13 @@ from src.capabilities.tools.registry import ToolRegistry
 
 
 def _settings():
-    return MagicMock(
-        memory_enabled=False,
+    return SimpleNamespace(
+        memory_short_term_enabled=False,
+        memory_session_summary_enabled=False,
+        memory_long_term_enabled=False,
         compression_enabled=False,
         prompt_enabled=False,
+        reasoning_summary_enabled=False,
     )
 
 

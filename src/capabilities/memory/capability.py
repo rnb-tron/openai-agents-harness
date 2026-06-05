@@ -1,6 +1,6 @@
 """记忆能力：把 Mem0 manager 适配为运行时上下文能力。
 
-- 启用 ``MEMORY_ENABLED`` 后，由 Mem0 manager 统一读取短期/长期记忆；
+- 按层启用短期、summary 或长期记忆后，由 memory manager 统一读取上下文；
 - 未启用或 manager 失败时，不再写入进程内兜底，直接以无记忆上下文继续。
 """
 

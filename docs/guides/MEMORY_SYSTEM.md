@@ -8,12 +8,12 @@
 Runtime
   -> SessionStore                  # MySQL: 会话列表与完整消息流水
   -> MemoryCapability
-     -> Mem0MemoryManager (optional) # MEMORY_ENABLED=true
+     -> Mem0MemoryManager (optional) # 任一 Memory 分层能力启用时装配
         -> ShortTermMemory           # Redis: 当前会话最近上下文
         -> Mem0                      # 用户偏好、长期记忆、语义检索
 ```
 
-`HarnessBuilder` 在 `SESSION_STORE_ENABLED=true` 时装配 MySQL 会话仓储，在 `MEMORY_ENABLED=true` 时统一装配 `Mem0MemoryManager`。Mem0 管理长期记忆、用户偏好和语义检索；短期会话记忆优先使用 Redis，Redis 未启用或 miss 时从 MySQL 会话记录读取最近消息，不使用进程内兜底。
+`HarnessBuilder` 在 `SESSION_STORE_ENABLED=true` 时装配 MySQL 会话仓储；在短期会话记忆、会话摘要或长期记忆任一能力启用时装配 `Mem0MemoryManager`。只有 `MEMORY_LONG_TERM_ENABLED=true` 时才初始化 Mem0 长期记忆客户端；短期会话记忆优先使用 Redis，Redis 未启用或 miss 时从 MySQL 会话记录读取最近消息，不使用进程内兜底。
 
 ## 存储分层
 
@@ -30,13 +30,14 @@ Runtime
 
 | 配置 | 当前行为 |
 | --- | --- |
-| 默认配置 | 不启用记忆上下文；需要会话历史时启用 `SESSION_STORE_ENABLED=true`，需要上下文记忆时启用 `MEMORY_ENABLED=true` |
+| 默认配置 | 不启用记忆上下文；需要会话历史时启用 `SESSION_STORE_ENABLED=true`，需要上下文记忆时按层启用对应 Memory 开关 |
 | `SESSION_STORE_ENABLED=true` | 使用业务数据库持久化 `chat_sessions` / `chat_messages` |
-| `MEMORY_ENABLED=true` | 装配 `Mem0MemoryManager`，由 Mem0 管理用户偏好和长期记忆 |
-| `MEMORY_MEM0_MODE=local` | 使用 Mem0 OSS 本地模式 |
-| `MEMORY_MEM0_MODE=platform` | 使用 Mem0 Platform，需要 `MEMORY_MEM0_API_KEY` |
+| `MEMORY_SHORT_TERM_ENABLED=true` | 启用短期会话记忆上下文，Redis 优先、MySQL 兜底 |
+| `MEMORY_LONG_TERM_ENABLED=true` | 启用长期记忆，由 `MEMORY_LONG_TERM_PROVIDER` 指定管理框架，目前为 Mem0 |
+| `MEMORY_LONG_TERM_MEM0_MODE=local` | 使用 Mem0 OSS 本地模式 |
+| `MEMORY_LONG_TERM_MEM0_MODE=platform` | 使用 Mem0 Platform，需要 `MEMORY_LONG_TERM_MEM0_API_KEY` |
 | `REDIS_ENABLED=true` | `Mem0MemoryManager.short_term` 使用 Redis 保存短期会话记忆；读取时 Redis 优先，miss 后读 MySQL |
-| `MEMORY_VECTOR_STORE=pgvector/elasticsearch` | Mem0 本地模式使用指定向量后端 |
+| `MEMORY_LONG_TERM_VECTOR_STORE=pgvector/elasticsearch` | Mem0 本地模式使用指定向量后端 |
 | `MEMORY_SESSION_SUMMARY_ENABLED=true` | 启用 LLM 会话摘要；摘要持久化到 MySQL，并缓存到 Redis |
 
 注意：Runtime 仍走 `MemoryCapability.before_run/after_run`，但长期存取由 Mem0 后端完成。`after_run` 会先异步过滤空内容、寒暄、工具失败和拒绝执行等明显噪声；通过过滤的 user/assistant 对话会提交给 Mem0，由 Mem0 判断是否抽取、合并、更新或忽略长期记忆。会话摘要在 `after_run` 后台更新，不阻塞主响应；`before_run` 只读取 Redis/MySQL 中已存在的摘要，不同步重建大摘要。用户偏好检索带用户级 TTL 缓存，长期记忆检索会跳过明显低价值短输入。
@@ -78,31 +79,32 @@ Mem0 负责抽取、存储和搜索记忆，业务层不在写入阶段预判“
 Mem0 本地模式：
 
 ```env
-MEMORY_ENABLED=true
+MEMORY_SHORT_TERM_ENABLED=true
+MEMORY_SESSION_SUMMARY_ENABLED=true
+MEMORY_LONG_TERM_ENABLED=true
 REDIS_ENABLED=true
 SESSION_STORE_ENABLED=true
 DATABASE_URL=mysql+aiomysql://agent:secret@localhost:3306/agent
-MEMORY_VECTOR_STORE=none
-MEMORY_MEM0_MODE=local
+MEMORY_LONG_TERM_VECTOR_STORE=none
+MEMORY_LONG_TERM_MEM0_MODE=local
 MEMORY_PREFERENCE_CACHE_TTL_SEC=900
-MEMORY_SESSION_SUMMARY_ENABLED=true
 MEMORY_SESSION_SUMMARY_CACHE_TTL=2592000
 MEMORY_SESSION_SUMMARY_INITIAL_MESSAGES=4
 MEMORY_SESSION_SUMMARY_UPDATE_MESSAGES=6
 MEMORY_SESSION_SUMMARY_MODEL=
 MEMORY_SESSION_SUMMARY_MAX_TOKENS=512
 MEMORY_SESSION_SUMMARY_MAX_SOURCE_MESSAGES=20
-# 可选：需要完全自定义 Mem0 OSS 配置时再设置 MEMORY_MEM0_CONFIG_JSON
+# 可选：需要完全自定义 Mem0 OSS 配置时再设置 MEMORY_LONG_TERM_MEM0_CONFIG_JSON
 ```
 
-Mem0 local 模式默认复用主模型网关配置：`llm.config` 自动使用 `OPENAI_API_KEY`、`OPENAI_BASE_URL` 和 `AGENT_MODEL_DEFAULT`；`embedder.config` 自动使用 `OPENAI_API_KEY`、`OPENAI_BASE_URL` 和 `MEMORY_EMBEDDING_MODEL`。传给 Mem0 SDK 时，网关地址字段使用 Mem0 兼容的 `openai_base_url`。显式设置 `MEMORY_MEM0_CONFIG_JSON` 时，会完全使用该 JSON，不再自动注入这些字段。
+Mem0 local 模式默认复用主模型网关配置：`llm.config` 自动使用 `OPENAI_API_KEY`、`OPENAI_BASE_URL` 和 `AGENT_MODEL_DEFAULT`；`embedder.config` 自动使用 `OPENAI_API_KEY`、`OPENAI_BASE_URL` 和 `MEMORY_EMBEDDING_MODEL`。传给 Mem0 SDK 时，网关地址字段使用 Mem0 兼容的 `openai_base_url`。显式设置 `MEMORY_LONG_TERM_MEM0_CONFIG_JSON` 时，会完全使用该 JSON，不再自动注入这些字段。
 
 Mem0 Platform 模式：
 
 ```env
-MEMORY_ENABLED=true
-MEMORY_MEM0_MODE=platform
-MEMORY_MEM0_API_KEY=your-mem0-api-key
+MEMORY_LONG_TERM_ENABLED=true
+MEMORY_LONG_TERM_MEM0_MODE=platform
+MEMORY_LONG_TERM_MEM0_API_KEY=your-mem0-api-key
 ```
 
 ## Runtime 数据流

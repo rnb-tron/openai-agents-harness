@@ -1027,7 +1027,9 @@
         const events = [];
         let buffer = "";
         let streamedOutput = "";
+        let reasoningSummary = "";
         let assistantBubble = null;
+        let reasoningBubble = null;
         let completed = false;
         let streamEnded = false;
         while (!streamEnded) {
@@ -1056,6 +1058,12 @@
               }
               streamedOutput += event.delta;
               updateMessage(assistantBubble, streamedOutput, "streaming...");
+            } else if (event.type === "reasoning_summary_delta") {
+              if (!reasoningBubble) {
+                reasoningBubble = addMessage("system", "", "推理摘要");
+              }
+              reasoningSummary += event.delta;
+              updateMessage(reasoningBubble, reasoningSummary, "推理摘要");
             } else if (event.type === "error") {
               throw new Error(event.detail || "流式请求失败");
             } else if (event.type === "done") {
@@ -1127,7 +1135,9 @@
         const events = [];
         let buffer = "";
         let streamedOutput = "";
+        let reasoningSummary = "";
         let assistantBubble = null;
+        let reasoningBubble = null;
         let completed = false;
         let streamEnded = false;
         while (!streamEnded) {
@@ -1155,6 +1165,12 @@
               }
               streamedOutput += event.delta;
               updateMessage(assistantBubble, streamedOutput, "streaming...");
+            } else if (event.type === "reasoning_summary_delta") {
+              if (!reasoningBubble) {
+                reasoningBubble = addMessage("system", "", "推理摘要");
+              }
+              reasoningSummary += event.delta;
+              updateMessage(reasoningBubble, reasoningSummary, "推理摘要");
             } else if (event.type === "error") {
               throw new Error(event.detail || "审批恢复失败");
             } else if (event.type === "done") {

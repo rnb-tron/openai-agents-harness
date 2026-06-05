@@ -6,7 +6,9 @@ from src.harness.config import HarnessConfig
 def test_harness_config_projects_capability_switches():
     settings = SimpleNamespace(
         observability_enabled=True,
-        memory_enabled=True,
+        memory_short_term_enabled=True,
+        memory_session_summary_enabled=True,
+        memory_long_term_enabled=True,
         compression_enabled=False,
         prompt_enabled=True,
         hitl_enabled=True,

@@ -36,13 +36,18 @@ class HarnessConfig:
 
     @classmethod
     def from_settings(cls, settings: Any) -> "HarnessConfig":
+        memory_capability_enabled = (
+            settings.memory_short_term_enabled
+            or settings.memory_session_summary_enabled
+            or settings.memory_long_term_enabled
+        )
         return cls(
             settings=settings,
             runtime=RuntimeConfig(
                 tracing_disabled=not settings.observability_enabled,
             ),
             capabilities=CapabilitySwitches(
-                memory=settings.memory_enabled,
+                memory=memory_capability_enabled,
                 context_compression=settings.compression_enabled,
                 prompt=settings.prompt_enabled,
                 hitl=getattr(settings, "hitl_enabled", False),

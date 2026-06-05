@@ -266,9 +266,7 @@ class HarnessBuilder:
         registry.register(ObservabilityCapability.from_settings(self.settings))
 
     def _build_database_resource(self) -> DatabaseResource | None:
-        needs_database = bool(getattr(self.settings, "database_enabled", False)) or bool(
-            getattr(self.settings, "session_store_enabled", False)
-        )
+        needs_database = bool(getattr(self.settings, "session_store_enabled", False))
         if not needs_database:
             return None
         if not self.settings.database_url:
@@ -289,8 +287,19 @@ class HarnessBuilder:
         self,
         session_store: SessionStore | None = None,
     ) -> tuple[MemoryManager | Mem0MemoryManager | None, AsyncSession | None]:
-        if not self.settings.memory_enabled:
+        memory_required = any(
+            (
+                getattr(self.settings, "memory_short_term_enabled", False),
+                getattr(self.settings, "memory_session_summary_enabled", False),
+                getattr(self.settings, "memory_long_term_enabled", False),
+            )
+        )
+        if not memory_required:
             return None, None
+        if getattr(self.settings, "memory_long_term_enabled", False):
+            provider = getattr(self.settings, "memory_long_term_provider", "mem0").strip().lower()
+            if provider != "mem0":
+                raise ValueError(f"Unsupported MEMORY_LONG_TERM_PROVIDER: {provider}")
         redis_client = get_redis_client() if getattr(self.settings, "redis_enabled", False) else None
         return Mem0MemoryManager(
             self.settings,

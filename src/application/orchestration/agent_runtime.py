@@ -15,10 +15,14 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
-from agents import Agent, AsyncOpenAI, OpenAIChatCompletionsModel, Runner, RunState, set_tracing_disabled
+from agents import Agent, AsyncOpenAI, ModelSettings, OpenAIChatCompletionsModel, Runner, RunState, set_tracing_disabled
 from agents.stream_events import AgentUpdatedStreamEvent, RawResponsesStreamEvent
 from langfuse import propagate_attributes
+from openai.types.responses.response_reasoning_summary_text_delta_event import (
+    ResponseReasoningSummaryTextDeltaEvent,
+)
 from openai.types.responses.response_text_delta_event import ResponseTextDeltaEvent
+from openai.types.shared import Reasoning
 
 from src.capabilities.memory.capability import (
     LongTermMemoryCapability,
@@ -118,10 +122,13 @@ class AgentOrchestrator:
             MemoryCapability(
                 memory_store=memory_store,
                 memory_manager=memory_manager,
-                long_term_enabled=self.settings.memory_enabled,
+                long_term_enabled=memory_manager is not None,
             )
         )
-        long_term_enabled = self.settings.memory_enabled and memory_manager is not None
+        long_term_enabled = (
+            getattr(self.settings, "memory_long_term_enabled", False)
+            and memory_manager is not None
+        )
         self.registry.register(
             LongTermMemoryCapability(enabled=long_term_enabled)
         )
@@ -541,6 +548,13 @@ class AgentOrchestrator:
                     event.data, ResponseTextDeltaEvent
                 ):
                     yield {"type": "delta", "delta": event.data.delta}
+                elif isinstance(event, RawResponsesStreamEvent) and isinstance(
+                    event.data, ResponseReasoningSummaryTextDeltaEvent
+                ):
+                    yield {
+                        "type": "reasoning_summary_delta",
+                        "delta": event.data.delta,
+                    }
                 elif isinstance(event, AgentUpdatedStreamEvent):
                     executing_agent = getattr(event.new_agent, "name", None)
                     if isinstance(executing_agent, str) and agent_path[-1] != executing_agent:
@@ -1016,6 +1030,13 @@ class AgentOrchestrator:
                     event.data, ResponseTextDeltaEvent
                 ):
                     yield {"type": "delta", "delta": event.data.delta}
+                elif isinstance(event, RawResponsesStreamEvent) and isinstance(
+                    event.data, ResponseReasoningSummaryTextDeltaEvent
+                ):
+                    yield {
+                        "type": "reasoning_summary_delta",
+                        "delta": event.data.delta,
+                    }
                 elif isinstance(event, AgentUpdatedStreamEvent):
                     executing_agent = getattr(event.new_agent, "name", None)
                     if isinstance(executing_agent, str) and agent_path[-1] != executing_agent:
@@ -1109,10 +1130,18 @@ class AgentOrchestrator:
                 from agents.extensions.handoff_prompt import prompt_with_handoff_instructions
 
                 instructions = prompt_with_handoff_instructions(instructions)
+        model_settings = ModelSettings()
+        if getattr(self.settings, "reasoning_summary_enabled", False):
+            model_settings = ModelSettings(
+                reasoning=Reasoning(
+                    summary=getattr(self.settings, "reasoning_summary_mode", "auto")
+                )
+            )
         return Agent(
             name="MinimalChatAgent",
             instructions=instructions,
             model=sdk_model,
+            model_settings=model_settings,
             tools=self.tool_registry.list_agent_tools(),
             handoffs=handoffs,
         )

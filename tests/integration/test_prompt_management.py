@@ -368,7 +368,9 @@ def test_main_chat_fallback_when_get_fails() -> None:
         prompt_enabled=True,
         prompt_fail_open=True,
         compression_enabled=False,
-        memory_enabled=False,
+        memory_short_term_enabled=False,
+        memory_session_summary_enabled=False,
+        memory_long_term_enabled=False,
     )
     with patch.object(ar_mod, "current_settings", full_settings), \
          patch.object(ar_mod, "Runner") as MockRunner, \

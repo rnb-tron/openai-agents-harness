@@ -59,8 +59,8 @@ finally:
 
 | 配置 | 行为 | 当前边界 |
 | --- | --- | --- |
-| `MEMORY_ENABLED=true` | 装配 `Mem0MemoryManager` | 用户偏好、长期记忆和语义检索统一交给 Mem0；偏好结果在读取阶段按维度只注入最新生效项 |
-| `MEMORY_MEM0_MODE=platform` | 使用 Mem0 Platform | 需配置 `MEMORY_MEM0_API_KEY` |
+| `MEMORY_LONG_TERM_ENABLED=true` | 启用长期记忆 | 用户偏好、长期记忆和语义检索统一交给 Mem0；偏好结果在读取阶段按维度只注入最新生效项 |
+| `MEMORY_LONG_TERM_MEM0_MODE=platform` | 使用 Mem0 Platform | 需配置 `MEMORY_LONG_TERM_MEM0_API_KEY` |
 | `PROMPT_ENABLED=true` | 构建 `PromptManager`，主 Agent/摘要策略按需读取模板 | 读取失败可按配置回退 |
 | `COMPRESSION_ENABLED=true` | 在模型调用前压缩注入后的上下文 | 默认 fail-open |
 | `HITL_ENABLED=true` | 将指定工具映射为 SDK `needs_approval` | 审批存储当前为进程内 |
