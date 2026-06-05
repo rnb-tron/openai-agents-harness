@@ -720,7 +720,6 @@ venv/bin/python examples/handoff.py
 
 ## ⚠️ 当前限制
 
-- `vector_search` 已切换为 Mem0 Search；检索质量、索引参数和成本仍需在真实数据规模下验证。
 - HITL 已支持配置驱动的 SDK 原生工具审批和 HTTP 恢复，审批状态当前仅保存在进程内，持久化与审计闭环仍待完善。
 - `checkpoint` 当前是进程内执行摘要快照，不承担 SDK 中断状态持久化或灾难恢复职责。
 - `handoff` 当前支持静态专家目标接入 SDK 原生转交，动态专家注册与专家工具集仍待后续评估。
