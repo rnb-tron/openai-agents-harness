@@ -153,7 +153,7 @@ class Harness:
 
 
 class HarnessBuilder:
-    """根据 Settings 装配一个可被脚手架理解的 Harness。"""
+    """根据 Settings 装配一个完整 Harness。"""
 
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -270,7 +270,9 @@ class HarnessBuilder:
         if not needs_database:
             return None
         if not self.settings.database_url:
-            raise ValueError("Database-backed capabilities require DATABASE_URL")
+            raise ValueError(
+                "SESSION_STORE_ENABLED=true requires session store database connection settings"
+            )
         return DatabaseResource(DatabaseConfig.from_settings(self.settings))
 
     def _build_session_store(
@@ -280,7 +282,9 @@ class HarnessBuilder:
         if not getattr(self.settings, "session_store_enabled", False):
             return None
         if database_resource is None:
-            raise ValueError("SESSION_STORE_ENABLED=true requires DATABASE_URL")
+            raise ValueError(
+                "SESSION_STORE_ENABLED=true requires session store database connection settings"
+            )
         return SessionStore(database_resource.session)
 
     def _build_memory_manager(

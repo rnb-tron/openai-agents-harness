@@ -43,7 +43,7 @@ class MemoryManager:
             ttl=settings.memory_short_term_ttl,
         )
 
-        # 2. 初始化长期记忆关系仓库 (由 DATABASE_URL 选择 MySQL / PostgreSQL)
+        # 2. 初始化长期记忆关系仓库 (由 SQLAlchemy 数据库配置选择 MySQL / PostgreSQL)
         self.repository = MemoryRepository(db_session)
 
         # 3. 初始化可选向量存储 (ES / PostgreSQL pgvector)

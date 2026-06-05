@@ -111,7 +111,7 @@ class LongTermMemoryCapability(Capability):
     """长期记忆的标记能力。
 
     当前读写仍由 ``MemoryCapability`` 统一完成；这个标记能力的价值是让
-    scaffold/catalog 能清楚表达“长期记忆依赖 memory_manager”，同时避免在
+    capability catalog 能清楚表达“长期记忆依赖 memory_manager”，同时避免在
     这一轮引入更大的存储重构。
     """
 

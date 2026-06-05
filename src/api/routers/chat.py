@@ -81,7 +81,6 @@ async def _persist_chat_turn(
             metadata={
                 "source": source,
                 "tool_calls": result.get("tool_calls", []),
-                "advanced": result.get("advanced", {}),
             },
         )
     except Exception as exc:
@@ -118,7 +117,6 @@ async def _persist_resume_result(
             metadata={
                 "source": source,
                 "tool_calls": result.get("tool_calls", []),
-                "advanced": result.get("advanced", {}),
             },
         )
     except Exception as exc:
@@ -131,37 +129,6 @@ async def _persist_resume_result(
             error=str(exc),
         )
         raise SessionPersistError(f"session store append resume failed: {exc}") from exc
-
-
-@router.post("")
-async def chat(
-    request: ChatRequest,
-    principal: Principal = Depends(get_current_principal),
-    harness: Harness = Depends(get_harness),
-):
-    # 已认证身份优先；只有 AuthPlugin 关闭、当前是匿名 principal 时，
-    # 才使用请求体里的 user_id 作为兜底。
-    user_id = _resolve_user_id(principal, request.user_id)
-
-    session_id = request.session_id or str(uuid.uuid4())
-    session = AgentSession(session_id=session_id, user_id=user_id)
-    try:
-        result = await harness.runtime.run(session=session, user_input=request.message)
-        await _persist_chat_turn(
-            store=_session_store(harness),
-            session_id=session_id,
-            user_id=user_id,
-            user_input=request.message,
-            result=result,
-            source="chat",
-        )
-    except SessionPersistError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    except RuntimeError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:  # pragma: no cover
-        raise HTTPException(status_code=500, detail=f"chat failed: {exc}") from exc
-    return create_success_response(data=result)
 
 
 @router.post("/stream")
@@ -209,47 +176,6 @@ async def chat_stream(
         media_type="application/x-ndjson",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
-
-
-@router.post("/resume")
-async def resume_chat(
-    request: ChatResumeRequest,
-    principal: Principal = Depends(get_current_principal),
-    harness: Harness = Depends(get_harness),
-):
-    """在人工批准或拒绝工具调用后恢复 Agents SDK 运行。"""
-    user_id = _resolve_user_id(principal, request.user_id)
-    session = AgentSession(
-        session_id=request.session_id,
-        user_id=user_id,
-    )
-    try:
-        result = await harness.runtime.resume_with_approval(
-            session=session,
-            run_state=request.run_state,
-            interruption_index=request.interruption_index,
-            approved=request.approved,
-            approval_request_id=request.approval_request_id,
-            reviewer=user_id or "anonymous",
-            model=request.model,
-            user_input=request.message,
-            always=request.always,
-            rejection_message=request.rejection_message,
-        )
-        await _persist_resume_result(
-            store=_session_store(harness),
-            session_id=request.session_id,
-            user_id=user_id,
-            result=result,
-            source="chat_resume",
-        )
-    except SessionPersistError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    except (RuntimeError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:  # pragma: no cover
-        raise HTTPException(status_code=500, detail=f"chat resume failed: {exc}") from exc
-    return create_success_response(data=result)
 
 
 @router.post("/resume/stream")

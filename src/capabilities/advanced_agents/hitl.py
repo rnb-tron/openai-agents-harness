@@ -212,7 +212,7 @@ class ApprovalManager:
         always: bool = False,
         rejection_message: str | None = None,
     ) -> None:
-        """Apply a human decision to an SDK RunState before resuming via Runner.run()."""
+        """Apply a human decision to an SDK RunState before resuming via Runner.run_streamed()."""
         interruptions = run_state.get_interruptions()
         if interruption_index < 0 or interruption_index >= len(interruptions):
             raise ValueError(f"审批中断不存在: {interruption_index}")

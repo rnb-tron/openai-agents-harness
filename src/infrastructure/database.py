@@ -47,7 +47,9 @@ class DatabaseResource:
 
     def __init__(self, config: DatabaseConfig) -> None:
         if not config.url:
-            raise ValueError("DATABASE_URL is required to initialize database resource")
+            raise ValueError(
+                "database connection settings are required to initialize database resource"
+            )
         self.config = config
         pool_pre_ping = config.pool_pre_ping
         if config.url.startswith("mysql+aiomysql"):

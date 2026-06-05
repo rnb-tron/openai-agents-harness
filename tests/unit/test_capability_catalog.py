@@ -45,12 +45,12 @@ def test_catalog_lists_optional_capabilities_even_when_not_selected():
     by_name = {item["name"]: item for item in catalog["capabilities"]}
 
     assert by_name["tool_registry"]["enabled"] is True
-    assert by_name["tool_registry"]["selectable"] is False
+    assert by_name["tool_registry"]["runtime_configurable"] is False
     assert by_name["model_router"]["enabled"] is True
     assert by_name["memory_session"]["enabled"] is True
-    assert by_name["session_store"]["selectable"] is False
+    assert by_name["session_store"]["runtime_configurable"] is False
     assert by_name["session_store"]["assembled"] is False
-    assert by_name["memory_manager"]["selectable"] is False
+    assert by_name["memory_manager"]["runtime_configurable"] is False
     assert by_name["memory_manager"]["assembled"] is False
     assert by_name["prompt"]["assembled"] is False
     assert by_name["hitl"]["assembled"] is False
@@ -58,7 +58,7 @@ def test_catalog_lists_optional_capabilities_even_when_not_selected():
     assert by_name["checkpoint"]["assembled"] is False
 
 
-def test_catalog_exposes_provider_resolution_and_external_requirements():
+def test_catalog_exposes_provider_resolution_and_external_resources():
     catalog = HarnessBuilder(_settings()).build().context.capability_catalog()
     dependencies = {
         (item["capability"], item["requires"]): item
@@ -89,35 +89,5 @@ def test_catalog_reports_current_optional_selection():
 
     assert by_name["hitl"]["enabled"] is True
     assert by_name["handoff"]["enabled"] is True
-    assert "hitl" in catalog["current_selection"]
+    assert "hitl" in catalog["current_enabled"]
     assert catalog["missing_dependencies"] == {}
-
-
-def test_selection_validator_resolves_internal_resources_and_external_config():
-    validation = HarnessBuilder(_settings()).build().context.validate_capability_selection(
-        ["vector_search"]
-    )
-
-    assert validation["valid"] is True
-    assert validation["requested_selection"] == ["vector_search"]
-    assert set(validation["resolved_selection"]) >= {
-        "tool_registry",
-        "model_router",
-        "memory_session",
-        "memory_manager",
-        "long_term_memory",
-        "vector_search",
-    }
-    assert "long_term_memory" in validation["auto_included"]
-    assert "memory_manager" in validation["auto_included"]
-    assert "embedding_provider" not in validation["auto_included"]
-    assert validation["external_requirements"] == []
-
-
-def test_selection_validator_rejects_unknown_capabilities():
-    validation = HarnessBuilder(_settings()).build().context.validate_capability_selection(
-        ["nonexistent_capability"]
-    )
-
-    assert validation["valid"] is False
-    assert validation["unknown_capabilities"] == ["nonexistent_capability"]

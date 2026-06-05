@@ -1,20 +1,39 @@
 from src.core.config import get_settings
 
 
-def test_get_settings_builds_database_url_from_pg_env(monkeypatch):
+def test_get_settings_builds_database_url_from_split_env(monkeypatch):
     monkeypatch.setenv("ENVTYPE", "unit")
-    monkeypatch.delenv("DATABASE_URL", raising=False)
-    monkeypatch.setenv("PGHOST", "db.example.com")
-    monkeypatch.setenv("PGPORT", "5432")
-    monkeypatch.setenv("PGDATABASE", "agent_harness")
-    monkeypatch.setenv("PGUSER", "business_pac_admin")
-    monkeypatch.setenv("PGPASSWORD", "Grv0nwJEs%BL@Wq!")
+    monkeypatch.setenv("SESSION_STORE_DATABASE_SCHEME", "mysql+aiomysql")
+    monkeypatch.setenv("SESSION_STORE_DATABASE_HOST", "db.example.com")
+    monkeypatch.setenv("SESSION_STORE_DATABASE_PORT", "3306")
+    monkeypatch.setenv("SESSION_STORE_DATABASE_NAME", "agent_harness")
+    monkeypatch.setenv("SESSION_STORE_DATABASE_USER", "business_pac_admin")
+    monkeypatch.setenv("SESSION_STORE_DATABASE_PASSWORD", "Grv0nwJEs%BL@Wq!")
+    monkeypatch.setenv("SESSION_STORE_DATABASE_SSLMODE", "")
 
     settings = get_settings()
 
     assert (
         settings.database_url
-        == "postgresql+asyncpg://business_pac_admin:Grv0nwJEs%25BL%40Wq%21@db.example.com:5432/agent_harness"
+        == "mysql+aiomysql://business_pac_admin:Grv0nwJEs%25BL%40Wq%21@db.example.com:3306/agent_harness"
+    )
+
+
+def test_get_settings_builds_session_store_postgres_url(monkeypatch):
+    monkeypatch.setenv("ENVTYPE", "unit")
+    monkeypatch.setenv("SESSION_STORE_DATABASE_SCHEME", "postgresql+asyncpg")
+    monkeypatch.setenv("SESSION_STORE_DATABASE_HOST", "pg.example.com")
+    monkeypatch.setenv("SESSION_STORE_DATABASE_PORT", "5432")
+    monkeypatch.setenv("SESSION_STORE_DATABASE_NAME", "agent_harness")
+    monkeypatch.setenv("SESSION_STORE_DATABASE_USER", "agent")
+    monkeypatch.setenv("SESSION_STORE_DATABASE_PASSWORD", "secret@pg!")
+    monkeypatch.setenv("SESSION_STORE_DATABASE_SSLMODE", "require")
+
+    settings = get_settings()
+
+    assert (
+        settings.database_url
+        == "postgresql+asyncpg://agent:secret%40pg%21@pg.example.com:5432/agent_harness?sslmode=require"
     )
 
 

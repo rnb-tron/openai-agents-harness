@@ -11,7 +11,6 @@ from src.capabilities.tools.registry import ToolRegistry
 from src.core.config import Settings
 from src.harness.catalog import (
     available_capability_manifests,
-    validate_capability_selection,
 )
 from src.harness.config import HarnessConfig
 from src.harness.manifest import CapabilityManifest
@@ -52,7 +51,7 @@ class HarnessContext:
         return [cap.manifest for cap in capabilities]
 
     def capability_snapshot(self, *, enabled_only: bool = False) -> dict[str, Any]:
-        """返回适合脚手架读取的已注册能力快照。"""
+        """返回当前运行实例的已注册能力快照。"""
         capabilities = (
             self.capability_registry.enabled
             if enabled_only
@@ -82,7 +81,7 @@ class HarnessContext:
         }
 
     def capability_catalog(self) -> dict[str, Any]:
-        """返回可供脚手架选择的完整能力元数据。"""
+        """返回 Harness 支持的完整能力目录与依赖关系。"""
         assembled = {cap.manifest.name: cap for cap in self.capability_registry.all}
         enabled = {cap.manifest.name for cap in self.capability_registry.enabled}
         enabled.update(
@@ -101,7 +100,7 @@ class HarnessContext:
                 "provides": list(manifest.provides),
                 "install_order": manifest.install_order,
                 "tags": list(manifest.tags),
-                "selectable": "builder_resource" not in manifest.tags,
+                "runtime_configurable": "builder_resource" not in manifest.tags,
                 "assembled": (
                     manifest.name in assembled
                     or manifest.name in self.provides
@@ -130,13 +129,9 @@ class HarnessContext:
             "version": 1,
             "capabilities": capabilities,
             "dependencies": dependencies,
-            "current_selection": sorted(enabled),
+            "current_enabled": sorted(enabled),
             "missing_dependencies": self.missing_dependencies(enabled_only=True),
         }
-
-    def validate_capability_selection(self, selected: list[str]) -> dict[str, object]:
-        """基于已知元数据校验一次候选能力选择。"""
-        return validate_capability_selection(selected)
 
     def provided_names(self, *, enabled_only: bool = True) -> set[str]:
         provided = set(self.provides)

@@ -30,110 +30,6 @@ def _settings():
 
 
 @pytest.mark.asyncio
-async def test_resume_with_approval_applies_decision_and_runs_state():
-    interruption = object()
-    sdk_state = MagicMock()
-    sdk_state.get_interruptions.return_value = [interruption]
-
-    fake_run_result = MagicMock()
-    fake_run_result.final_output = "done"
-    fake_run_result.interruptions = []
-    fake_run_result.new_items = []
-
-    orchestrator = AgentOrchestrator(
-        tool_registry=ToolRegistry(),
-        memory_store=MemoryStore(),
-        model_router=ModelRouter(),
-        settings=_settings(),
-    )
-
-    with patch(
-        "src.application.orchestration.agent_runtime.RunState.from_json",
-        new=AsyncMock(return_value=sdk_state),
-    ) as from_json, patch(
-        "src.application.orchestration.agent_runtime.Runner.run",
-        new=AsyncMock(return_value=fake_run_result),
-    ) as runner_run, patch(
-        "src.application.orchestration.agent_runtime.AsyncOpenAI",
-    ), patch(
-        "src.application.orchestration.agent_runtime.OpenAIChatCompletionsModel",
-    ), patch(
-        "src.application.orchestration.agent_runtime.Agent",
-        return_value=MagicMock(),
-    ), patch(
-        "src.application.orchestration.agent_runtime.parse_tool_calls_from_result",
-        return_value=[],
-    ):
-        result = await orchestrator.resume_with_approval(
-            AgentSession(session_id="s1"),
-            run_state={"snapshot": True},
-            interruption_index=0,
-            approved=True,
-            always=True,
-        )
-
-    from_json.assert_awaited_once()
-    sdk_state.approve.assert_called_once_with(interruption, always_approve=True)
-    runner_run.assert_awaited_once()
-    assert result["interrupted"] is False
-    assert result["output"] == "done"
-
-
-@pytest.mark.asyncio
-async def test_rejected_resume_returns_controlled_result_without_model_continuation():
-    sdk_state = MagicMock()
-    sdk_state.get_interruptions.return_value = [SimpleNamespace(name="get_weather")]
-    orchestrator = AgentOrchestrator(
-        tool_registry=ToolRegistry(),
-        memory_store=MemoryStore(),
-        model_router=ModelRouter(),
-        settings=_settings(),
-        hitl_config=HITLConfig(enabled=True, require_approval_tools=["get_weather"]),
-    )
-    request = await orchestrator.hitl_mgr.request_sdk_approval(
-        interruption=SimpleNamespace(name="get_weather", arguments={"city": "上海"}),
-        interruption_index=0,
-        run_state={"snapshot": True},
-        session_id="s1",
-        user_id="u1",
-    )
-
-    with patch(
-        "src.application.orchestration.agent_runtime.RunState.from_json",
-        new=AsyncMock(return_value=sdk_state),
-    ), patch(
-        "src.application.orchestration.agent_runtime.Runner.run",
-        new=AsyncMock(),
-    ) as runner_run, patch(
-        "src.application.orchestration.agent_runtime.AsyncOpenAI",
-    ), patch(
-        "src.application.orchestration.agent_runtime.OpenAIChatCompletionsModel",
-    ), patch(
-        "src.application.orchestration.agent_runtime.Agent",
-        return_value=MagicMock(),
-    ), patch(
-        "src.application.orchestration.agent_runtime.get_tracer_manager",
-        return_value=None,
-    ):
-        result = await orchestrator.resume_with_approval(
-            AgentSession(session_id="s1", user_id="u1"),
-            run_state={"snapshot": True},
-            interruption_index=0,
-            approved=False,
-            approval_request_id=request.id,
-            reviewer="u1",
-            user_input="查询上海天气",
-        )
-
-    runner_run.assert_not_awaited()
-    assert result["tool_executed"] is False
-    assert result["decision"] == "rejected"
-    assert "未执行工具 get_weather" in result["output"]
-    assert "上海天气" not in result["output"]
-    assert result["advanced"]["approvals"][0]["status"] == "rejected"
-
-
-@pytest.mark.asyncio
 async def test_rejected_resume_stream_yields_controlled_deltas():
     sdk_state = MagicMock()
     sdk_state.get_interruptions.return_value = [SimpleNamespace(name="get_weather")]
@@ -153,20 +49,19 @@ async def test_rejected_resume_stream_yields_controlled_deltas():
     )
 
     with patch(
-        "src.application.orchestration.agent_runtime.RunState.from_json",
+        "src.application.orchestration.agent_resume.RunState.from_json",
         new=AsyncMock(return_value=sdk_state),
     ), patch(
-        "src.application.orchestration.agent_runtime.Runner.run",
-        new=AsyncMock(),
-    ) as runner_run, patch(
-        "src.application.orchestration.agent_runtime.AsyncOpenAI",
+        "src.application.orchestration.agent_resume.Runner.run_streamed",
+    ) as runner_run_streamed, patch(
+        "src.application.orchestration.agent_factory.AsyncOpenAI",
     ), patch(
-        "src.application.orchestration.agent_runtime.OpenAIChatCompletionsModel",
+        "src.application.orchestration.agent_factory.OpenAIChatCompletionsModel",
     ), patch(
-        "src.application.orchestration.agent_runtime.Agent",
+        "src.application.orchestration.agent_factory.Agent",
         return_value=MagicMock(),
     ), patch(
-        "src.application.orchestration.agent_runtime.get_tracer_manager",
+        "src.application.orchestration.agent_observation.get_tracer_manager",
         return_value=None,
     ):
         events = [
@@ -182,7 +77,7 @@ async def test_rejected_resume_stream_yields_controlled_deltas():
             )
         ]
 
-    runner_run.assert_not_awaited()
+    runner_run_streamed.assert_not_called()
     deltas = [event["delta"] for event in events if event["type"] == "delta"]
     assert deltas == [
         "操作已被拒绝，",
@@ -190,34 +85,6 @@ async def test_rejected_resume_stream_yields_controlled_deltas():
         "因此无法基于该工具的查询结果提供信息或建议。",
     ]
     assert events[-1]["data"]["tool_executed"] is False
-
-
-@pytest.mark.asyncio
-async def test_interrupted_run_returns_model_that_created_the_interruption():
-    fake_run_result = MagicMock()
-    fake_run_result.interruptions = [
-        SimpleNamespace(name="delete_data", arguments={}, call_id="call-1")
-    ]
-    fake_run_result.to_state.return_value.to_json.return_value = {"snapshot": True}
-
-    model_router = MagicMock()
-    model_router.infer_task_type.return_value = "reasoning"
-    model_router.select.return_value = "primary-model"
-    model_router.run_with_resilience = AsyncMock(return_value=fake_run_result)
-    model_router.last_metrics = SimpleNamespace(success_model="fallback-model")
-
-    orchestrator = AgentOrchestrator(
-        tool_registry=ToolRegistry(),
-        memory_store=MemoryStore(),
-        model_router=model_router,
-        settings=_settings(),
-    )
-
-    with patch("src.application.orchestration.agent_runtime.AsyncOpenAI"):
-        result = await orchestrator.run(AgentSession(session_id="s1"), "delete data")
-
-    assert result["interrupted"] is True
-    assert result["model"] == "fallback-model"
 
 
 @pytest.mark.asyncio
@@ -281,29 +148,28 @@ async def test_streamed_run_yields_text_delta_and_completed_result():
         "src.application.orchestration.agent_runtime.Runner.run_streamed",
         return_value=fake_run_result,
     ), patch(
-        "src.application.orchestration.agent_runtime.AsyncOpenAI",
+        "src.application.orchestration.agent_factory.AsyncOpenAI",
     ), patch(
-        "src.application.orchestration.agent_runtime.OpenAIChatCompletionsModel",
+        "src.application.orchestration.agent_factory.OpenAIChatCompletionsModel",
     ), patch(
-        "src.application.orchestration.agent_runtime.Agent",
+        "src.application.orchestration.agent_factory.Agent",
         return_value=MagicMock(),
     ), patch(
         "src.application.orchestration.agent_runtime.parse_tool_calls_from_result",
         return_value=[],
     ), patch(
-        "src.application.orchestration.agent_runtime.get_tracer_manager",
+        "src.application.orchestration.agent_observation.get_tracer_manager",
         return_value=tracer_manager,
     ), patch(
-        "src.application.orchestration.agent_runtime.propagate_attributes",
+        "src.application.orchestration.agent_observation.propagate_attributes",
         return_value=nullcontext(),
     ):
         events = [
             event
             async for event in orchestrator.run_stream(AgentSession(session_id="s1"), "answer")
-        ]
+    ]
 
     assert events[0]["type"] == "start"
-    assert events[0]["advanced"]["executing_agent"] == "MinimalChatAgent"
     assert [event["delta"] for event in events if event["type"] == "delta"] == ["完", "成"]
     assert [
         event["delta"]
@@ -313,17 +179,6 @@ async def test_streamed_run_yields_text_delta_and_completed_result():
     assert [event for event in events if event["type"] == "agent_updated"][0]["agent"] == "billing"
     assert events[-1]["type"] == "done"
     assert events[-1]["data"]["output"] == "完成"
-    advanced = events[-1]["data"]["advanced"]
-    assert advanced["agent_path"] == ["MinimalChatAgent", "billing"]
-    assert advanced["enabled"]["checkpoint"] is True
-    assert [item["description"] for item in advanced["checkpoints"]] == [
-        "Agent 调用前",
-        "Agent 调用完成",
-    ]
-    assert orchestrator.advanced_state("s1")["agent_path"] == [
-        "MinimalChatAgent",
-        "billing",
-    ]
     langfuse.start_as_current_observation.assert_called_once_with(
         name="agent.chat.stream",
         as_type="agent",
@@ -350,9 +205,9 @@ def test_runtime_adds_reasoning_summary_model_settings_when_enabled():
     )
 
     with patch(
-        "src.application.orchestration.agent_runtime.OpenAIChatCompletionsModel",
+        "src.application.orchestration.agent_factory.OpenAIChatCompletionsModel",
     ), patch(
-        "src.application.orchestration.agent_runtime.Agent",
+        "src.application.orchestration.agent_factory.Agent",
         return_value=MagicMock(),
     ) as agent_cls:
         orchestrator._build_agent(
@@ -408,23 +263,23 @@ async def test_approved_resume_stream_yields_model_deltas():
     )
 
     with patch(
-        "src.application.orchestration.agent_runtime.RunState.from_json",
+        "src.application.orchestration.agent_resume.RunState.from_json",
         new=AsyncMock(return_value=sdk_state),
     ), patch(
-        "src.application.orchestration.agent_runtime.Runner.run_streamed",
+        "src.application.orchestration.agent_resume.Runner.run_streamed",
         return_value=fake_result,
     ), patch(
-        "src.application.orchestration.agent_runtime.AsyncOpenAI",
+        "src.application.orchestration.agent_factory.AsyncOpenAI",
     ), patch(
-        "src.application.orchestration.agent_runtime.OpenAIChatCompletionsModel",
+        "src.application.orchestration.agent_factory.OpenAIChatCompletionsModel",
     ), patch(
-        "src.application.orchestration.agent_runtime.Agent",
+        "src.application.orchestration.agent_factory.Agent",
         return_value=MagicMock(),
     ), patch(
         "src.application.orchestration.agent_runtime.parse_tool_calls_from_result",
         return_value=[],
     ), patch(
-        "src.application.orchestration.agent_runtime.get_tracer_manager",
+        "src.application.orchestration.agent_observation.get_tracer_manager",
         return_value=None,
     ):
         events = [

@@ -1,4 +1,4 @@
-"""Protocol-layer capability markers for scaffold generation."""
+"""Protocol-layer capability markers used by Harness metadata."""
 
 from __future__ import annotations
 

@@ -34,6 +34,33 @@ def _env_bool(name: str, default: str = "false") -> bool:
     return os.getenv(name, default).lower() == "true"
 
 
+def build_database_url(
+    *,
+    scheme: str,
+    host: str,
+    database: str,
+    user: str,
+    password: str = "",
+    port: str = "",
+    sslmode: str = "",
+) -> str:
+    if not (scheme and host and database and user):
+        return ""
+
+    encoded_user = quote(user, safe="")
+    auth = encoded_user
+    if password:
+        auth = f"{encoded_user}:{quote(password, safe='')}"
+
+    query_params = {"sslmode": sslmode}
+    query = urlencode({key: value for key, value in query_params.items() if value})
+    port_part = f":{port}" if port else ""
+    url = f"{scheme}://{auth}@{host}{port_part}/{quote(database, safe='')}"
+    if query:
+        url = f"{url}?{query}"
+    return url
+
+
 def build_postgres_url(
     *,
     host: str,
@@ -44,35 +71,26 @@ def build_postgres_url(
     sslmode: str = "",
     driver: str = "postgresql",
 ) -> str:
-    if not (host and database and user):
-        return ""
-
-    encoded_user = quote(user, safe="")
-    auth = encoded_user
-    if password:
-        auth = f"{encoded_user}:{quote(password, safe='')}"
-
-    query_params = {"sslmode": sslmode}
-    query = urlencode({key: value for key, value in query_params.items() if value})
-    url = f"{driver}://{auth}@{host}:{port}/{quote(database, safe='')}"
-    if query:
-        url = f"{url}?{query}"
-    return url
+    return build_database_url(
+        scheme=driver,
+        host=host,
+        port=port,
+        database=database,
+        user=user,
+        password=password,
+        sslmode=sslmode,
+    )
 
 
-def _build_postgres_url_from_env(
-    *,
-    prefix: str = "",
-    driver: str = "postgresql",
-) -> str:
-    return build_postgres_url(
-        host=os.getenv(f"{prefix}PGHOST", ""),
-        port=os.getenv(f"{prefix}PGPORT", "5432"),
-        database=os.getenv(f"{prefix}PGDATABASE", ""),
-        user=os.getenv(f"{prefix}PGUSER", ""),
-        password=os.getenv(f"{prefix}PGPASSWORD", ""),
-        sslmode=os.getenv(f"{prefix}PGSSLMODE", ""),
-        driver=driver,
+def _build_session_store_database_url_from_env() -> str:
+    return build_database_url(
+        scheme=os.getenv("SESSION_STORE_DATABASE_SCHEME", "mysql+aiomysql"),
+        host=os.getenv("SESSION_STORE_DATABASE_HOST", ""),
+        port=os.getenv("SESSION_STORE_DATABASE_PORT", "3306"),
+        database=os.getenv("SESSION_STORE_DATABASE_NAME", ""),
+        user=os.getenv("SESSION_STORE_DATABASE_USER", ""),
+        password=os.getenv("SESSION_STORE_DATABASE_PASSWORD", ""),
+        sslmode=os.getenv("SESSION_STORE_DATABASE_SSLMODE", ""),
     )
 
 
@@ -211,9 +229,7 @@ class Settings:
 def get_settings() -> Settings:
     env_type = _load_env_file()
     app_profile = os.getenv("APP_PROFILE", env_type)
-    database_url = os.getenv("DATABASE_URL", "") or _build_postgres_url_from_env(
-        driver=os.getenv("PGSQLALCHEMY_SCHEME", "postgresql+asyncpg")
-    )
+    database_url = _build_session_store_database_url_from_env()
     return Settings(
         env_type=env_type,
         app_name=os.getenv("APP_NAME", "openai-agent-sdk"),
@@ -235,11 +251,11 @@ def get_settings() -> Settings:
         redis_url=os.getenv("REDIS_URL", "redis://localhost:6379/0"),
         redis_slave_url=os.getenv("REDIS_SLAVE_URL", "") or None,
         database_url=database_url,
-        database_pool_size=int(os.getenv("DATABASE_POOL_SIZE", "10")),
-        database_max_overflow=int(os.getenv("DATABASE_MAX_OVERFLOW", "20")),
-        database_pool_timeout_seconds=float(os.getenv("DATABASE_POOL_TIMEOUT_SECONDS", "30")),
-        database_pool_recycle_seconds=int(os.getenv("DATABASE_POOL_RECYCLE_SECONDS", "1800")),
-        database_pool_pre_ping=os.getenv("DATABASE_POOL_PRE_PING", "true").lower() == "true",
+        database_pool_size=int(os.getenv("SESSION_STORE_DATABASE_POOL_SIZE", "10")),
+        database_max_overflow=int(os.getenv("SESSION_STORE_DATABASE_MAX_OVERFLOW", "20")),
+        database_pool_timeout_seconds=float(os.getenv("SESSION_STORE_DATABASE_POOL_TIMEOUT_SECONDS", "30")),
+        database_pool_recycle_seconds=int(os.getenv("SESSION_STORE_DATABASE_POOL_RECYCLE_SECONDS", "1800")),
+        database_pool_pre_ping=os.getenv("SESSION_STORE_DATABASE_POOL_PRE_PING", "true").lower() == "true",
         session_store_enabled=os.getenv("SESSION_STORE_ENABLED", "false").lower() == "true",
         session_store_auto_create=os.getenv("SESSION_STORE_AUTO_CREATE", "true").lower() == "true",
         openai_api_key=os.getenv("OPENAI_API_KEY", ""),

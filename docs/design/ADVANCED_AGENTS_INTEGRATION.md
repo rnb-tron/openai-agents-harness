@@ -2,7 +2,7 @@
 
 本文档记录 HITL、Checkpoint、Handoff 与 `AgentOrchestrator` 集成的设计过程。
 
-> 状态：历史设计记录。当前实现已对齐 OpenAI Agents SDK 原生中断恢复与 Handoff，使用方式请参考 [架构设计](../architecture/ARCHITECTURE_DESIGN.md) 和 [高级能力指南](../guides/ADVANCED_AGENTS_GUIDE.md)。
+> 状态：历史设计记录。当前实现已对齐 OpenAI Agents SDK 原生中断恢复与 Handoff，使用方式请参考 [架构设计](./ARCHITECTURE_DESIGN.md) 和 [高级能力指南](../usage/ADVANCED_AGENTS_GUIDE.md)。
 
 ---
 

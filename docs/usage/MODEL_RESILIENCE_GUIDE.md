@@ -37,7 +37,7 @@ MODEL_PER_REQUEST_TIMEOUT=10.0
 
 ## 组件级调用
 
-`agent_factory` 接收模型名，并返回一个可 await 的执行对象；Runtime 中该对象就是 `Runner.run(...)`：
+`agent_factory` 接收模型名，并返回一个可 await 的执行对象。当前 HTTP 主路径使用流式执行；下面仅展示组件级弹性包装方式：
 
 ```python
 from agents import Agent, Runner
