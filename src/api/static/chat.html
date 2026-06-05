@@ -391,54 +391,6 @@
         overflow: auto;
       }
 
-      .advanced {
-        padding: 14px 15px;
-        border-bottom: 1px solid var(--line);
-        font-size: 12px;
-        color: var(--muted);
-      }
-
-      .capability-badges {
-        display: flex;
-        gap: 5px;
-        flex-wrap: wrap;
-        margin-bottom: 12px;
-      }
-
-      .badge {
-        padding: 4px 7px;
-        border-radius: 999px;
-        color: #6b7483;
-        background: #edf1f7;
-        font-weight: 600;
-      }
-
-      .badge.enabled {
-        color: var(--success);
-        background: #e7f6f0;
-      }
-
-      .advanced-row {
-        display: flex;
-        justify-content: space-between;
-        gap: 8px;
-        padding: 4px 0;
-      }
-
-      .advanced-row strong {
-        color: var(--ink);
-        font-weight: 600;
-        max-width: 200px;
-        text-align: right;
-        word-break: break-word;
-      }
-
-      .advanced h3 {
-        margin: 12px 0 6px;
-        color: var(--ink);
-        font-size: 12px;
-      }
-
       .state-list {
         border-radius: 7px;
         background: #f7f9fc;
@@ -527,7 +479,7 @@
   <body>
     <header>
       <h1>Agent Harness / Chat E2E Console</h1>
-      <span>POST /chat/stream · POST /chat/resume/stream · GET /advanced/sessions/{id}</span>
+      <span>POST /chat/stream · POST /chat/resume/stream</span>
     </header>
     <main>
       <section class="panel sidebar">
@@ -600,18 +552,6 @@
           <h3>Mem0 长期记忆搜索</h3>
           <div id="memory-search-results" class="storage-list">点击“搜索长期记忆”</div>
         </div>
-        <div class="panel-title">Runtime Control</div>
-        <div class="advanced" data-testid="advanced-state">
-          <div id="advanced-enabled" class="capability-badges"></div>
-          <div class="advanced-row"><span>执行 Agent</span><strong id="executing-agent">-</strong></div>
-          <div class="advanced-row"><span>Agent 路径</span><strong id="agent-path">-</strong></div>
-          <div class="advanced-row"><span>Handoff 目标</span><strong id="handoff-targets">-</strong></div>
-          <h3>审批记录</h3>
-          <div id="approval-records" class="state-list">尚无审批</div>
-          <h3>Checkpoint</h3>
-          <div id="checkpoint-records" class="state-list">尚无检查点</div>
-          <button id="refresh-advanced" class="secondary refresh-state" type="button">刷新 Runtime 状态</button>
-        </div>
         <div class="panel-title">最近响应 JSON</div>
         <div class="raw">
           <pre id="raw-response" data-testid="raw-response">等待请求...</pre>
@@ -630,19 +570,12 @@
       const approval = document.querySelector("#approval");
       const approvalDetail = document.querySelector("#approval-detail");
       const approvalAlways = document.querySelector("#approval-always");
-      const advancedEnabled = document.querySelector("#advanced-enabled");
-      const executingAgent = document.querySelector("#executing-agent");
-      const agentPath = document.querySelector("#agent-path");
-      const handoffTargets = document.querySelector("#handoff-targets");
-      const approvalRecords = document.querySelector("#approval-records");
-      const checkpointRecords = document.querySelector("#checkpoint-records");
       const messageRecords = document.querySelector("#message-records");
       const sessionSummary = document.querySelector("#session-summary");
       const memoryStats = document.querySelector("#memory-stats");
       const memorySearchResults = document.querySelector("#memory-search-results");
       const sessionList = document.querySelector("#session-list");
       let pendingApproval = null;
-      let currentAdvanced = {};
       let cachedSessions = [];
       let memorySearchUserId = "";
 
@@ -713,40 +646,6 @@
         rawResponse.textContent = JSON.stringify(value, null, 2);
       }
 
-      function renderAdvanced(state = {}) {
-        currentAdvanced = {...currentAdvanced, ...state};
-        state = currentAdvanced;
-        const enabled = state.enabled || {};
-        advancedEnabled.replaceChildren();
-        for (const [key, label] of [["hitl", "HITL"], ["checkpoint", "Checkpoint"], ["handoff", "Handoff"]]) {
-          const badge = document.createElement("span");
-          badge.className = `badge ${enabled[key] ? "enabled" : ""}`;
-          badge.textContent = `${label}: ${enabled[key] ? "ON" : "OFF"}`;
-          advancedEnabled.appendChild(badge);
-        }
-        executingAgent.textContent = state.executing_agent || "-";
-        agentPath.textContent = (state.agent_path || []).join(" -> ") || "-";
-        handoffTargets.textContent = (state.handoff_targets || []).join(", ") || "-";
-        const approvals = state.approvals || [];
-        approvalRecords.textContent = approvals.length
-          ? approvals.map((item) => `${item.tool_name}: ${item.status}`).join("\n")
-          : "尚无审批";
-        const checkpoints = state.checkpoints || [];
-        checkpointRecords.textContent = checkpoints.length
-          ? checkpoints.map((item) => item.description || item.id).join("\n")
-          : "尚无检查点";
-      }
-
-      async function refreshAdvanced() {
-        const response = await fetch(`/advanced/sessions/${encodeURIComponent(sessionInput.value)}`, {
-          headers: headers()
-        });
-        if (!response.ok) {
-          throw new Error(`Advanced HTTP ${response.status}`);
-        }
-        const body = await response.json();
-        renderAdvanced(body.data);
-      }
 
       function unwrapData(body) {
         return body && Object.prototype.hasOwnProperty.call(body, "data") ? body.data : body;
@@ -1027,7 +926,9 @@
         const events = [];
         let buffer = "";
         let streamedOutput = "";
+        let reasoningSummary = "";
         let assistantBubble = null;
+        let reasoningBubble = null;
         let completed = false;
         let streamEnded = false;
         while (!streamEnded) {
@@ -1044,25 +945,26 @@
             showRaw(events);
             if (event.type === "start") {
               setSession(event.session_id);
-              renderAdvanced(event.advanced);
             } else if (event.type === "agent_updated") {
-              renderAdvanced({
-                executing_agent: event.agent,
-                agent_path: event.agent_path
-              });
+              addMessage("system", `切换到 Agent：${event.agent || "unknown"}`);
             } else if (event.type === "delta") {
               if (!assistantBubble) {
                 assistantBubble = addMessage("assistant", "");
               }
               streamedOutput += event.delta;
               updateMessage(assistantBubble, streamedOutput, "streaming...");
+            } else if (event.type === "reasoning_summary_delta") {
+              if (!reasoningBubble) {
+                reasoningBubble = addMessage("system", "", "推理摘要");
+              }
+              reasoningSummary += event.delta;
+              updateMessage(reasoningBubble, reasoningSummary, "推理摘要");
             } else if (event.type === "error") {
               throw new Error(event.detail || "流式请求失败");
             } else if (event.type === "done") {
               completed = true;
               const data = event.data;
               setSession(data.session_id);
-              renderAdvanced(data.advanced);
               if (data.interrupted) {
                 if (assistantBubble && !streamedOutput) {
                   assistantBubble.remove();
@@ -1127,7 +1029,9 @@
         const events = [];
         let buffer = "";
         let streamedOutput = "";
+        let reasoningSummary = "";
         let assistantBubble = null;
+        let reasoningBubble = null;
         let completed = false;
         let streamEnded = false;
         while (!streamEnded) {
@@ -1143,25 +1047,27 @@
             events.push(event);
             showRaw(events);
             if (event.type === "start") {
-              renderAdvanced(event.advanced);
+              // no-op: resume stream started
             } else if (event.type === "agent_updated") {
-              renderAdvanced({
-                executing_agent: event.agent,
-                agent_path: event.agent_path
-              });
+              addMessage("system", `切换到 Agent：${event.agent || "unknown"}`);
             } else if (event.type === "delta") {
               if (!assistantBubble) {
                 assistantBubble = addMessage("assistant", "");
               }
               streamedOutput += event.delta;
               updateMessage(assistantBubble, streamedOutput, "streaming...");
+            } else if (event.type === "reasoning_summary_delta") {
+              if (!reasoningBubble) {
+                reasoningBubble = addMessage("system", "", "推理摘要");
+              }
+              reasoningSummary += event.delta;
+              updateMessage(reasoningBubble, reasoningSummary, "推理摘要");
             } else if (event.type === "error") {
               throw new Error(event.detail || "审批恢复失败");
             } else if (event.type === "done") {
               completed = true;
               clearPending();
               const resumed = event.data;
-              renderAdvanced(resumed.advanced);
               if (resumed.interrupted) {
                 showPending(resumed, originalMessage);
                 addMessage("system", "出现新的审批请求。");
@@ -1223,9 +1129,6 @@
         withFeedback(() => resumeChat(false));
       });
 
-      document.querySelector("#refresh-advanced").addEventListener("click", () => {
-        withFeedback(() => refreshAdvanced());
-      });
 
       document.querySelector("#refresh-storage").addEventListener("click", () => {
         withFeedback(() => refreshStorage());

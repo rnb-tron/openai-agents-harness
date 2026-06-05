@@ -3,6 +3,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote, urlencode
 
 from dotenv import load_dotenv
 
@@ -29,6 +30,70 @@ def _load_json_object(raw: str, name: str) -> dict[str, dict]:
     return value
 
 
+def _env_bool(name: str, default: str = "false") -> bool:
+    return os.getenv(name, default).lower() == "true"
+
+
+def build_database_url(
+    *,
+    scheme: str,
+    host: str,
+    database: str,
+    user: str,
+    password: str = "",
+    port: str = "",
+    sslmode: str = "",
+) -> str:
+    if not (scheme and host and database and user):
+        return ""
+
+    encoded_user = quote(user, safe="")
+    auth = encoded_user
+    if password:
+        auth = f"{encoded_user}:{quote(password, safe='')}"
+
+    query_params = {"sslmode": sslmode}
+    query = urlencode({key: value for key, value in query_params.items() if value})
+    port_part = f":{port}" if port else ""
+    url = f"{scheme}://{auth}@{host}{port_part}/{quote(database, safe='')}"
+    if query:
+        url = f"{url}?{query}"
+    return url
+
+
+def build_postgres_url(
+    *,
+    host: str,
+    database: str,
+    user: str,
+    password: str = "",
+    port: str = "5432",
+    sslmode: str = "",
+    driver: str = "postgresql",
+) -> str:
+    return build_database_url(
+        scheme=driver,
+        host=host,
+        port=port,
+        database=database,
+        user=user,
+        password=password,
+        sslmode=sslmode,
+    )
+
+
+def _build_session_store_database_url_from_env() -> str:
+    return build_database_url(
+        scheme=os.getenv("SESSION_STORE_DATABASE_SCHEME", "mysql+aiomysql"),
+        host=os.getenv("SESSION_STORE_DATABASE_HOST", ""),
+        port=os.getenv("SESSION_STORE_DATABASE_PORT", "3306"),
+        database=os.getenv("SESSION_STORE_DATABASE_NAME", ""),
+        user=os.getenv("SESSION_STORE_DATABASE_USER", ""),
+        password=os.getenv("SESSION_STORE_DATABASE_PASSWORD", ""),
+        sslmode=os.getenv("SESSION_STORE_DATABASE_SSLMODE", ""),
+    )
+
+
 @dataclass
 class Settings:
     env_type: str
@@ -38,7 +103,6 @@ class Settings:
     host: str
     port: int
     log_level: str
-    http_client_enabled: bool
     http_timeout_seconds: float
     http_connect_timeout_seconds: float
     http_read_timeout_seconds: float
@@ -49,12 +113,8 @@ class Settings:
     http_follow_redirects: bool
     http_verify_tls: bool
     redis_enabled: bool
-    kafka_enabled: bool
-    database_enabled: bool
     redis_url: str
     redis_slave_url: str | None
-    kafka_bootstrap_servers: str
-    kafka_topic: str
     database_url: str
     database_pool_size: int
     database_max_overflow: int
@@ -69,23 +129,28 @@ class Settings:
     agent_model_reasoning: str
     
     # Memory System Configuration
-    memory_enabled: bool
+    memory_short_term_enabled: bool
+    memory_long_term_enabled: bool
+    memory_long_term_provider: str
     memory_short_term_ttl: int
-    memory_mem0_mode: str
-    memory_mem0_api_key: str
-    memory_mem0_config_json: str
-    memory_vector_store: str
-    memory_pgvector_database_url: str
+    memory_long_term_mem0_mode: str
+    memory_long_term_mem0_api_key: str
+    memory_long_term_mem0_config_json: str
+    memory_long_term_vector_store: str
+    memory_pgvector_pg_host: str
+    memory_pgvector_pg_port: str
+    memory_pgvector_pg_database: str
+    memory_pgvector_pg_user: str
+    memory_pgvector_pg_password: str
+    memory_pgvector_pg_sslmode: str
     memory_pgvector_table: str
     memory_es_hosts: str
     memory_es_index: str
     memory_preference_cache_ttl_sec: int
     memory_embedding_model: str
     memory_vector_dimension: int
-    memory_max_context_turns: int
-    memory_retrieval_top_k: int
-    memory_importance_threshold: float
-    memory_forgetting_enabled: bool
+    memory_short_term_context_max_turns: int
+    memory_long_term_context_max_memories: int
     memory_session_summary_enabled: bool
     memory_session_summary_cache_ttl: int
     memory_session_summary_initial_messages: int
@@ -111,6 +176,10 @@ class Settings:
     # OpenAI Agents SDK native handoffs
     handoff_enabled: bool = False
     handoff_agents: dict[str, dict] = field(default_factory=dict)
+
+    # Optional reasoning summary POC for streamed runs
+    reasoning_summary_enabled: bool = False
+    reasoning_summary_mode: str = "auto"
 
     # Protocol-layer security (default disabled, zero overhead when off)
     auth_enabled: bool = False
@@ -160,6 +229,7 @@ class Settings:
 def get_settings() -> Settings:
     env_type = _load_env_file()
     app_profile = os.getenv("APP_PROFILE", env_type)
+    database_url = _build_session_store_database_url_from_env()
     return Settings(
         env_type=env_type,
         app_name=os.getenv("APP_NAME", "openai-agent-sdk"),
@@ -168,7 +238,6 @@ def get_settings() -> Settings:
         host=os.getenv("HOST", "0.0.0.0"),
         port=int(os.getenv("PORT", "8080")),
         log_level=os.getenv("LOG_LEVEL", "INFO"),
-        http_client_enabled=os.getenv("HTTP_CLIENT_ENABLED", "true").lower() == "true",
         http_timeout_seconds=float(os.getenv("HTTP_TIMEOUT_SECONDS", "30")),
         http_connect_timeout_seconds=float(os.getenv("HTTP_CONNECT_TIMEOUT_SECONDS", "10")),
         http_read_timeout_seconds=float(os.getenv("HTTP_READ_TIMEOUT_SECONDS", "20")),
@@ -179,18 +248,14 @@ def get_settings() -> Settings:
         http_follow_redirects=os.getenv("HTTP_FOLLOW_REDIRECTS", "true").lower() == "true",
         http_verify_tls=os.getenv("HTTP_VERIFY_TLS", "true").lower() == "true",
         redis_enabled=os.getenv("REDIS_ENABLED", "false").lower() == "true",
-        kafka_enabled=os.getenv("KAFKA_ENABLED", "false").lower() == "true",
-        database_enabled=os.getenv("DATABASE_ENABLED", "false").lower() == "true",
         redis_url=os.getenv("REDIS_URL", "redis://localhost:6379/0"),
         redis_slave_url=os.getenv("REDIS_SLAVE_URL", "") or None,
-        kafka_bootstrap_servers=os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092"),
-        kafka_topic=os.getenv("KAFKA_TOPIC", "agent_events"),
-        database_url=os.getenv("DATABASE_URL", ""),
-        database_pool_size=int(os.getenv("DATABASE_POOL_SIZE", "10")),
-        database_max_overflow=int(os.getenv("DATABASE_MAX_OVERFLOW", "20")),
-        database_pool_timeout_seconds=float(os.getenv("DATABASE_POOL_TIMEOUT_SECONDS", "30")),
-        database_pool_recycle_seconds=int(os.getenv("DATABASE_POOL_RECYCLE_SECONDS", "1800")),
-        database_pool_pre_ping=os.getenv("DATABASE_POOL_PRE_PING", "true").lower() == "true",
+        database_url=database_url,
+        database_pool_size=int(os.getenv("SESSION_STORE_DATABASE_POOL_SIZE", "10")),
+        database_max_overflow=int(os.getenv("SESSION_STORE_DATABASE_MAX_OVERFLOW", "20")),
+        database_pool_timeout_seconds=float(os.getenv("SESSION_STORE_DATABASE_POOL_TIMEOUT_SECONDS", "30")),
+        database_pool_recycle_seconds=int(os.getenv("SESSION_STORE_DATABASE_POOL_RECYCLE_SECONDS", "1800")),
+        database_pool_pre_ping=os.getenv("SESSION_STORE_DATABASE_POOL_PRE_PING", "true").lower() == "true",
         session_store_enabled=os.getenv("SESSION_STORE_ENABLED", "false").lower() == "true",
         session_store_auto_create=os.getenv("SESSION_STORE_AUTO_CREATE", "true").lower() == "true",
         openai_api_key=os.getenv("OPENAI_API_KEY", ""),
@@ -198,13 +263,20 @@ def get_settings() -> Settings:
         agent_model_default=os.getenv("AGENT_MODEL_DEFAULT", "gpt-4o-mini"),
         agent_model_reasoning=os.getenv("AGENT_MODEL_REASONING", "gpt-4.1-mini"),
         # Memory Configuration
-        memory_enabled=os.getenv("MEMORY_ENABLED", "false").lower() == "true",
+        memory_short_term_enabled=_env_bool("MEMORY_SHORT_TERM_ENABLED"),
+        memory_long_term_enabled=_env_bool("MEMORY_LONG_TERM_ENABLED"),
+        memory_long_term_provider=os.getenv("MEMORY_LONG_TERM_PROVIDER", "mem0"),
         memory_short_term_ttl=int(os.getenv("MEMORY_SHORT_TERM_TTL", "3600")),
-        memory_mem0_mode=os.getenv("MEMORY_MEM0_MODE", "local"),
-        memory_mem0_api_key=os.getenv("MEMORY_MEM0_API_KEY", ""),
-        memory_mem0_config_json=os.getenv("MEMORY_MEM0_CONFIG_JSON", ""),
-        memory_vector_store=os.getenv("MEMORY_VECTOR_STORE", "none"),
-        memory_pgvector_database_url=os.getenv("MEMORY_PGVECTOR_DATABASE_URL", ""),
+        memory_long_term_mem0_mode=os.getenv("MEMORY_LONG_TERM_MEM0_MODE", "local"),
+        memory_long_term_mem0_api_key=os.getenv("MEMORY_LONG_TERM_MEM0_API_KEY", ""),
+        memory_long_term_mem0_config_json=os.getenv("MEMORY_LONG_TERM_MEM0_CONFIG_JSON", ""),
+        memory_long_term_vector_store=os.getenv("MEMORY_LONG_TERM_VECTOR_STORE", "none"),
+        memory_pgvector_pg_host=os.getenv("MEMORY_PGVECTOR_PGHOST", ""),
+        memory_pgvector_pg_port=os.getenv("MEMORY_PGVECTOR_PGPORT", "5432"),
+        memory_pgvector_pg_database=os.getenv("MEMORY_PGVECTOR_PGDATABASE", ""),
+        memory_pgvector_pg_user=os.getenv("MEMORY_PGVECTOR_PGUSER", ""),
+        memory_pgvector_pg_password=os.getenv("MEMORY_PGVECTOR_PGPASSWORD", ""),
+        memory_pgvector_pg_sslmode=os.getenv("MEMORY_PGVECTOR_PGSSLMODE", ""),
         memory_pgvector_table=os.getenv("MEMORY_PGVECTOR_TABLE", "agent_memories"),
         memory_es_hosts=os.getenv("MEMORY_ES_HOSTS", "http://localhost:9200"),
         memory_es_index=os.getenv("MEMORY_ES_INDEX", "agent_memories"),
@@ -213,10 +285,12 @@ def get_settings() -> Settings:
             "MEMORY_EMBEDDING_MODEL", "text-embedding-3-small"
         ),
         memory_vector_dimension=int(os.getenv("MEMORY_VECTOR_DIMENSION", "1536")),
-        memory_max_context_turns=int(os.getenv("MEMORY_MAX_CONTEXT_TURNS", "6")),
-        memory_retrieval_top_k=int(os.getenv("MEMORY_RETRIEVAL_TOP_K", "3")),
-        memory_importance_threshold=float(os.getenv("MEMORY_IMPORTANCE_THRESHOLD", "0.3")),
-        memory_forgetting_enabled=os.getenv("MEMORY_FORGETTING_ENABLED", "true").lower() == "true",
+        memory_short_term_context_max_turns=int(
+            os.getenv("MEMORY_SHORT_TERM_CONTEXT_MAX_TURNS", "6")
+        ),
+        memory_long_term_context_max_memories=int(
+            os.getenv("MEMORY_LONG_TERM_CONTEXT_MAX_MEMORIES", "3")
+        ),
         memory_session_summary_enabled=os.getenv(
             "MEMORY_SESSION_SUMMARY_ENABLED", "false"
         ).lower() == "true",
@@ -250,6 +324,9 @@ def get_settings() -> Settings:
         # Native Handoffs
         handoff_enabled=os.getenv("HANDOFF_ENABLED", "false").lower() == "true",
         handoff_agents=_load_json_object(os.getenv("HANDOFF_AGENTS_JSON", ""), "HANDOFF_AGENTS_JSON"),
+        # Reasoning summary POC
+        reasoning_summary_enabled=os.getenv("REASONING_SUMMARY_ENABLED", "false").lower() == "true",
+        reasoning_summary_mode=os.getenv("REASONING_SUMMARY_MODE", "auto"),
         # Protocol-layer Auth
         auth_enabled=os.getenv("AUTH_ENABLED", "false").lower() == "true",
         auth_strict=os.getenv("AUTH_STRICT", "false").lower() == "true",

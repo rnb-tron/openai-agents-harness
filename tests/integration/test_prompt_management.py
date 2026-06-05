@@ -345,21 +345,29 @@ def test_main_chat_fallback_when_get_fails() -> None:
     """集成: agent_runtime 中 prompt 失败时 instructions 走硬编码 fallback,
     主流程不挂。
 
-    通过注入一个会抛错的 mgr, 调用 orchestrator.run()
-    并 mock Runner.run, 验证 fallback 文本生效。
+    通过注入一个会抛错的 mgr, 调用 orchestrator.run_stream()
+    并 mock Runner.run_streamed, 验证 fallback 文本生效。
     """
     reset_prompt_manager()
     fake_settings = _make_settings(prompt_enabled=True, prompt_fail_open=True)
     # 也 patch agent_runtime 用到的 current_settings (函数内是 module-level import)
     from src.application.orchestration import agent_runtime as ar_mod
+    from src.application.orchestration import agent_factory as factory_mod
 
     failing_mgr = MagicMock()
     failing_mgr.get = AsyncMock(side_effect=RuntimeError("intentional"))
 
     fake_run_result = MagicMock()
     fake_run_result.final_output = "ok"
+    fake_run_result.interruptions = []
     # parse_tool_calls_from_result 解析 result, 给个空 list 来源
     fake_run_result.new_items = []
+
+    async def stream_events():
+        return
+        yield
+
+    fake_run_result.stream_events = stream_events
 
     # 重新构造 settings 让 prompt_enabled=True 生效(其余使用默认)
     full_settings = SimpleNamespace(
@@ -368,15 +376,17 @@ def test_main_chat_fallback_when_get_fails() -> None:
         prompt_enabled=True,
         prompt_fail_open=True,
         compression_enabled=False,
-        memory_enabled=False,
+        memory_short_term_enabled=False,
+        memory_session_summary_enabled=False,
+        memory_long_term_enabled=False,
     )
     with patch.object(ar_mod, "current_settings", full_settings), \
          patch.object(ar_mod, "Runner") as MockRunner, \
-         patch.object(ar_mod, "Agent") as MockAgent, \
-         patch.object(ar_mod, "AsyncOpenAI") as MockClient, \
-         patch.object(ar_mod, "OpenAIChatCompletionsModel"), \
+         patch.object(factory_mod, "Agent") as MockAgent, \
+         patch.object(factory_mod, "AsyncOpenAI") as MockClient, \
+         patch.object(factory_mod, "OpenAIChatCompletionsModel"), \
          patch.object(ar_mod, "parse_tool_calls_from_result", return_value=[]):
-        MockRunner.run = AsyncMock(return_value=fake_run_result)
+        MockRunner.run_streamed.return_value = fake_run_result
         MockClient.return_value = MagicMock()
         MockAgent.return_value = MagicMock()
 
@@ -392,7 +402,7 @@ def test_main_chat_fallback_when_get_fails() -> None:
             prompt_manager=failing_mgr,
         )
         session = ar_mod.AgentSession(session_id="s1")
-        result = asyncio.run(orch.run(session, "hello"))
+        events = asyncio.run(_collect_stream(orch, session, "hello"))
 
         # 验证: prompt_enabled=True 但 mgr.get 抛错 → 走 fallback
         # Agent 被构造时 instructions 应是硬编码 fallback (含 "concise assistant")
@@ -403,9 +413,13 @@ def test_main_chat_fallback_when_get_fails() -> None:
         )
 
         # 主流程应正常返回
-        assert result["output"] == "ok"
+        assert events[-1]["data"]["output"] == "ok"
 
     reset_prompt_manager()
+
+
+async def _collect_stream(orch, session, message):
+    return [event async for event in orch.run_stream(session, message)]
 
 
 # ----------------------------------------------------------------------

@@ -1,6 +1,6 @@
 """记忆能力：把 Mem0 manager 适配为运行时上下文能力。
 
-- 启用 ``MEMORY_ENABLED`` 后，由 Mem0 manager 统一读取短期/长期记忆；
+- 按层启用短期、summary 或长期记忆后，由 memory manager 统一读取上下文；
 - 未启用或 manager 失败时，不再写入进程内兜底，直接以无记忆上下文继续。
 """
 
@@ -111,7 +111,7 @@ class LongTermMemoryCapability(Capability):
     """长期记忆的标记能力。
 
     当前读写仍由 ``MemoryCapability`` 统一完成；这个标记能力的价值是让
-    scaffold/catalog 能清楚表达“长期记忆依赖 memory_manager”，同时避免在
+    capability catalog 能清楚表达“长期记忆依赖 memory_manager”，同时避免在
     这一轮引入更大的存储重构。
     """
 

@@ -1,6 +1,6 @@
 # 结构化日志技术方案
 
-> 文档类型：设计记录。当前使用方式请参考 [简洁结构化日志指南](../guides/SIMPLE_LOGGING_GUIDE.md)。
+> 文档类型：设计记录。当前使用方式请参考 [简洁结构化日志指南](../usage/SIMPLE_LOGGING_GUIDE.md)。
 
 ## 📋 需求分析
 
@@ -641,5 +641,5 @@ log_event(service_logger, "model_fallback_triggered", level=logging.WARN,
 ## 🔗 相关文档
 
 - [现有日志系统](../../src/core/logging.py)
-- [可观测性指南](../guides/OBSERVABILITY_GUIDE.md)
-- [架构设计](../architecture/ARCHITECTURE_DESIGN.md)
+- [可观测性指南](../usage/OBSERVABILITY_GUIDE.md)
+- [架构设计](./ARCHITECTURE_DESIGN.md)

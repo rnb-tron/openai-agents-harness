@@ -13,7 +13,9 @@ from src.capabilities.tools import ToolRegistry
 
 def _settings(**overrides):
     defaults = dict(
-        memory_enabled=False,
+        memory_short_term_enabled=False,
+        memory_session_summary_enabled=False,
+        memory_long_term_enabled=False,
         compression_enabled=False,
         prompt_enabled=False,
         observability_enabled=False,
@@ -50,7 +52,7 @@ def test_orchestrator_registers_only_memory_session_when_manager_absent():
         tool_registry=ToolRegistry(),
         memory_store=MemoryStore(),
         model_router=ModelRouter(),
-        settings=_settings(memory_enabled=True),
+        settings=_settings(memory_short_term_enabled=True, memory_long_term_enabled=True),
     )
 
     enabled_names = [manifest.name for manifest in orchestrator.registry.enabled]
@@ -69,7 +71,7 @@ def test_orchestrator_registers_mem0_memory_without_embedding_provider():
         memory_store=MemoryStore(),
         model_router=ModelRouter(),
         memory_manager=manager,
-        settings=_settings(memory_enabled=True),
+        settings=_settings(memory_short_term_enabled=True, memory_long_term_enabled=True),
     )
 
     manifests = {

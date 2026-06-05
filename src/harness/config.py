@@ -8,7 +8,7 @@ from typing import Any
 
 @dataclass(frozen=True)
 class RuntimeConfig:
-    """由能力选择推导出的运行时开关。"""
+    """运行时通用开关。"""
 
     tracing_disabled: bool = False
 
@@ -28,7 +28,7 @@ class CapabilitySwitches:
 
 @dataclass(frozen=True)
 class HarnessConfig:
-    """面向脚手架的轻量应用配置视图。"""
+    """基于 Settings 的轻量应用配置视图。"""
 
     settings: Any
     runtime: RuntimeConfig
@@ -36,13 +36,18 @@ class HarnessConfig:
 
     @classmethod
     def from_settings(cls, settings: Any) -> "HarnessConfig":
+        memory_capability_enabled = (
+            settings.memory_short_term_enabled
+            or settings.memory_session_summary_enabled
+            or settings.memory_long_term_enabled
+        )
         return cls(
             settings=settings,
             runtime=RuntimeConfig(
                 tracing_disabled=not settings.observability_enabled,
             ),
             capabilities=CapabilitySwitches(
-                memory=settings.memory_enabled,
+                memory=memory_capability_enabled,
                 context_compression=settings.compression_enabled,
                 prompt=settings.prompt_enabled,
                 hitl=getattr(settings, "hitl_enabled", False),

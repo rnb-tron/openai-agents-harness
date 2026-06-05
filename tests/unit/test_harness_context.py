@@ -35,7 +35,9 @@ class _ManifestCapability(Capability):
 def _settings():
     return SimpleNamespace(
         observability_enabled=False,
-        memory_enabled=False,
+        memory_short_term_enabled=False,
+        memory_session_summary_enabled=False,
+        memory_long_term_enabled=False,
         compression_enabled=False,
         prompt_enabled=False,
         auth_enabled=False,

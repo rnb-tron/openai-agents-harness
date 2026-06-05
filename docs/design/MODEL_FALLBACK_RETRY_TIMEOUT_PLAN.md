@@ -1,6 +1,6 @@
 # 模型降级、重试与超时控制技术方案
 
-> 文档类型：设计记录。当前调用方式请参考 [模型弹性指南](../guides/MODEL_RESILIENCE_GUIDE.md)。
+> 文档类型：设计记录。当前调用方式请参考 [模型弹性指南](../usage/MODEL_RESILIENCE_GUIDE.md)。
 
 ## 📋 需求分析
 

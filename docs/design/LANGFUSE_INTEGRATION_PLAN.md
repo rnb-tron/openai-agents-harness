@@ -1,6 +1,6 @@
 # 📊 Langfuse 可观测层技术方案
 
-> 文档类型：设计记录。当前可观测能力使用方式请参考 [可观测性指南](../guides/OBSERVABILITY_GUIDE.md)。
+> 文档类型：设计记录。当前可观测能力使用方式请参考 [可观测性指南](../usage/OBSERVABILITY_GUIDE.md)。
 
 ## 📋 方案概述
 

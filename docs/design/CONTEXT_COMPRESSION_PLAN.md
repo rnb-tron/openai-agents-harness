@@ -26,7 +26,7 @@
 
 ### 关键缺陷
 
-> **默认配置下(`memory_enabled=False`)`MemoryCapability` 完全绕过 `ContextManager`,
+> **默认配置下(`MEMORY_SHORT_TERM_ENABLED=false`)`MemoryCapability` 完全绕过 `ContextManager`,
 > 走的是旧版 `MemoryStore.render_context` 路径,token 计数和裁剪都没生效。**
 
 参见 [`MemoryCapability.before_run`](../../src/capabilities/memory/capability.py):

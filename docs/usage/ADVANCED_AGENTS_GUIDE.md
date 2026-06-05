@@ -28,12 +28,12 @@ HITL_AUTO_APPROVE_TOOLS=
 请求示例：
 
 ```bash
-curl -X POST http://localhost:8080/chat \
+curl -X POST http://localhost:8080/chat/stream \
   -H 'Content-Type: application/json' \
   -d '{"message":"请查询北京天气。","session_id":"hitl-demo"}'
 ```
 
-如果 SDK 中断，响应数据包含：
+如果 SDK 中断，NDJSON 流中的 `done` 事件数据包含：
 
 ```json
 {
@@ -48,7 +48,7 @@ curl -X POST http://localhost:8080/chat \
 恢复时提交响应中的状态与决定：
 
 ```bash
-curl -X POST http://localhost:8080/chat/resume \
+curl -X POST http://localhost:8080/chat/resume/stream \
   -H 'Content-Type: application/json' \
   -d '{
     "session_id":"hitl-demo",
@@ -138,5 +138,5 @@ venv/bin/python examples/advanced_agents_components.py
 
 ## 相关文档
 
-- [架构设计](../architecture/ARCHITECTURE_DESIGN.md)
+- [架构设计](../design/ARCHITECTURE_DESIGN.md)
 - [AgentOrchestrator 使用指南](./AGENT_ORCHESTRATOR_USAGE.md)

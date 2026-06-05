@@ -52,7 +52,6 @@ def test_database_resource_passes_configured_pool_values_to_engine():
 def test_http_client_config_exposes_timeouts_and_limits_with_defaults():
     config = HttpClientConfig.from_settings(SimpleNamespace())
 
-    assert config.enabled is True
     assert config.timeout_seconds == 30.0
     assert config.connect_timeout_seconds == 10.0
     assert config.max_connections == 100

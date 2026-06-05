@@ -16,7 +16,7 @@ from typing import Any
 from openai import AsyncOpenAI
 
 from src.capabilities.memory.store import ShortTermMemory
-from src.core.config import Settings
+from src.core.config import Settings, build_postgres_url
 from src.core.logging import service_logger
 from src.infrastructure.redis_client import get_redis_client
 
@@ -71,30 +71,37 @@ class Mem0MemoryManager:
     async def init(self) -> None:
         if self.short_term.redis is None and getattr(self.settings, "redis_enabled", False):
             self.short_term.redis = get_redis_client()
-        if self._client is None:
+        if self._long_term_enabled() and self._client is None:
             self._client = self._build_client()
         service_logger.info("Mem0 memory manager initialized")
 
+    def _long_term_enabled(self) -> bool:
+        return bool(getattr(self.settings, "memory_long_term_enabled", False))
+
     def _build_client(self) -> Any:
-        mode = getattr(self.settings, "memory_mem0_mode", "local").strip().lower()
+        mode = getattr(self.settings, "memory_long_term_mem0_mode", "local").strip().lower()
         if mode == "platform":
             try:
                 from mem0 import MemoryClient
             except ImportError as exc:  # pragma: no cover - 依赖可选安装包
                 raise RuntimeError(
-                    "MEMORY_ENABLED=true with MEMORY_MEM0_MODE=platform requires mem0ai"
+                    "MEMORY_LONG_TERM_ENABLED=true with MEMORY_LONG_TERM_MEM0_MODE=platform requires mem0ai"
                 ) from exc
-            api_key = getattr(self.settings, "memory_mem0_api_key", "")
+            api_key = getattr(self.settings, "memory_long_term_mem0_api_key", "")
             if not api_key:
-                raise ValueError("MEMORY_MEM0_MODE=platform requires MEMORY_MEM0_API_KEY")
+                raise ValueError(
+                    "MEMORY_LONG_TERM_MEM0_MODE=platform requires MEMORY_LONG_TERM_MEM0_API_KEY"
+                )
             return MemoryClient(api_key=api_key)
 
         try:
             from mem0 import Memory
         except ImportError as exc:  # pragma: no cover - 依赖可选安装包
-            raise RuntimeError("MEMORY_ENABLED=true requires package mem0ai") from exc
+            raise RuntimeError(
+                "MEMORY_LONG_TERM_ENABLED=true requires package mem0ai"
+            ) from exc
 
-        raw_config = getattr(self.settings, "memory_mem0_config_json", "") or ""
+        raw_config = getattr(self.settings, "memory_long_term_mem0_config_json", "") or ""
         if raw_config.strip():
             return Memory.from_config(json.loads(raw_config))
 
@@ -134,17 +141,22 @@ class Mem0MemoryManager:
         return config
 
     def _build_vector_store_config(self) -> dict[str, Any] | None:
-        backend = getattr(self.settings, "memory_vector_store", "none").strip().lower()
+        backend = getattr(self.settings, "memory_long_term_vector_store", "none").strip().lower()
         if backend in ("", "none"):
             return None
         if backend == "pgvector":
-            database_url = (
-                getattr(self.settings, "memory_pgvector_database_url", "")
-                or getattr(self.settings, "database_url", "")
+            database_url = build_postgres_url(
+                host=getattr(self.settings, "memory_pgvector_pg_host", ""),
+                port=getattr(self.settings, "memory_pgvector_pg_port", "5432"),
+                database=getattr(self.settings, "memory_pgvector_pg_database", ""),
+                user=getattr(self.settings, "memory_pgvector_pg_user", ""),
+                password=getattr(self.settings, "memory_pgvector_pg_password", ""),
+                sslmode=getattr(self.settings, "memory_pgvector_pg_sslmode", ""),
             )
             if not database_url:
                 raise ValueError(
-                    "MEMORY_VECTOR_STORE=pgvector requires MEMORY_PGVECTOR_DATABASE_URL"
+                    "MEMORY_LONG_TERM_VECTOR_STORE=pgvector requires MEMORY_PGVECTOR_PGHOST, "
+                    "MEMORY_PGVECTOR_PGDATABASE, and MEMORY_PGVECTOR_PGUSER"
                 )
             return {
                 "provider": "pgvector",
@@ -178,7 +190,7 @@ class Mem0MemoryManager:
                     ),
                 },
             }
-        raise ValueError(f"Unsupported MEMORY_VECTOR_STORE: {backend}")
+        raise ValueError(f"Unsupported MEMORY_LONG_TERM_VECTOR_STORE: {backend}")
 
     @property
     def client(self) -> Any:
@@ -219,7 +231,9 @@ class Mem0MemoryManager:
             latest_messages=latest_messages,
         )
 
-        if not await self._should_submit_to_mem0(user_content, content):
+        if not self._long_term_enabled() or not await self._should_submit_to_mem0(
+            user_content, content
+        ):
             return True
 
         messages = [{"role": "user", "content": user_content}]
@@ -274,16 +288,16 @@ class Mem0MemoryManager:
     ) -> str:
         short_memories = await self._get_recent_short_memories(
             session_id,
-            max_turns or self.settings.memory_max_context_turns,
+            max_turns or self._short_term_context_max_turns(),
         )
         session_summary = await self._get_session_summary(session_id)
-        preferences = await self._get_preferences(user_id)
+        preferences = await self._get_preferences(user_id) if self._long_term_enabled() else []
         long_memories: list[dict[str, Any]] = []
-        if enable_retrieval and self._should_retrieve(user_input):
+        if self._long_term_enabled() and enable_retrieval and self._should_retrieve(user_input):
             long_memories = await self.search_memories(
                 user_id=user_id,
                 query=user_input,
-                top_k=self.settings.memory_retrieval_top_k,
+                top_k=self.settings.memory_long_term_context_max_memories,
             )
         return self._format_context(
             preferences=preferences,
@@ -292,6 +306,9 @@ class Mem0MemoryManager:
             short_memories=short_memories,
             current_input=user_input,
         )
+
+    def _short_term_context_max_turns(self) -> int:
+        return int(getattr(self.settings, "memory_short_term_context_max_turns", 6))
 
     async def _get_recent_short_memories(
         self,
@@ -362,7 +379,7 @@ class Mem0MemoryManager:
         preferences = await self.search_memories(
             user_id=user_id,
             query="user preferences, stable instructions, communication style",
-            top_k=max(self.settings.memory_retrieval_top_k, 10),
+            top_k=max(self.settings.memory_long_term_context_max_memories, 10),
         )
         preferences = self._select_effective_preferences(preferences)
         self._preference_cache[user_id] = (now + ttl, preferences)
@@ -374,7 +391,9 @@ class Mem0MemoryManager:
         query: str,
         top_k: int | None = None,
     ) -> list[dict[str, Any]]:
-        limit = top_k or self.settings.memory_retrieval_top_k
+        if not self._long_term_enabled():
+            return []
+        limit = top_k or self.settings.memory_long_term_context_max_memories
         if self._is_preference_query(query):
             limit = max(limit, 10)
         try:
@@ -902,6 +921,8 @@ class Mem0MemoryManager:
         return await self.short_term.clear(session_id)
 
     async def clear_user_memories(self, user_id: str) -> bool:
+        if not self._long_term_enabled():
+            return True
         self._preference_cache.pop(user_id, None)
         return await self._delete_mem0_memories(user_id=user_id)
 
@@ -938,7 +959,7 @@ class Mem0MemoryManager:
             "short_term_count": len(recent),
             "short_term_recent": recent[-10:],
             "session_summary": summary,
-            "vector_store": getattr(self.settings, "memory_vector_store", "none"),
+            "vector_store": getattr(self.settings, "memory_long_term_vector_store", "none"),
             "preference_cache_users": len(self._preference_cache),
             "pending_sessions": len(self._pending_user_inputs),
         }

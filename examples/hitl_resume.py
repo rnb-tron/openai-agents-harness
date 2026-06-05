@@ -17,7 +17,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
-def post_json(
+def post_stream(
     url: str,
     payload: dict[str, Any],
     token: str | None,
@@ -34,13 +34,23 @@ def post_json(
     )
     try:
         with urlopen(request, timeout=timeout) as response:
-            body = json.loads(response.read().decode("utf-8"))
+            events = [
+                json.loads(line)
+                for line in response.read().decode("utf-8").splitlines()
+                if line.strip()
+            ]
     except HTTPError as exc:
         detail = exc.read().decode("utf-8")
         raise RuntimeError(f"HTTP {exc.code}: {detail}") from exc
     except URLError as exc:
         raise RuntimeError(f"无法连接 Harness API: {exc.reason}") from exc
-    return body["data"]
+    for event in events:
+        if event.get("type") == "error":
+            raise RuntimeError(event.get("detail") or "stream returned error")
+    for event in reversed(events):
+        if event.get("type") == "done":
+            return event["data"]
+    raise RuntimeError("stream did not return done event")
 
 
 def decision_from_args(args: argparse.Namespace) -> bool:
@@ -65,8 +75,8 @@ def main() -> None:
     choice.add_argument("--reject", action="store_true", help="直接拒绝中断")
     args = parser.parse_args()
 
-    initial = post_json(
-        f"{args.base_url}/chat",
+    initial = post_stream(
+        f"{args.base_url}/chat/stream",
         {
             "message": args.message,
             "session_id": args.session_id,
@@ -99,8 +109,8 @@ def main() -> None:
     if not approved:
         resume_payload["rejection_message"] = "示例调用中人工拒绝了该操作。"
 
-    resumed = post_json(
-        f"{args.base_url}/chat/resume",
+    resumed = post_stream(
+        f"{args.base_url}/chat/resume/stream",
         resume_payload,
         args.token,
         args.timeout,

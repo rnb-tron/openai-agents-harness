@@ -9,26 +9,26 @@ def _settings(**overrides):
         agent_model_reasoning="gpt-4.1-mini",
         auth_enabled=False,
         rate_limit_enabled=False,
-        database_enabled=False,
         database_url="",
         session_store_enabled=False,
         session_store_auto_create=True,
         redis_enabled=False,
-        memory_enabled=False,
+        memory_short_term_enabled=False,
+        memory_session_summary_enabled=False,
+        memory_long_term_enabled=False,
+        memory_long_term_provider="mem0",
         memory_short_term_ttl=3600,
-        memory_mem0_mode="local",
-        memory_mem0_api_key="",
-        memory_mem0_config_json="",
-        memory_vector_store="pgvector",
+        memory_long_term_mem0_mode="local",
+        memory_long_term_mem0_api_key="",
+        memory_long_term_mem0_config_json="",
+        memory_long_term_vector_store="pgvector",
         memory_pgvector_table="agent_memories",
         memory_es_hosts="http://localhost:9200",
         memory_es_index="agent_memories",
         memory_preference_cache_ttl_sec=900,
         memory_vector_dimension=1536,
-        memory_max_context_turns=6,
-        memory_retrieval_top_k=3,
-        memory_importance_threshold=0.3,
-        memory_forgetting_enabled=True,
+        memory_short_term_context_max_turns=6,
+        memory_long_term_context_max_memories=3,
         compression_enabled=False,
         prompt_enabled=False,
         observability_enabled=False,
@@ -45,12 +45,12 @@ def test_catalog_lists_optional_capabilities_even_when_not_selected():
     by_name = {item["name"]: item for item in catalog["capabilities"]}
 
     assert by_name["tool_registry"]["enabled"] is True
-    assert by_name["tool_registry"]["selectable"] is False
+    assert by_name["tool_registry"]["runtime_configurable"] is False
     assert by_name["model_router"]["enabled"] is True
     assert by_name["memory_session"]["enabled"] is True
-    assert by_name["session_store"]["selectable"] is False
+    assert by_name["session_store"]["runtime_configurable"] is False
     assert by_name["session_store"]["assembled"] is False
-    assert by_name["memory_manager"]["selectable"] is False
+    assert by_name["memory_manager"]["runtime_configurable"] is False
     assert by_name["memory_manager"]["assembled"] is False
     assert by_name["prompt"]["assembled"] is False
     assert by_name["hitl"]["assembled"] is False
@@ -58,7 +58,7 @@ def test_catalog_lists_optional_capabilities_even_when_not_selected():
     assert by_name["checkpoint"]["assembled"] is False
 
 
-def test_catalog_exposes_provider_resolution_and_external_requirements():
+def test_catalog_exposes_provider_resolution_and_external_resources():
     catalog = HarnessBuilder(_settings()).build().context.capability_catalog()
     dependencies = {
         (item["capability"], item["requires"]): item
@@ -89,35 +89,5 @@ def test_catalog_reports_current_optional_selection():
 
     assert by_name["hitl"]["enabled"] is True
     assert by_name["handoff"]["enabled"] is True
-    assert "hitl" in catalog["current_selection"]
+    assert "hitl" in catalog["current_enabled"]
     assert catalog["missing_dependencies"] == {}
-
-
-def test_selection_validator_resolves_internal_resources_and_external_config():
-    validation = HarnessBuilder(_settings()).build().context.validate_capability_selection(
-        ["vector_search"]
-    )
-
-    assert validation["valid"] is True
-    assert validation["requested_selection"] == ["vector_search"]
-    assert set(validation["resolved_selection"]) >= {
-        "tool_registry",
-        "model_router",
-        "memory_session",
-        "memory_manager",
-        "long_term_memory",
-        "vector_search",
-    }
-    assert "long_term_memory" in validation["auto_included"]
-    assert "memory_manager" in validation["auto_included"]
-    assert "embedding_provider" not in validation["auto_included"]
-    assert validation["external_requirements"] == []
-
-
-def test_selection_validator_rejects_unknown_capabilities():
-    validation = HarnessBuilder(_settings()).build().context.validate_capability_selection(
-        ["nonexistent_capability"]
-    )
-
-    assert validation["valid"] is False
-    assert validation["unknown_capabilities"] == ["nonexistent_capability"]

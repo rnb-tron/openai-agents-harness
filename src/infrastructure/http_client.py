@@ -13,7 +13,6 @@ from src.core.logging import error_logger, get_rid, log_event, service_logger
 
 @dataclass(frozen=True)
 class HttpClientConfig:
-    enabled: bool = True
     timeout_seconds: float = 30.0
     connect_timeout_seconds: float = 10.0
     read_timeout_seconds: float = 20.0
@@ -27,7 +26,6 @@ class HttpClientConfig:
     @classmethod
     def from_settings(cls, settings: Any) -> "HttpClientConfig":
         return cls(
-            enabled=bool(getattr(settings, "http_client_enabled", True)),
             timeout_seconds=float(getattr(settings, "http_timeout_seconds", 30.0)),
             connect_timeout_seconds=float(
                 getattr(settings, "http_connect_timeout_seconds", 10.0)
@@ -63,8 +61,6 @@ def configure_http_client(settings: Any) -> None:
 
 async def get_http_client() -> httpx.AsyncClient:
     global _http_client
-    if not _http_config.enabled:
-        raise RuntimeError("HTTP client is disabled")
     if _http_client is None:
         async with _client_lock:
             if _http_client is None:

@@ -43,7 +43,7 @@ class MemoryManager:
             ttl=settings.memory_short_term_ttl,
         )
 
-        # 2. 初始化长期记忆关系仓库 (由 DATABASE_URL 选择 MySQL / PostgreSQL)
+        # 2. 初始化长期记忆关系仓库 (由 SQLAlchemy 数据库配置选择 MySQL / PostgreSQL)
         self.repository = MemoryRepository(db_session)
 
         # 3. 初始化可选向量存储 (ES / PostgreSQL pgvector)
@@ -62,7 +62,7 @@ class MemoryManager:
         # 5. 初始化生命周期管理器
         self.lifecycle = MemoryLifecycleManager(
             repository=self.repository,
-            importance_threshold=settings.memory_importance_threshold,
+            importance_threshold=0.3,
         )
 
         vector_backend = self.vector_store.backend_name if self.vector_store else "none"
@@ -234,10 +234,11 @@ class MemoryManager:
             session_id=session_id,
             user_id=user_id,
             user_input=user_input,
-            max_turns=max_turns or self.settings.memory_max_context_turns,
+            max_turns=max_turns
+            or getattr(self.settings, "memory_short_term_context_max_turns", 6),
             enable_retrieval=enable_retrieval
             and getattr(self.settings, "memory_long_term_enabled", False),
-            retrieval_top_k=self.settings.memory_retrieval_top_k,
+            retrieval_top_k=self.settings.memory_long_term_context_max_memories,
         )
 
     async def search_memories(
@@ -264,7 +265,7 @@ class MemoryManager:
             query_embedding = await self.embedding_provider.embed(query)
             candidates = await self.vector_store.search(
                 query_embedding=query_embedding,
-                top_k=top_k or self.settings.memory_retrieval_top_k,
+                top_k=top_k or self.settings.memory_long_term_context_max_memories,
                 user_id=user_id,
             )
             results = []
@@ -332,9 +333,6 @@ class MemoryManager:
             dict: 清理统计
         """
         try:
-            if not self.settings.memory_forgetting_enabled:
-                return {"skipped": True, "reason": "Forgetting policy disabled"}
-
             result = await self.lifecycle.run_maintenance()
             service_logger.info(f"Memory cleanup completed: {result}")
             return result

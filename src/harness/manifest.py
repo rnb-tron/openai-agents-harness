@@ -1,7 +1,7 @@
 """Harness builder 使用的能力元数据。
 
-Manifest 刻意保持很小：它给未来脚手架生成器足够的信息来推导能力组合，
-同时不强迫每个能力立即接入沉重的插件框架。
+Manifest 刻意保持很小：它描述能力名称、依赖、产物和装配顺序，便于
+Harness 在运行时暴露能力目录并做依赖校验。
 """
 
 from __future__ import annotations

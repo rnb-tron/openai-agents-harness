@@ -105,7 +105,7 @@ async def clear_user_memories(
     """清空指定用户的 Mem0 长期记忆。"""
     try:
         if harness.memory_manager is None:
-            return create_error_response(message="MEMORY_ENABLED is false")
+            return create_error_response(message="MEMORY_LONG_TERM_ENABLED is false")
         clear_user = getattr(harness.memory_manager, "clear_user_memories", None)
         if clear_user is None:
             return create_error_response(message="memory manager does not support user clear")

@@ -8,7 +8,7 @@
 
 1. 使用 `ModelRouter` 选取模型并套用可选弹性策略。
 2. 创建 `RunContext`，调用 `CapabilityRegistry` 的运行期 hook。
-3. 使用 OpenAI Agents SDK `Agent` 与 `Runner.run()` 执行。
+3. 使用 OpenAI Agents SDK `Agent` 与 `Runner.run_streamed()` 执行。
 4. 处理 SDK 原生 `interruptions` / `RunState` 审批恢复与 `Agent.handoffs`。
 5. 返回统一结果。
 
@@ -35,10 +35,11 @@ from src.harness.builder import build_harness
 harness = build_harness(current_settings)
 await harness.setup()
 try:
-    result = await harness.runtime.run(
+    async for event in harness.runtime.run_stream(
         AgentSession(session_id="session-001", user_id="user-001"),
         "请查询北京天气。",
-    )
+    ):
+        print(event)
 finally:
     await harness.teardown()
 ```
@@ -59,8 +60,8 @@ finally:
 
 | 配置 | 行为 | 当前边界 |
 | --- | --- | --- |
-| `MEMORY_ENABLED=true` | 装配 `Mem0MemoryManager` | 用户偏好、长期记忆和语义检索统一交给 Mem0；偏好结果在读取阶段按维度只注入最新生效项 |
-| `MEMORY_MEM0_MODE=platform` | 使用 Mem0 Platform | 需配置 `MEMORY_MEM0_API_KEY` |
+| `MEMORY_LONG_TERM_ENABLED=true` | 启用长期记忆 | 用户偏好、长期记忆和语义检索统一交给 Mem0；偏好结果在读取阶段按维度只注入最新生效项 |
+| `MEMORY_LONG_TERM_MEM0_MODE=platform` | 使用 Mem0 Platform | 需配置 `MEMORY_LONG_TERM_MEM0_API_KEY` |
 | `PROMPT_ENABLED=true` | 构建 `PromptManager`，主 Agent/摘要策略按需读取模板 | 读取失败可按配置回退 |
 | `COMPRESSION_ENABLED=true` | 在模型调用前压缩注入后的上下文 | 默认 fail-open |
 | `HITL_ENABLED=true` | 将指定工具映射为 SDK `needs_approval` | 审批存储当前为进程内 |
@@ -72,17 +73,17 @@ finally:
 ```mermaid
 sequenceDiagram
     participant Client
-    participant API as POST /chat
+    participant API as POST /chat/stream
     participant R as AgentOrchestrator
     participant SDK as Agents SDK
     Client->>API: message
-    API->>R: run()
-    R->>SDK: Runner.run()
+    API->>R: run_stream()
+    R->>SDK: Runner.run_streamed()
     SDK-->>R: interruptions + state
     R-->>Client: interruptions + run_state + model + input
-    Client->>R: POST /chat/resume + approval
-    R->>SDK: Runner.run(RunState)
-    SDK-->>Client: final output or next interruption
+    Client->>R: POST /chat/resume/stream + approval
+    R->>SDK: Runner.run_streamed(RunState)
+    SDK-->>Client: final output stream or next interruption
 ```
 
 启用 HITL 后，恢复请求必须携带响应中的 `approval_request_id`、`run_state`、原始 `message`、实际 `model` 与中断序号。
@@ -104,21 +105,19 @@ runtime = AgentOrchestrator(
     memory_store=MemoryStore(),
     model_router=ModelRouter(),
 )
-result = await runtime.run(AgentSession(session_id="s1"), "hello")
+async for event in runtime.run_stream(AgentSession(session_id="s1"), "hello"):
+    print(event)
 ```
 
 `MemoryStore` 仅是兼容构造参数的空实现。涉及数据库、Prompt、HITL、Checkpoint 或 Handoff 时，使用 `HarnessBuilder` 可避免遗漏资源初始化和能力开关映射。
 
 ## 能力图
 
-以下接口可查看实际装配结果或校验拟生成组合：
+以下接口可查看当前运行实例的能力装配结果和 Harness 支持的能力目录：
 
 ```bash
 curl http://localhost:8080/health/capabilities
 curl http://localhost:8080/health/capability-catalog
-curl -X POST http://localhost:8080/health/capability-selection/validate \
-  -H 'Content-Type: application/json' \
-  -d '{"selected":["handoff","vector_search"]}'
 ```
 
 ## 已知限制
@@ -129,7 +128,7 @@ curl -X POST http://localhost:8080/health/capability-selection/validate \
 
 ## 相关文件
 
-- [架构设计](../architecture/ARCHITECTURE_DESIGN.md)
+- [架构设计](../design/ARCHITECTURE_DESIGN.md)
 - [高级 Agent 能力](./ADVANCED_AGENTS_GUIDE.md)
 - [Memory 系统](./MEMORY_SYSTEM.md)
 - `src/harness/builder.py`

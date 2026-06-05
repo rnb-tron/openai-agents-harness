@@ -99,14 +99,21 @@ class _FakeShortTerm:
 def _settings(**overrides):
     defaults = dict(
         memory_short_term_ttl=3600,
-        memory_max_context_turns=6,
-        memory_retrieval_top_k=3,
+        memory_short_term_context_max_turns=6,
+        memory_long_term_context_max_memories=3,
         memory_preference_cache_ttl_sec=900,
-        memory_mem0_mode="local",
-        memory_mem0_api_key="",
-        memory_mem0_config_json="",
-        memory_vector_store="none",
-        memory_pgvector_database_url="",
+        memory_long_term_enabled=True,
+        memory_long_term_provider="mem0",
+        memory_long_term_mem0_mode="local",
+        memory_long_term_mem0_api_key="",
+        memory_long_term_mem0_config_json="",
+        memory_long_term_vector_store="none",
+        memory_pgvector_pg_host="",
+        memory_pgvector_pg_port="5432",
+        memory_pgvector_pg_database="",
+        memory_pgvector_pg_user="",
+        memory_pgvector_pg_password="",
+        memory_pgvector_pg_sslmode="",
         memory_pgvector_table="agent_memories",
         memory_es_hosts="http://localhost:9200",
         memory_es_index="agent_memories",
@@ -147,6 +154,23 @@ async def test_mem0_manager_persists_meaningful_user_assistant_pair():
     assert call["metadata"]["source_session_id"] == "s1"
     assert "memory_kind" not in call["metadata"]
     assert "preference_key" not in call["metadata"]
+
+
+@pytest.mark.asyncio
+async def test_mem0_manager_short_term_only_does_not_initialize_mem0_client():
+    client = _FakeMem0Client()
+    manager = Mem0MemoryManager(
+        _settings(memory_long_term_enabled=False),
+        client=client,
+    )
+
+    await manager.init()
+    await manager.add_memory("s1", "u1", "user", "请记住我的偏好是中文回答")
+    await manager.add_memory("s1", "u1", "assistant", "好的，之后我会优先用中文回答。")
+
+    assert manager._client is client
+    assert client.add_calls == []
+    assert await manager.search_memories("u1", "用户偏好") == []
 
 
 @pytest.mark.asyncio
@@ -570,11 +594,14 @@ async def test_mem0_manager_clear_user_deletes_user_scoped_long_term_memories():
     assert "u1" not in manager._preference_cache
 
 
-def test_mem0_manager_builds_pgvector_config_from_memory_database_url():
+def test_mem0_manager_builds_pgvector_config_from_split_pg_settings():
     manager = Mem0MemoryManager(
         _settings(
-            memory_vector_store="pgvector",
-            memory_pgvector_database_url="postgresql://user:pass@localhost/memory",
+            memory_long_term_vector_store="pgvector",
+            memory_pgvector_pg_host="localhost",
+            memory_pgvector_pg_database="memory",
+            memory_pgvector_pg_user="user",
+            memory_pgvector_pg_password="Grv0nwJEs%BL@Wq!",
             memory_pgvector_table="agent_memories_test",
         ),
         client=_FakeMem0Client(),
@@ -583,7 +610,10 @@ def test_mem0_manager_builds_pgvector_config_from_memory_database_url():
     config = manager._build_vector_store_config()
 
     assert config["provider"] == "pgvector"
-    assert config["config"]["connection_string"].startswith("postgresql://")
+    assert (
+        config["config"]["connection_string"]
+        == "postgresql://user:Grv0nwJEs%25BL%40Wq%21@localhost:5432/memory"
+    )
     assert config["config"]["collection_name"] == "agent_memories_test"
 
 
@@ -630,7 +660,7 @@ def test_mem0_manager_local_config_is_accepted_by_mem0_config_classes():
 def test_mem0_manager_builds_elasticsearch_config():
     manager = Mem0MemoryManager(
         _settings(
-            memory_vector_store="elasticsearch",
+            memory_long_term_vector_store="elasticsearch",
             memory_es_hosts="http://es:9200",
             memory_es_index="memories",
         ),

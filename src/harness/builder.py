@@ -153,7 +153,7 @@ class Harness:
 
 
 class HarnessBuilder:
-    """根据 Settings 装配一个可被脚手架理解的 Harness。"""
+    """根据 Settings 装配一个完整 Harness。"""
 
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -266,13 +266,13 @@ class HarnessBuilder:
         registry.register(ObservabilityCapability.from_settings(self.settings))
 
     def _build_database_resource(self) -> DatabaseResource | None:
-        needs_database = bool(getattr(self.settings, "database_enabled", False)) or bool(
-            getattr(self.settings, "session_store_enabled", False)
-        )
+        needs_database = bool(getattr(self.settings, "session_store_enabled", False))
         if not needs_database:
             return None
         if not self.settings.database_url:
-            raise ValueError("Database-backed capabilities require DATABASE_URL")
+            raise ValueError(
+                "SESSION_STORE_ENABLED=true requires session store database connection settings"
+            )
         return DatabaseResource(DatabaseConfig.from_settings(self.settings))
 
     def _build_session_store(
@@ -282,15 +282,28 @@ class HarnessBuilder:
         if not getattr(self.settings, "session_store_enabled", False):
             return None
         if database_resource is None:
-            raise ValueError("SESSION_STORE_ENABLED=true requires DATABASE_URL")
+            raise ValueError(
+                "SESSION_STORE_ENABLED=true requires session store database connection settings"
+            )
         return SessionStore(database_resource.session)
 
     def _build_memory_manager(
         self,
         session_store: SessionStore | None = None,
     ) -> tuple[MemoryManager | Mem0MemoryManager | None, AsyncSession | None]:
-        if not self.settings.memory_enabled:
+        memory_required = any(
+            (
+                getattr(self.settings, "memory_short_term_enabled", False),
+                getattr(self.settings, "memory_session_summary_enabled", False),
+                getattr(self.settings, "memory_long_term_enabled", False),
+            )
+        )
+        if not memory_required:
             return None, None
+        if getattr(self.settings, "memory_long_term_enabled", False):
+            provider = getattr(self.settings, "memory_long_term_provider", "mem0").strip().lower()
+            if provider != "mem0":
+                raise ValueError(f"Unsupported MEMORY_LONG_TERM_PROVIDER: {provider}")
         redis_client = get_redis_client() if getattr(self.settings, "redis_enabled", False) else None
         return Mem0MemoryManager(
             self.settings,
