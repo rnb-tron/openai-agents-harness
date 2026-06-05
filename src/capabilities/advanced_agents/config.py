@@ -14,6 +14,7 @@ from typing import Any
 @dataclass
 class HITLConfig:
     """Human-in-the-Loop 配置"""
+
     enabled: bool = False
     approval_timeout: float = 300.0  # 审批超时 (秒)
     approval_storage: str = "memory"  # 存储后端: memory, redis, database
@@ -27,15 +28,14 @@ class HITLConfig:
             enabled=getattr(settings, "hitl_enabled", False),
             approval_timeout=getattr(settings, "hitl_approval_timeout", 300.0),
             auto_approve_tools=list(getattr(settings, "hitl_auto_approve_tools", []) or []),
-            require_approval_tools=list(
-                getattr(settings, "hitl_require_approval_tools", []) or []
-            ),
+            require_approval_tools=list(getattr(settings, "hitl_require_approval_tools", []) or []),
         )
 
 
 @dataclass
 class CheckpointConfig:
     """Checkpoint 检查点配置"""
+
     enabled: bool = False
     storage_backend: str = "memory"  # 当前实现仅支持进程内存
     max_checkpoints: int = 10  # 最大检查点数量
@@ -57,6 +57,7 @@ class CheckpointConfig:
 @dataclass
 class HandoffConfig:
     """Handoff Agent 协作配置"""
+
     enabled: bool = False
     agents: dict[str, dict] = field(default_factory=dict)  # Agent 注册表
     default_agent: str = ""  # 默认 Agent
@@ -74,6 +75,7 @@ class HandoffConfig:
 @dataclass
 class AgentState:
     """Agent 状态"""
+
     session_id: str
     conversation_history: list[dict[str, Any]]
     current_model: str

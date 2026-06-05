@@ -1,4 +1,4 @@
-# 🚀 OpenAI Agent SDK - Agent Harness 工程底座
+# 🚀 OpenAI Agents Harness - Agent Harness 工程底座
 
 > 基于 OpenAI Agents SDK 的企业级 Agent Harness 工程底座。当前仓库提供除业务逻辑外的通用工程能力，业务方 fork 后自行实现业务 Agent、业务工具和业务流程。
 
@@ -205,8 +205,7 @@ examples/
 | `pytest` | `>=8.0.0` | 单元、集成、E2E 测试 |
 | `pytest-asyncio` | `>=0.23.0` | 异步测试 |
 | `pytest-cov` | `>=5.0.0` | 覆盖率 |
-| `black` | `>=24.0.0` | 格式化 |
-| `ruff` | `>=0.3.0` | lint |
+| `ruff` | `>=0.3.0` | lint、自动修复和格式化 |
 | `mypy` | `>=1.8.0` | 类型检查 |
 
 ## 🔄 请求运行流程
@@ -353,9 +352,12 @@ curl http://localhost:8080/health/ok
 
 ```bash
 make dev
+make format
 make test
 make test-all
 ```
+
+开发代码后建议先执行 `make format`，它会运行 `ruff check --fix src/ tests/` 和 `ruff format src/ tests/`，再运行对应测试。
 
 当前本地测试状态：
 
@@ -697,6 +699,7 @@ make test-integration # 运行本地集成测试
 make test-e2e         # 运行端到端测试，外部测试默认跳过
 make test-all         # 运行全部测试
 make test-cov         # 生成单元测试覆盖率
+make format           # Ruff 自动修复并格式化 src/ tests/
 make clean            # 清理缓存和构建产物
 ```
 

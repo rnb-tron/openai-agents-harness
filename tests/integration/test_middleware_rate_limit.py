@@ -195,9 +195,7 @@ class _UnavailableBackend(MemoryRateLimiter):
 
 
 def test_backend_failure_is_fail_closed_by_default():
-    app = _build_app(
-        RateLimitPlugin(enabled=True, backend=_UnavailableBackend())
-    )
+    app = _build_app(RateLimitPlugin(enabled=True, backend=_UnavailableBackend()))
 
     response = TestClient(app).get("/chat")
 
@@ -206,9 +204,7 @@ def test_backend_failure_is_fail_closed_by_default():
 
 
 def test_backend_failure_can_be_explicitly_fail_open():
-    app = _build_app(
-        RateLimitPlugin(enabled=True, backend=_UnavailableBackend(), fail_open=True)
-    )
+    app = _build_app(RateLimitPlugin(enabled=True, backend=_UnavailableBackend(), fail_open=True))
 
     assert TestClient(app).get("/chat").status_code == 200
 

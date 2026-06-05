@@ -150,11 +150,7 @@ async def test_pgvector_store_searches_with_metadata_and_filters():
 async def test_openai_embedding_provider_returns_dimension_checked_vectors():
     client = SimpleNamespace(
         embeddings=SimpleNamespace(
-            create=AsyncMock(
-                return_value=SimpleNamespace(
-                    data=[SimpleNamespace(embedding=[0.1, 0.2, 0.3])]
-                )
-            )
+            create=AsyncMock(return_value=SimpleNamespace(data=[SimpleNamespace(embedding=[0.1, 0.2, 0.3])]))
         )
     )
     provider = OpenAIEmbeddingProvider(

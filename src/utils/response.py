@@ -11,7 +11,9 @@ def create_error_response(msg: str, data: Any = None) -> ErrorResponse[Any]:
     return ErrorResponse[Any](code=1, msg=msg, data=data)
 
 
-def create_paginated_response(data: list[Any], total: int, page: int, page_size: int, msg: str = "success") -> SuccessResponse[dict]:
+def create_paginated_response(
+    data: list[Any], total: int, page: int, page_size: int, msg: str = "success"
+) -> SuccessResponse[dict]:
     payload = {
         "list": data,
         "pagination": {

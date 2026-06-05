@@ -197,9 +197,7 @@ class HarnessBuilder:
             # 都围绕这一个实例展开。
             context.set_resource("memory_manager", memory_manager)
             if getattr(memory_manager, "embedding_provider", None) is not None:
-                context.set_resource(
-                    "embedding_provider", memory_manager.embedding_provider
-                )
+                context.set_resource("embedding_provider", memory_manager.embedding_provider)
         prompt_manager = self._build_prompt_manager()
         if prompt_manager is not None:
             context.set_resource("prompt_manager", prompt_manager)
@@ -258,9 +256,7 @@ class HarnessBuilder:
         registry.register(
             RateLimitCapability(
                 enabled=self.settings.rate_limit_enabled,
-                key_strategy=getattr(
-                    self.settings, "rate_limit_key_strategy", "principal"
-                ),
+                key_strategy=getattr(self.settings, "rate_limit_key_strategy", "principal"),
             )
         )
         registry.register(ObservabilityCapability.from_settings(self.settings))
@@ -270,9 +266,7 @@ class HarnessBuilder:
         if not needs_database:
             return None
         if not self.settings.database_url:
-            raise ValueError(
-                "SESSION_STORE_ENABLED=true requires session store database connection settings"
-            )
+            raise ValueError("SESSION_STORE_ENABLED=true requires session store database connection settings")
         return DatabaseResource(DatabaseConfig.from_settings(self.settings))
 
     def _build_session_store(
@@ -282,9 +276,7 @@ class HarnessBuilder:
         if not getattr(self.settings, "session_store_enabled", False):
             return None
         if database_resource is None:
-            raise ValueError(
-                "SESSION_STORE_ENABLED=true requires session store database connection settings"
-            )
+            raise ValueError("SESSION_STORE_ENABLED=true requires session store database connection settings")
         return SessionStore(database_resource.session)
 
     def _build_memory_manager(

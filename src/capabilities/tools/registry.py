@@ -68,10 +68,7 @@ class ToolRegistry:
         """Apply HITL policy to existing tools and any tools registered later."""
         self._approval_required_names = set(require_approval)
         self._auto_approve_names = set(auto_approve)
-        self._tools = {
-            name: self._apply_approval_policy(spec)
-            for name, spec in self._tools.items()
-        }
+        self._tools = {name: self._apply_approval_policy(spec) for name, spec in self._tools.items()}
 
     def _apply_approval_policy(self, spec: ToolSpec) -> ToolSpec:
         if spec.name in self._auto_approve_names:
@@ -102,11 +99,7 @@ class ToolRegistry:
         return [self._to_agent_tool(self._tools[name]) for name in self.list_tools()]
 
     def list_approval_required(self) -> list[str]:
-        return [
-            spec.name
-            for spec in self.list_specs()
-            if spec.requires_approval
-        ]
+        return [spec.name for spec in self.list_specs() if spec.requires_approval]
 
     def _to_agent_tool(self, spec: ToolSpec) -> Any:
         handler = spec.handler

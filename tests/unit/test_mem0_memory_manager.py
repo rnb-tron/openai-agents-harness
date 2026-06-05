@@ -33,18 +33,12 @@ class _FakeMem0Client:
 class _FakeSummaryClient:
     def __init__(self, content="结构化会话摘要"):
         self.calls = []
-        self.chat = SimpleNamespace(
-            completions=SimpleNamespace(create=self._create)
-        )
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
         self._content = content
 
     async def _create(self, **kwargs):
         self.calls.append(kwargs)
-        return SimpleNamespace(
-            choices=[
-                SimpleNamespace(message=SimpleNamespace(content=self._content))
-            ]
-        )
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=self._content))])
 
 
 class _FakeSessionStore:
@@ -610,10 +604,7 @@ def test_mem0_manager_builds_pgvector_config_from_split_pg_settings():
     config = manager._build_vector_store_config()
 
     assert config["provider"] == "pgvector"
-    assert (
-        config["config"]["connection_string"]
-        == "postgresql://user:Grv0nwJEs%25BL%40Wq%21@localhost:5432/memory"
-    )
+    assert config["config"]["connection_string"] == "postgresql://user:Grv0nwJEs%25BL%40Wq%21@localhost:5432/memory"
     assert config["config"]["collection_name"] == "agent_memories_test"
 
 

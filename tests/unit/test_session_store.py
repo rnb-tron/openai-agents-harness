@@ -10,9 +10,7 @@ pytest.importorskip("aiosqlite")
 
 @pytest.mark.asyncio
 async def test_session_store_persists_sessions_and_messages(tmp_path):
-    database = DatabaseResource(
-        DatabaseConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'sessions.db'}")
-    )
+    database = DatabaseResource(DatabaseConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'sessions.db'}"))
     await database.create_all()
     store = SessionStore(database.session)
 
@@ -38,9 +36,7 @@ async def test_session_store_persists_sessions_and_messages(tmp_path):
 
 @pytest.mark.asyncio
 async def test_session_store_lists_recent_messages_in_chat_order(tmp_path):
-    database = DatabaseResource(
-        DatabaseConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'sessions.db'}")
-    )
+    database = DatabaseResource(DatabaseConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'sessions.db'}"))
     await database.create_all()
     store = SessionStore(database.session)
 
@@ -63,9 +59,7 @@ async def test_session_store_lists_recent_messages_in_chat_order(tmp_path):
 
 @pytest.mark.asyncio
 async def test_session_store_keeps_repeated_user_inputs_as_separate_turns(tmp_path):
-    database = DatabaseResource(
-        DatabaseConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'sessions.db'}")
-    )
+    database = DatabaseResource(DatabaseConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'sessions.db'}"))
     await database.create_all()
     store = SessionStore(database.session)
 
@@ -113,9 +107,7 @@ async def test_session_store_keeps_repeated_user_inputs_as_separate_turns(tmp_pa
 
 @pytest.mark.asyncio
 async def test_session_store_creates_empty_session(tmp_path):
-    database = DatabaseResource(
-        DatabaseConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'sessions.db'}")
-    )
+    database = DatabaseResource(DatabaseConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'sessions.db'}"))
     await database.create_all()
     store = SessionStore(database.session)
 
@@ -139,9 +131,7 @@ async def test_session_store_creates_empty_session(tmp_path):
 
 @pytest.mark.asyncio
 async def test_session_store_deletes_session_and_messages(tmp_path):
-    database = DatabaseResource(
-        DatabaseConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'sessions.db'}")
-    )
+    database = DatabaseResource(DatabaseConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'sessions.db'}"))
     await database.create_all()
     store = SessionStore(database.session)
 
@@ -162,9 +152,7 @@ async def test_session_store_deletes_session_and_messages(tmp_path):
 
 @pytest.mark.asyncio
 async def test_session_store_upserts_session_summary(tmp_path):
-    database = DatabaseResource(
-        DatabaseConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'sessions.db'}")
-    )
+    database = DatabaseResource(DatabaseConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'sessions.db'}"))
     await database.create_all()
     store = SessionStore(database.session)
 

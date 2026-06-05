@@ -45,9 +45,7 @@ def _settings(**overrides):
 
 
 def test_capability_snapshot_includes_enabled_and_disabled_capabilities():
-    harness = HarnessBuilder(
-        _settings(auth_enabled=True, rate_limit_enabled=False)
-    ).build()
+    harness = HarnessBuilder(_settings(auth_enabled=True, rate_limit_enabled=False)).build()
 
     snapshot = harness.context.capability_snapshot()
     by_name = {item["name"]: item for item in snapshot["capabilities"]}
@@ -62,9 +60,7 @@ def test_capability_snapshot_includes_enabled_and_disabled_capabilities():
 
 
 def test_capability_snapshot_enabled_only_filters_disabled_capabilities():
-    harness = HarnessBuilder(
-        _settings(auth_enabled=False, observability_enabled=True)
-    ).build()
+    harness = HarnessBuilder(_settings(auth_enabled=False, observability_enabled=True)).build()
 
     snapshot = harness.context.capability_snapshot(enabled_only=True)
     names = [item["name"] for item in snapshot["capabilities"]]
@@ -84,15 +80,8 @@ def test_harness_builder_enables_hitl_and_configures_sdk_tool_approval():
         )
     ).build()
 
-    enabled = {
-        item["name"]
-        for item in harness.context.capability_snapshot(enabled_only=True)["capabilities"]
-    }
-    weather_tool = next(
-        tool
-        for tool in harness.context.tool_registry.list_agent_tools()
-        if tool.name == "get_weather"
-    )
+    enabled = {item["name"] for item in harness.context.capability_snapshot(enabled_only=True)["capabilities"]}
+    weather_tool = next(tool for tool in harness.context.tool_registry.list_agent_tools() if tool.name == "get_weather")
 
     assert harness.runtime.hitl_mgr is not None
     assert "hitl" in enabled
@@ -130,9 +119,11 @@ async def test_harness_owns_redis_lifecycle():
     ).build()
     fake_redis = MagicMock()
 
-    with patch("src.harness.builder.init_redis", new=AsyncMock()) as init_redis, \
-         patch("src.harness.builder.get_redis_client", return_value=fake_redis), \
-         patch("src.harness.builder.close_redis", new=AsyncMock()) as close_redis:
+    with (
+        patch("src.harness.builder.init_redis", new=AsyncMock()) as init_redis,
+        patch("src.harness.builder.get_redis_client", return_value=fake_redis),
+        patch("src.harness.builder.close_redis", new=AsyncMock()) as close_redis,
+    ):
         await harness.setup()
         await harness.teardown()
 

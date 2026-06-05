@@ -18,7 +18,5 @@ def build_protocol_chain(settings) -> ProtocolRequestChain:
         AuthPlugin.from_settings(settings),
         RateLimitPlugin.from_settings(settings),
     )
-    enabled_request_order = tuple(
-        plugin for plugin in declared_request_order if plugin.is_enabled()
-    )
+    enabled_request_order = tuple(plugin for plugin in declared_request_order if plugin.is_enabled())
     return ProtocolRequestChain(enabled_request_order)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Optional
+from typing import Optional
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -60,12 +60,8 @@ class RateLimitPlugin:
             backend: RateLimiter = MemoryRateLimiter()
         else:
             if not bool(getattr(settings, "redis_enabled", False)):
-                raise ValueError(
-                    "RATE_LIMIT_BACKEND=redis requires REDIS_ENABLED=true"
-                )
-            backend = RedisRateLimiter(
-                fail_open=bool(getattr(settings, "rate_limit_fail_open", False))
-            )
+                raise ValueError("RATE_LIMIT_BACKEND=redis requires REDIS_ENABLED=true")
+            backend = RedisRateLimiter(fail_open=bool(getattr(settings, "rate_limit_fail_open", False)))
 
         # `rate_limit_routes` is stored as a JSON string for env-var friendliness.
         raw_routes = getattr(settings, "rate_limit_routes", "") or ""
@@ -160,9 +156,7 @@ class RateLimitPlugin:
             key = build_key(request, path)
             limit, window_sec, burst = resolve_config(path)
             try:
-                decision: RateLimitDecision = await backend.check(
-                    key, limit=limit, window_sec=window_sec, burst=burst
-                )
+                decision: RateLimitDecision = await backend.check(key, limit=limit, window_sec=window_sec, burst=burst)
             except Exception as e:  # pragma: no cover
                 logger.error(
                     "rate_limit_check_failed",

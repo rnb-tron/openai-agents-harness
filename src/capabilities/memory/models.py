@@ -4,7 +4,6 @@ Memory System SQLAlchemy Models
 """
 
 from datetime import datetime
-from typing import Optional
 
 from sqlalchemy import (
     BIGINT,
@@ -52,17 +51,13 @@ class MemoryRecord(AsyncAttrs, Base):
     extra_metadata = Column("metadata", JSON, nullable=True, comment="扩展元数据 (tokens, timestamp, tags等)")
 
     # 重要性评分与访问统计
-    importance_score = Column(
-        Float, nullable=False, default=0.5, index=True, comment="重要性评分 (0-1, 用于遗忘策略)"
-    )
+    importance_score = Column(Float, nullable=False, default=0.5, index=True, comment="重要性评分 (0-1, 用于遗忘策略)")
     access_count = Column(Integer, nullable=False, default=0, comment="访问次数")
     last_accessed_at = Column(DateTime, nullable=True, comment="最后访问时间")
 
     # 时间戳
     created_at = Column(DateTime, nullable=False, default=datetime.now, comment="创建时间")
-    updated_at = Column(
-        DateTime, nullable=False, default=datetime.now, onupdate=datetime.now, comment="更新时间"
-    )
+    updated_at = Column(DateTime, nullable=False, default=datetime.now, onupdate=datetime.now, comment="更新时间")
 
     # 软删除
     is_deleted = Column(SMALLINT, nullable=False, default=0, comment="软删除标记: 0-正常, 1-已删除")

@@ -48,21 +48,28 @@ async def test_rejected_resume_stream_yields_controlled_deltas():
         user_id="u1",
     )
 
-    with patch(
-        "src.application.orchestration.agent_resume.RunState.from_json",
-        new=AsyncMock(return_value=sdk_state),
-    ), patch(
-        "src.application.orchestration.agent_resume.Runner.run_streamed",
-    ) as runner_run_streamed, patch(
-        "src.application.orchestration.agent_factory.AsyncOpenAI",
-    ), patch(
-        "src.application.orchestration.agent_factory.OpenAIChatCompletionsModel",
-    ), patch(
-        "src.application.orchestration.agent_factory.Agent",
-        return_value=MagicMock(),
-    ), patch(
-        "src.application.orchestration.agent_observation.get_tracer_manager",
-        return_value=None,
+    with (
+        patch(
+            "src.application.orchestration.agent_resume.RunState.from_json",
+            new=AsyncMock(return_value=sdk_state),
+        ),
+        patch(
+            "src.application.orchestration.agent_resume.Runner.run_streamed",
+        ) as runner_run_streamed,
+        patch(
+            "src.application.orchestration.agent_factory.AsyncOpenAI",
+        ),
+        patch(
+            "src.application.orchestration.agent_factory.OpenAIChatCompletionsModel",
+        ),
+        patch(
+            "src.application.orchestration.agent_factory.Agent",
+            return_value=MagicMock(),
+        ),
+        patch(
+            "src.application.orchestration.agent_observation.get_tracer_manager",
+            return_value=None,
+        ),
     ):
         events = [
             event
@@ -144,38 +151,39 @@ async def test_streamed_run_yields_text_delta_and_completed_result():
     langfuse.start_as_current_observation.return_value = nullcontext(observation)
     tracer_manager = SimpleNamespace(langfuse=langfuse, is_initialized=True)
 
-    with patch(
-        "src.application.orchestration.agent_runtime.Runner.run_streamed",
-        return_value=fake_run_result,
-    ), patch(
-        "src.application.orchestration.agent_factory.AsyncOpenAI",
-    ), patch(
-        "src.application.orchestration.agent_factory.OpenAIChatCompletionsModel",
-    ), patch(
-        "src.application.orchestration.agent_factory.Agent",
-        return_value=MagicMock(),
-    ), patch(
-        "src.application.orchestration.agent_runtime.parse_tool_calls_from_result",
-        return_value=[],
-    ), patch(
-        "src.application.orchestration.agent_observation.get_tracer_manager",
-        return_value=tracer_manager,
-    ), patch(
-        "src.application.orchestration.agent_observation.propagate_attributes",
-        return_value=nullcontext(),
+    with (
+        patch(
+            "src.application.orchestration.agent_runtime.Runner.run_streamed",
+            return_value=fake_run_result,
+        ),
+        patch(
+            "src.application.orchestration.agent_factory.AsyncOpenAI",
+        ),
+        patch(
+            "src.application.orchestration.agent_factory.OpenAIChatCompletionsModel",
+        ),
+        patch(
+            "src.application.orchestration.agent_factory.Agent",
+            return_value=MagicMock(),
+        ),
+        patch(
+            "src.application.orchestration.agent_runtime.parse_tool_calls_from_result",
+            return_value=[],
+        ),
+        patch(
+            "src.application.orchestration.agent_observation.get_tracer_manager",
+            return_value=tracer_manager,
+        ),
+        patch(
+            "src.application.orchestration.agent_observation.propagate_attributes",
+            return_value=nullcontext(),
+        ),
     ):
-        events = [
-            event
-            async for event in orchestrator.run_stream(AgentSession(session_id="s1"), "answer")
-    ]
+        events = [event async for event in orchestrator.run_stream(AgentSession(session_id="s1"), "answer")]
 
     assert events[0]["type"] == "start"
     assert [event["delta"] for event in events if event["type"] == "delta"] == ["完", "成"]
-    assert [
-        event["delta"]
-        for event in events
-        if event["type"] == "reasoning_summary_delta"
-    ] == ["正在整理"]
+    assert [event["delta"] for event in events if event["type"] == "reasoning_summary_delta"] == ["正在整理"]
     assert [event for event in events if event["type"] == "agent_updated"][0]["agent"] == "billing"
     assert events[-1]["type"] == "done"
     assert events[-1]["data"]["output"] == "完成"
@@ -204,12 +212,15 @@ def test_runtime_adds_reasoning_summary_model_settings_when_enabled():
         settings=settings,
     )
 
-    with patch(
-        "src.application.orchestration.agent_factory.OpenAIChatCompletionsModel",
-    ), patch(
-        "src.application.orchestration.agent_factory.Agent",
-        return_value=MagicMock(),
-    ) as agent_cls:
+    with (
+        patch(
+            "src.application.orchestration.agent_factory.OpenAIChatCompletionsModel",
+        ),
+        patch(
+            "src.application.orchestration.agent_factory.Agent",
+            return_value=MagicMock(),
+        ) as agent_cls,
+    ):
         orchestrator._build_agent(
             model="gpt-5-mini",
             client=MagicMock(),
@@ -262,25 +273,33 @@ async def test_approved_resume_stream_yields_model_deltas():
         settings=_settings(),
     )
 
-    with patch(
-        "src.application.orchestration.agent_resume.RunState.from_json",
-        new=AsyncMock(return_value=sdk_state),
-    ), patch(
-        "src.application.orchestration.agent_resume.Runner.run_streamed",
-        return_value=fake_result,
-    ), patch(
-        "src.application.orchestration.agent_factory.AsyncOpenAI",
-    ), patch(
-        "src.application.orchestration.agent_factory.OpenAIChatCompletionsModel",
-    ), patch(
-        "src.application.orchestration.agent_factory.Agent",
-        return_value=MagicMock(),
-    ), patch(
-        "src.application.orchestration.agent_runtime.parse_tool_calls_from_result",
-        return_value=[],
-    ), patch(
-        "src.application.orchestration.agent_observation.get_tracer_manager",
-        return_value=None,
+    with (
+        patch(
+            "src.application.orchestration.agent_resume.RunState.from_json",
+            new=AsyncMock(return_value=sdk_state),
+        ),
+        patch(
+            "src.application.orchestration.agent_resume.Runner.run_streamed",
+            return_value=fake_result,
+        ),
+        patch(
+            "src.application.orchestration.agent_factory.AsyncOpenAI",
+        ),
+        patch(
+            "src.application.orchestration.agent_factory.OpenAIChatCompletionsModel",
+        ),
+        patch(
+            "src.application.orchestration.agent_factory.Agent",
+            return_value=MagicMock(),
+        ),
+        patch(
+            "src.application.orchestration.agent_runtime.parse_tool_calls_from_result",
+            return_value=[],
+        ),
+        patch(
+            "src.application.orchestration.agent_observation.get_tracer_manager",
+            return_value=None,
+        ),
     ):
         events = [
             event

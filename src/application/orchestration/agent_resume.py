@@ -84,10 +84,7 @@ class AgentResumeRuntime:
         拒绝时不继续调用模型，避免模型误以为工具已经执行并编造结果。这里仍然
         触发 ``AFTER_RUN``，让 session_store、memory summary 等能力记录这次拒绝。
         """
-        ctx.final_output = (
-            f"操作已被拒绝，未执行工具 {tool_name}。"
-            "因此无法基于该工具的查询结果提供信息或建议。"
-        )
+        ctx.final_output = f"操作已被拒绝，未执行工具 {tool_name}。因此无法基于该工具的查询结果提供信息或建议。"
         ctx.tool_calls = [
             {
                 "name": tool_name,
@@ -258,9 +255,7 @@ class AgentResumeRuntime:
             raise ValueError(f"审批中断不存在: {interruption_index}")
         interruption = interruptions[interruption_index]
         tool_name = (
-            getattr(interruption, "qualified_name", None)
-            or getattr(interruption, "name", None)
-            or "requested_tool"
+            getattr(interruption, "qualified_name", None) or getattr(interruption, "name", None) or "requested_tool"
         )
         if approved:
             sdk_state.approve(interruption, always_approve=always)

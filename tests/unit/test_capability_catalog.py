@@ -60,10 +60,7 @@ def test_catalog_lists_optional_capabilities_even_when_not_selected():
 
 def test_catalog_exposes_provider_resolution_and_external_resources():
     catalog = HarnessBuilder(_settings()).build().context.capability_catalog()
-    dependencies = {
-        (item["capability"], item["requires"]): item
-        for item in catalog["dependencies"]
-    }
+    dependencies = {(item["capability"], item["requires"]): item for item in catalog["dependencies"]}
 
     handoff = dependencies[("handoff", "model_router")]
     compression = dependencies[("context_compression", "conversation_context")]
@@ -77,14 +74,18 @@ def test_catalog_exposes_provider_resolution_and_external_resources():
 
 
 def test_catalog_reports_current_optional_selection():
-    catalog = HarnessBuilder(
-        _settings(
-            hitl_enabled=True,
-            hitl_require_approval_tools=["get_weather"],
-            handoff_enabled=True,
-            handoff_agents={"billing": {"instructions": "处理账单请求。"}},
+    catalog = (
+        HarnessBuilder(
+            _settings(
+                hitl_enabled=True,
+                hitl_require_approval_tools=["get_weather"],
+                handoff_enabled=True,
+                handoff_agents={"billing": {"instructions": "处理账单请求。"}},
+            )
         )
-    ).build().context.capability_catalog()
+        .build()
+        .context.capability_catalog()
+    )
     by_name = {item["name"]: item for item in catalog["capabilities"]}
 
     assert by_name["hitl"]["enabled"] is True

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from typing import Optional
 
 from src.api.middleware.rate_limit.base import RateLimitDecision, RateLimitError, RateLimitKey, RateLimiter
@@ -83,6 +82,7 @@ class RedisRateLimiter(RateLimiter):
             return self._get_client()
         # Lazy import to avoid pulling redis at module load.
         from src.infrastructure.redis_client import get_redis_client
+
         return get_redis_client(for_write=True)
 
     async def _ensure_script(self, client) -> str:
@@ -122,22 +122,35 @@ class RedisRateLimiter(RateLimiter):
             raise RateLimitError("Redis rate limiting backend is unavailable")
 
         import time as _time
+
         now_ms = int(_time.time() * 1000)
         ttl_sec = max(window_sec * 2, 60)
 
         try:
             sha = await self._ensure_script(client)
             result = await client.evalsha(
-                sha, 1, key.redis_key(),
-                str(burst), str(limit), str(window_sec), str(now_ms), str(ttl_sec),
+                sha,
+                1,
+                key.redis_key(),
+                str(burst),
+                str(limit),
+                str(window_sec),
+                str(now_ms),
+                str(ttl_sec),
             )
-        except Exception as e:
+        except Exception:
             # NOSCRIPT or other transient error -> reload & retry once.
             try:
                 self._script_sha = await client.script_load(_LUA_TOKEN_BUCKET)
                 result = await client.evalsha(
-                    self._script_sha, 1, key.redis_key(),
-                    str(burst), str(limit), str(window_sec), str(now_ms), str(ttl_sec),
+                    self._script_sha,
+                    1,
+                    key.redis_key(),
+                    str(burst),
+                    str(limit),
+                    str(window_sec),
+                    str(now_ms),
+                    str(ttl_sec),
                 )
             except Exception as e2:  # pragma: no cover
                 logger.error(

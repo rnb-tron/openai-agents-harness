@@ -70,5 +70,4 @@ class PromptStore(Protocol):
         *,
         version: str | int | None = None,
         label: str | None = None,
-    ) -> PromptTemplate:
-        ...
+    ) -> PromptTemplate: ...

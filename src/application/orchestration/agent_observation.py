@@ -21,11 +21,7 @@ class AgentRunObserver:
         trace_name: str,
     ):
         tracer_manager = get_tracer_manager()
-        langfuse = (
-            tracer_manager.langfuse
-            if tracer_manager is not None and tracer_manager.is_initialized
-            else None
-        )
+        langfuse = tracer_manager.langfuse if tracer_manager is not None and tracer_manager.is_initialized else None
         if langfuse is None:
             yield None
             return

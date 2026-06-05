@@ -9,40 +9,40 @@ DEFAULT_LANGFUSE_BASE_URL = "http://agent-otel-test.ke.com"
 @dataclass
 class ObservabilityConfig:
     """Langfuse 可观测性配置"""
-    
+
     # Langfuse 认证
     public_key: str = ""
     secret_key: str = ""
     base_url: str = DEFAULT_LANGFUSE_BASE_URL
-    
+
     # 功能开关
     enabled: bool = False
     tracing_enabled: bool = True
     metrics_enabled: bool = True
-    
+
     # 性能优化
     async_enabled: bool = True
     batch_size: int = 100
     flush_interval: float = 5.0  # 秒
-    
+
     # 采样策略 (0.0 - 1.0)
     sampling_rate: float = 1.0
-    
+
     # 隐私保护
     mask_pii: bool = True
-    
+
     # 超时配置
     request_timeout: int = 30  # 秒
-    
+
     # 重试配置
     max_retries: int = 3
     retry_delay: float = 1.0  # 秒
-    
+
     # 自定义标签
     environment: str = "development"
-    application: str = "openai-agent-sdk"
+    application: str = "openai-agents-harness"
     version: str = "0.1.0"
-    
+
     @classmethod
     def from_env(cls) -> "ObservabilityConfig":
         """从环境变量加载配置"""
@@ -61,20 +61,18 @@ class ObservabilityConfig:
             max_retries=int(os.getenv("LANGFUSE_MAX_RETRIES", "3")),
             retry_delay=float(os.getenv("LANGFUSE_RETRY_DELAY", "1.0")),
             environment=os.getenv("APP_PROFILE", "development"),
-            application=os.getenv("APP_NAME", "openai-agent-sdk"),
+            application=os.getenv("APP_NAME", "openai-agents-harness"),
             version=os.getenv("APP_VERSION", "0.1.0"),
         )
-    
+
     def validate(self) -> bool:
         """验证配置是否有效"""
         if not self.enabled:
             return True
-        
+
         if not self.public_key or not self.secret_key:
-            raise ValueError(
-                "LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY are required when observability is enabled"
-            )
-        
+            raise ValueError("LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY are required when observability is enabled")
+
         if not 0.0 <= self.sampling_rate <= 1.0:
             raise ValueError("LANGFUSE_SAMPLING_RATE must be between 0.0 and 1.0")
         if self.batch_size <= 0:
@@ -83,5 +81,5 @@ class ObservabilityConfig:
             raise ValueError("LANGFUSE_FLUSH_INTERVAL must be positive")
         if self.request_timeout <= 0:
             raise ValueError("LANGFUSE_REQUEST_TIMEOUT must be positive")
-        
+
         return True

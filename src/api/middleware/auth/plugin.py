@@ -110,8 +110,11 @@ class AuthPlugin:
                 if strict:
                     logger.warning("auth_missing_credential", extra={"path": path})
                     return JSONResponse(
-                        {"error": "unauthorized", "code": "missing_credential",
-                         "message": "missing or invalid Authorization header"},
+                        {
+                            "error": "unauthorized",
+                            "code": "missing_credential",
+                            "message": "missing or invalid Authorization header",
+                        },
                         status_code=401,
                     )
                 principal = Principal(user_id="anonymous", is_anonymous=True)

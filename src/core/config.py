@@ -127,7 +127,7 @@ class Settings:
     openai_base_url: str | None
     agent_model_default: str
     agent_model_reasoning: str
-    
+
     # Memory System Configuration
     memory_short_term_enabled: bool
     memory_long_term_enabled: bool
@@ -158,7 +158,7 @@ class Settings:
     memory_session_summary_model: str
     memory_session_summary_max_tokens: int
     memory_session_summary_max_source_messages: int
-    
+
     # Observability System Configuration
     observability_enabled: bool
 
@@ -232,7 +232,7 @@ def get_settings() -> Settings:
     database_url = _build_session_store_database_url_from_env()
     return Settings(
         env_type=env_type,
-        app_name=os.getenv("APP_NAME", "openai-agent-sdk"),
+        app_name=os.getenv("APP_NAME", "openai-agents-harness"),
         app_profile=app_profile,
         debug=os.getenv("DEBUG", "false").lower() == "true",
         host=os.getenv("HOST", "0.0.0.0"),
@@ -281,35 +281,17 @@ def get_settings() -> Settings:
         memory_es_hosts=os.getenv("MEMORY_ES_HOSTS", "http://localhost:9200"),
         memory_es_index=os.getenv("MEMORY_ES_INDEX", "agent_memories"),
         memory_preference_cache_ttl_sec=int(os.getenv("MEMORY_PREFERENCE_CACHE_TTL_SEC", "900")),
-        memory_embedding_model=os.getenv(
-            "MEMORY_EMBEDDING_MODEL", "text-embedding-3-small"
-        ),
+        memory_embedding_model=os.getenv("MEMORY_EMBEDDING_MODEL", "text-embedding-3-small"),
         memory_vector_dimension=int(os.getenv("MEMORY_VECTOR_DIMENSION", "1536")),
-        memory_short_term_context_max_turns=int(
-            os.getenv("MEMORY_SHORT_TERM_CONTEXT_MAX_TURNS", "6")
-        ),
-        memory_long_term_context_max_memories=int(
-            os.getenv("MEMORY_LONG_TERM_CONTEXT_MAX_MEMORIES", "3")
-        ),
-        memory_session_summary_enabled=os.getenv(
-            "MEMORY_SESSION_SUMMARY_ENABLED", "false"
-        ).lower() == "true",
-        memory_session_summary_cache_ttl=int(
-            os.getenv("MEMORY_SESSION_SUMMARY_CACHE_TTL", "2592000")
-        ),
-        memory_session_summary_initial_messages=int(
-            os.getenv("MEMORY_SESSION_SUMMARY_INITIAL_MESSAGES", "4")
-        ),
-        memory_session_summary_update_messages=int(
-            os.getenv("MEMORY_SESSION_SUMMARY_UPDATE_MESSAGES", "6")
-        ),
+        memory_short_term_context_max_turns=int(os.getenv("MEMORY_SHORT_TERM_CONTEXT_MAX_TURNS", "6")),
+        memory_long_term_context_max_memories=int(os.getenv("MEMORY_LONG_TERM_CONTEXT_MAX_MEMORIES", "3")),
+        memory_session_summary_enabled=os.getenv("MEMORY_SESSION_SUMMARY_ENABLED", "false").lower() == "true",
+        memory_session_summary_cache_ttl=int(os.getenv("MEMORY_SESSION_SUMMARY_CACHE_TTL", "2592000")),
+        memory_session_summary_initial_messages=int(os.getenv("MEMORY_SESSION_SUMMARY_INITIAL_MESSAGES", "4")),
+        memory_session_summary_update_messages=int(os.getenv("MEMORY_SESSION_SUMMARY_UPDATE_MESSAGES", "6")),
         memory_session_summary_model=os.getenv("MEMORY_SESSION_SUMMARY_MODEL", ""),
-        memory_session_summary_max_tokens=int(
-            os.getenv("MEMORY_SESSION_SUMMARY_MAX_TOKENS", "512")
-        ),
-        memory_session_summary_max_source_messages=int(
-            os.getenv("MEMORY_SESSION_SUMMARY_MAX_SOURCE_MESSAGES", "20")
-        ),
+        memory_session_summary_max_tokens=int(os.getenv("MEMORY_SESSION_SUMMARY_MAX_TOKENS", "512")),
+        memory_session_summary_max_source_messages=int(os.getenv("MEMORY_SESSION_SUMMARY_MAX_SOURCE_MESSAGES", "20")),
         # Observability Configuration
         observability_enabled=os.getenv("LANGFUSE_ENABLED", "false").lower() == "true",
         # Human-in-the-Loop

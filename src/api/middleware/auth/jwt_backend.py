@@ -15,6 +15,7 @@ try:
         InvalidSignatureError,
         InvalidTokenError,
     )
+
     _JWT_AVAILABLE = True
 except ImportError:  # pragma: no cover
     pyjwt = None  # type: ignore[assignment]
@@ -45,9 +46,7 @@ class JWTAuthBackend(AuthBackend):
         fallback_header: Optional[str] = "X-Api-Token",
     ) -> None:
         if not _JWT_AVAILABLE:
-            raise RuntimeError(
-                "PyJWT is not installed. Add `PyJWT>=2.8` to requirements.txt"
-            )
+            raise RuntimeError("PyJWT is not installed. Add `PyJWT>=2.8` to requirements.txt")
         self.algorithm = algorithm
         self.issuer = issuer
         self.audience = audience

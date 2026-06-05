@@ -16,6 +16,7 @@ router = APIRouter(prefix="/memory", tags=["memory"])
 
 class MemorySearchRequest(BaseModel):
     """记忆搜索请求"""
+
     query: str = Field(..., description="搜索关键词")
     user_id: str = Field(..., description="用户ID")
     top_k: int = Field(default=5, ge=1, le=20, description="返回数量")
@@ -23,11 +24,13 @@ class MemorySearchRequest(BaseModel):
 
 class MemoryClearRequest(BaseModel):
     """清空记忆请求"""
+
     session_id: str = Field(..., description="会话ID")
 
 
 class MemoryClearUserRequest(BaseModel):
     """清空用户级长期记忆请求"""
+
     user_id: str = Field(..., description="用户ID")
 
 
@@ -38,7 +41,7 @@ async def search_memories(
 ):
     """
     搜索长期记忆
-    
+
     使用向量检索查找相关的历史记忆
     """
     try:
@@ -50,7 +53,7 @@ async def search_memories(
                 query=request.query,
                 top_k=request.top_k,
             )
-        
+
         return create_success_response(
             data={
                 "query": request.query,
@@ -59,7 +62,7 @@ async def search_memories(
                 "count": len(results),
             }
         )
-        
+
     except Exception as e:
         service_logger.error(f"Memory search failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Memory search failed: {e}")
@@ -72,7 +75,7 @@ async def clear_session_memory(
 ):
     """
     清空会话记忆
-    
+
     清除指定会话的短期记忆。长期记忆是用户级资产，需要显式调用用户级清理接口。
     """
     try:
@@ -81,17 +84,17 @@ async def clear_session_memory(
         else:
             harness.memory_store.clear(request.session_id)
             success = True
-        
+
         if not success:
             return create_error_response(message="Failed to clear session memory")
-        
+
         return create_success_response(
             data={
                 "session_id": request.session_id,
                 "cleared": True,
             }
         )
-        
+
     except Exception as e:
         service_logger.error(f"Clear session memory failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Clear memory failed: {e}")
@@ -131,7 +134,7 @@ async def get_memory_stats(
 ):
     """
     获取记忆统计信息
-    
+
     返回短期和长期记忆的统计数据
     """
     try:
@@ -146,9 +149,9 @@ async def get_memory_stats(
                     "by_type": {},
                 },
             }
-        
+
         return create_success_response(data=stats)
-        
+
     except Exception as e:
         service_logger.error(f"Get memory stats failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Get stats failed: {e}")
@@ -158,7 +161,7 @@ async def get_memory_stats(
 async def cleanup_old_memories(harness: Harness = Depends(get_harness)):
     """
     清理旧记忆
-    
+
     执行记忆维护任务:遗忘策略、去重、归档
     """
     try:
@@ -169,9 +172,9 @@ async def cleanup_old_memories(harness: Harness = Depends(get_harness)):
                 "skipped": True,
                 "reason": "long_term_memory_disabled",
             }
-        
+
         return create_success_response(data=result)
-        
+
     except Exception as e:
         service_logger.error(f"Cleanup old memories failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Cleanup failed: {e}")

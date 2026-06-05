@@ -4,9 +4,8 @@ Memory Repository
 """
 
 from datetime import datetime
-from typing import Optional
 
-from sqlalchemy import select, update, delete, func, and_
+from sqlalchemy import select, update, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.capabilities.memory.models import MemoryRecord
@@ -55,7 +54,7 @@ class MemoryRepository:
         """
         try:
             memory_id = int(generate_rid())
-            
+
             record = MemoryRecord(
                 id=memory_id,
                 user_id=user_id,
@@ -371,9 +370,7 @@ class MemoryRepository:
                 conditions.append(MemoryRecord.user_id == user_id)
 
             # 总数量
-            total_result = await self.db.execute(
-                select(func.count(MemoryRecord.id)).where(and_(*conditions))
-            )
+            total_result = await self.db.execute(select(func.count(MemoryRecord.id)).where(and_(*conditions)))
             total_count = total_result.scalar() or 0
 
             # 按类型统计

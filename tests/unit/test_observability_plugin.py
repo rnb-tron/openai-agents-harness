@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 from src.capabilities.observability import ObservabilityPlugin
 from src.api.middleware.request_context import install_request_context
 
+
 def test_observability_plugin_disabled_is_noop():
     app = FastAPI()
     plugin = ObservabilityPlugin(enabled=False)

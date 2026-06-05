@@ -51,5 +51,4 @@ class AuthBackend(ABC):
     """
 
     @abstractmethod
-    async def authenticate(self, request: Request) -> Optional[Principal]:
-        ...
+    async def authenticate(self, request: Request) -> Optional[Principal]: ...

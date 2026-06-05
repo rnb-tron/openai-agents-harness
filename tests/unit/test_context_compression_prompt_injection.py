@@ -33,9 +33,7 @@ def _long_text() -> str:
 @pytest.mark.asyncio
 async def test_rolling_summary_uses_injected_prompt_manager():
     prompt_manager = MagicMock()
-    prompt_manager.get = AsyncMock(
-        return_value=SimpleNamespace(text="CUSTOM SUMMARY SYSTEM PROMPT")
-    )
+    prompt_manager.get = AsyncMock(return_value=SimpleNamespace(text="CUSTOM SUMMARY SYSTEM PROMPT"))
     strategy = RollingSummary.from_settings(_settings(), prompt_manager=prompt_manager)
 
     fake_resp = MagicMock()
@@ -45,12 +43,15 @@ async def test_rolling_summary_uses_injected_prompt_manager():
     fake_client.chat.completions = MagicMock()
     fake_client.chat.completions.create = AsyncMock(return_value=fake_resp)
 
-    with patch(
-        "src.capabilities.context_compression.rolling_summary.AsyncOpenAI",
-        return_value=fake_client,
-    ), patch(
-        "src.infrastructure.redis_client.get_redis_client",
-        return_value=None,
+    with (
+        patch(
+            "src.capabilities.context_compression.rolling_summary.AsyncOpenAI",
+            return_value=fake_client,
+        ),
+        patch(
+            "src.infrastructure.redis_client.get_redis_client",
+            return_value=None,
+        ),
     ):
         await strategy.compress(
             _long_text(),

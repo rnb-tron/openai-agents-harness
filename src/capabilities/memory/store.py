@@ -61,9 +61,7 @@ class ShortTermMemory:
             }
 
             if not self.redis:
-                service_logger.debug(
-                    f"Short-term Redis unavailable, skip cache append: session={session_id}"
-                )
+                service_logger.debug(f"Short-term Redis unavailable, skip cache append: session={session_id}")
                 return True
 
             key = f"memory:short_term:{session_id}"

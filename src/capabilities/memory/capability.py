@@ -63,12 +63,7 @@ class MemoryCapability(Capability):
                 )
 
         if memory_context:
-            ctx.enriched_input = (
-                "Conversation memory:\n"
-                f"{memory_context}\n\n"
-                "User:\n"
-                f"{ctx.user_input}"
-            )
+            ctx.enriched_input = f"Conversation memory:\n{memory_context}\n\nUser:\n{ctx.user_input}"
         else:
             ctx.enriched_input = ctx.user_input
 

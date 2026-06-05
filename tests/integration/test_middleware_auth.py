@@ -41,6 +41,7 @@ def _build_app(*, strict: bool = False, scopes_required: tuple[str, ...] = ()) -
         }
 
     if scopes_required:
+
         @app.get("/admin")
         def admin(principal: Principal = Depends(require_scope(*scopes_required))):
             return {"user_id": principal.user_id}
@@ -52,8 +53,9 @@ def _build_app(*, strict: bool = False, scopes_required: tuple[str, ...] = ()) -
     return app
 
 
-def _make_token(sub: str, *, exp_delta_sec: int = 60, secret: str = SECRET, scopes=None,
-                algorithm: str = "HS256") -> str:
+def _make_token(
+    sub: str, *, exp_delta_sec: int = 60, secret: str = SECRET, scopes=None, algorithm: str = "HS256"
+) -> str:
     now = dt.datetime.now(tz=dt.timezone.utc)
     claims = {
         "sub": sub,

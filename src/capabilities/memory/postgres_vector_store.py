@@ -34,9 +34,7 @@ class PostgresVectorStore:
 
     def _vector_literal(self, values: list[float]) -> str:
         if len(values) != self.dimension:
-            raise ValueError(
-                f"Expected vector dimension {self.dimension}, got {len(values)}"
-            )
+            raise ValueError(f"Expected vector dimension {self.dimension}, got {len(values)}")
         return "[" + ",".join(str(float(value)) for value in values) + "]"
 
     async def create_index(self) -> None:
@@ -60,12 +58,7 @@ class PostgresVectorStore:
                 """
             )
         )
-        await self.session.execute(
-            text(
-                f"CREATE INDEX IF NOT EXISTS idx_{table}_user "
-                f"ON {table} (user_id)"
-            )
-        )
+        await self.session.execute(text(f"CREATE INDEX IF NOT EXISTS idx_{table}_user ON {table} (user_id)"))
         await self.session.execute(
             text(
                 f"CREATE INDEX IF NOT EXISTS idx_{table}_embedding_hnsw "
@@ -185,8 +178,9 @@ class PostgresVectorStore:
             return True
         try:
             await self.session.execute(
-                text(f"DELETE FROM {self.table_name} WHERE memory_id IN :memory_ids")
-                .bindparams(bindparam("memory_ids", expanding=True)),
+                text(f"DELETE FROM {self.table_name} WHERE memory_id IN :memory_ids").bindparams(
+                    bindparam("memory_ids", expanding=True)
+                ),
                 {"memory_ids": [str(item) for item in memory_ids]},
             )
             return True

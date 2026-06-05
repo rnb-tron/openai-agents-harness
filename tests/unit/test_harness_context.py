@@ -98,6 +98,4 @@ def test_context_ignores_disabled_capabilities_by_default():
     ctx = _context(registry)
 
     assert ctx.missing_dependencies() == {}
-    assert ctx.missing_dependencies(enabled_only=False) == {
-        "disabled_rag": ["vector_search"]
-    }
+    assert ctx.missing_dependencies(enabled_only=False) == {"disabled_rag": ["vector_search"]}

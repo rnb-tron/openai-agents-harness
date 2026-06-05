@@ -52,9 +52,7 @@ class AgentFactory:
         model_settings = ModelSettings()
         if getattr(self.settings, "reasoning_summary_enabled", False):
             model_settings = ModelSettings(
-                reasoning=Reasoning(
-                    summary=getattr(self.settings, "reasoning_summary_mode", "auto")
-                )
+                reasoning=Reasoning(summary=getattr(self.settings, "reasoning_summary_mode", "auto"))
             )
         return Agent(
             name="MinimalChatAgent",

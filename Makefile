@@ -2,6 +2,8 @@
 
 PYTHON ?= venv/bin/python
 PIP ?= venv/bin/pip
+RUFF ?= venv/bin/ruff
+MYPY ?= venv/bin/mypy
 
 .PHONY: help install dev run run-prod test test-integration test-e2e test-all clean format lint
 
@@ -37,12 +39,12 @@ test-cov: ## Run tests with coverage
 	$(PYTHON) -m pytest tests/unit -v --cov=src --cov-report=html
 
 format: ## Format code
-	black src/ tests/
-	ruff check --fix src/ tests/
+	$(RUFF) check --fix src/ tests/
+	$(RUFF) format src/ tests/
 
 lint: ## Lint code
-	ruff check src/ tests/
-	mypy src/
+	$(RUFF) check src/ tests/
+	$(MYPY) src/
 
 clean: ## Clean up
 	find . -type d -name "__pycache__" -exec rm -rf {} +
@@ -58,7 +60,7 @@ seed: ## Seed database with initial data
 	# Add seed commands here
 
 docker-build: ## Build Docker image
-	docker build -t openai-agent-sdk:prod -f docker/Dockerfile .
+	docker build -t openai-agents-harness:prod -f docker/Dockerfile .
 
 docker-run: ## Run Docker container
 	docker compose -f docker-compose.prod.yml up -d

@@ -74,10 +74,7 @@ def test_orchestrator_registers_mem0_memory_without_embedding_provider():
         settings=_settings(memory_short_term_enabled=True, memory_long_term_enabled=True),
     )
 
-    manifests = {
-        capability.manifest.name: capability.manifest
-        for capability in orchestrator.registry.enabled
-    }
+    manifests = {capability.manifest.name: capability.manifest for capability in orchestrator.registry.enabled}
 
     assert manifests["long_term_memory"].depends_on == ("memory_manager",)
     assert manifests["vector_search"].depends_on == ("long_term_memory",)

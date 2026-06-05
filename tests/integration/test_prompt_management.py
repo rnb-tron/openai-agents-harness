@@ -64,9 +64,9 @@ def _make_yaml_dir() -> Path:
     _write_yaml(
         tmp,
         "agents/main_chat.yaml",
-        'name: agents.main_chat\n'
+        "name: agents.main_chat\n"
         'version: "1.0.0"\n'
-        'label: prod\n'
+        "label: prod\n"
         "template: |-\n"
         "  Hello {user_name}, you are {role}.\n"
         "metadata:\n"
@@ -75,10 +75,7 @@ def _make_yaml_dir() -> Path:
     _write_yaml(
         tmp,
         "capabilities/summary.yaml",
-        'name: capabilities.summary\n'
-        'version: "1.0.0"\n'
-        "template: |-\n"
-        "  Summarize concisely. Keep facts.\n",
+        'name: capabilities.summary\nversion: "1.0.0"\ntemplate: |-\n  Summarize concisely. Keep facts.\n',
     )
     return tmp
 
@@ -380,12 +377,14 @@ def test_main_chat_fallback_when_get_fails() -> None:
         memory_session_summary_enabled=False,
         memory_long_term_enabled=False,
     )
-    with patch.object(ar_mod, "current_settings", full_settings), \
-         patch.object(ar_mod, "Runner") as MockRunner, \
-         patch.object(factory_mod, "Agent") as MockAgent, \
-         patch.object(factory_mod, "AsyncOpenAI") as MockClient, \
-         patch.object(factory_mod, "OpenAIChatCompletionsModel"), \
-         patch.object(ar_mod, "parse_tool_calls_from_result", return_value=[]):
+    with (
+        patch.object(ar_mod, "current_settings", full_settings),
+        patch.object(ar_mod, "Runner") as MockRunner,
+        patch.object(factory_mod, "Agent") as MockAgent,
+        patch.object(factory_mod, "AsyncOpenAI") as MockClient,
+        patch.object(factory_mod, "OpenAIChatCompletionsModel"),
+        patch.object(ar_mod, "parse_tool_calls_from_result", return_value=[]),
+    ):
         MockRunner.run_streamed.return_value = fake_run_result
         MockClient.return_value = MagicMock()
         MockAgent.return_value = MagicMock()
@@ -408,9 +407,7 @@ def test_main_chat_fallback_when_get_fails() -> None:
         # Agent 被构造时 instructions 应是硬编码 fallback (含 "concise assistant")
         agent_call = MockAgent.call_args
         instructions = agent_call.kwargs.get("instructions", "")
-        assert "concise assistant" in instructions, (
-            f"expected fallback hardcoded instructions, got: {instructions!r}"
-        )
+        assert "concise assistant" in instructions, f"expected fallback hardcoded instructions, got: {instructions!r}"
 
         # 主流程应正常返回
         assert events[-1]["data"]["output"] == "ok"

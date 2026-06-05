@@ -66,12 +66,9 @@ class MemoryManager:
         )
 
         vector_backend = self.vector_store.backend_name if self.vector_store else "none"
-        embedding_backend = (
-            self.embedding_provider.provider_name if self.embedding_provider else "none"
-        )
+        embedding_backend = self.embedding_provider.provider_name if self.embedding_provider else "none"
         service_logger.info(
-            f"MemoryManager initialized: vector_backend={vector_backend}, "
-            f"embedding_provider={embedding_backend}"
+            f"MemoryManager initialized: vector_backend={vector_backend}, embedding_provider={embedding_backend}"
         )
 
     def _build_vector_store(self) -> VectorStore | None:
@@ -90,9 +87,7 @@ class MemoryManager:
         if backend == "pgvector":
             database_url = getattr(self.settings, "database_url", "")
             if not database_url.startswith(("postgresql", "postgres")):
-                raise ValueError(
-                    "Legacy pgvector memory backend requires a PostgreSQL database URL"
-                )
+                raise ValueError("Legacy pgvector memory backend requires a PostgreSQL database URL")
             return PostgresVectorStore(
                 session=self.db_session,
                 table_name=getattr(self.settings, "memory_pgvector_table", "memory_vectors"),
@@ -125,9 +120,7 @@ class MemoryManager:
         try:
             if self.vector_store:
                 await self.vector_store.create_index()
-                service_logger.info(
-                    f"Vector store initialized: backend={self.vector_store.backend_name}"
-                )
+                service_logger.info(f"Vector store initialized: backend={self.vector_store.backend_name}")
 
             service_logger.info("Memory system initialized successfully")
 
@@ -192,14 +185,9 @@ class MemoryManager:
                         metadata=metadata,
                     )
                     if not indexed:
-                        service_logger.warning(
-                            f"Vector storage failed open: memory_id={record.id}"
-                        )
+                        service_logger.warning(f"Vector storage failed open: memory_id={record.id}")
                 except Exception as exc:
-                    service_logger.warning(
-                        f"Embedding/vector storage failed open: memory_id={record.id}, "
-                        f"error={exc}"
-                    )
+                    service_logger.warning(f"Embedding/vector storage failed open: memory_id={record.id}, error={exc}")
 
             await self.db_session.commit()
             service_logger.info(f"Memory added: session={session_id}, user={user_id}, role={role}")
@@ -234,10 +222,8 @@ class MemoryManager:
             session_id=session_id,
             user_id=user_id,
             user_input=user_input,
-            max_turns=max_turns
-            or getattr(self.settings, "memory_short_term_context_max_turns", 6),
-            enable_retrieval=enable_retrieval
-            and getattr(self.settings, "memory_long_term_enabled", False),
+            max_turns=max_turns or getattr(self.settings, "memory_short_term_context_max_turns", 6),
+            enable_retrieval=enable_retrieval and getattr(self.settings, "memory_long_term_enabled", False),
             retrieval_top_k=self.settings.memory_long_term_context_max_memories,
         )
 
