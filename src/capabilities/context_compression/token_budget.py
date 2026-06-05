@@ -38,7 +38,7 @@ def _split_history_and_current(text: str) -> tuple[str, str]:
     if idx == -1:
         return "", text
     history = text[:idx]
-    current = text[idx + 1:]  # 保留 "User:\n..." 部分本身
+    current = text[idx + 1 :]  # 保留 "User:\n..." 部分本身
     return history, current
 
 

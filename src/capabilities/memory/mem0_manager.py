@@ -89,17 +89,13 @@ class Mem0MemoryManager:
                 ) from exc
             api_key = getattr(self.settings, "memory_long_term_mem0_api_key", "")
             if not api_key:
-                raise ValueError(
-                    "MEMORY_LONG_TERM_MEM0_MODE=platform requires MEMORY_LONG_TERM_MEM0_API_KEY"
-                )
+                raise ValueError("MEMORY_LONG_TERM_MEM0_MODE=platform requires MEMORY_LONG_TERM_MEM0_API_KEY")
             return MemoryClient(api_key=api_key)
 
         try:
             from mem0 import Memory
         except ImportError as exc:  # pragma: no cover - 依赖可选安装包
-            raise RuntimeError(
-                "MEMORY_LONG_TERM_ENABLED=true requires package mem0ai"
-            ) from exc
+            raise RuntimeError("MEMORY_LONG_TERM_ENABLED=true requires package mem0ai") from exc
 
         raw_config = getattr(self.settings, "memory_long_term_mem0_config_json", "") or ""
         if raw_config.strip():
@@ -231,9 +227,7 @@ class Mem0MemoryManager:
             latest_messages=latest_messages,
         )
 
-        if not self._long_term_enabled() or not await self._should_submit_to_mem0(
-            user_content, content
-        ):
+        if not self._long_term_enabled() or not await self._should_submit_to_mem0(user_content, content):
             return True
 
         messages = [{"role": "user", "content": user_content}]
@@ -254,9 +248,7 @@ class Mem0MemoryManager:
             self._preference_cache.pop(user_id, None)
             return True
         except Exception as exc:
-            service_logger.warning(
-                f"Mem0 add failed open: session={session_id}, user={user_id}, error={exc}"
-            )
+            service_logger.warning(f"Mem0 add failed open: session={session_id}, user={user_id}, error={exc}")
             return False
 
     async def _add_to_mem0(
@@ -317,11 +309,7 @@ class Mem0MemoryManager:
     ) -> list[dict[str, Any]]:
         memories = await self.short_term.get_recent(session_id, max_turns)
         if memories:
-            return [
-                memory
-                for memory in memories
-                if not self._is_preference_turn(memory.get("content", ""))
-            ]
+            return [memory for memory in memories if not self._is_preference_turn(memory.get("content", ""))]
         if self._session_store is None:
             return []
         messages = await self._list_recent_session_messages(
@@ -403,9 +391,7 @@ class Mem0MemoryManager:
                 results = self._select_effective_preferences(results)
             return results[: top_k or len(results)]
         except Exception as exc:
-            service_logger.warning(
-                f"Mem0 search failed open: user={user_id}, error={exc}"
-            )
+            service_logger.warning(f"Mem0 search failed open: user={user_id}, error={exc}")
             return []
 
     async def _search_mem0(self, *, query: str, user_id: str, limit: int) -> Any:
@@ -830,9 +816,8 @@ class Mem0MemoryManager:
         return True
 
     def _summary_model(self) -> str:
-        return (
-            getattr(self.settings, "memory_session_summary_model", "")
-            or getattr(self.settings, "agent_model_default", "gpt-4o-mini")
+        return getattr(self.settings, "memory_session_summary_model", "") or getattr(
+            self.settings, "agent_model_default", "gpt-4o-mini"
         )
 
     async def _generate_session_summary(
@@ -843,9 +828,7 @@ class Mem0MemoryManager:
     ) -> str:
         block = self._format_messages_for_summary(messages)
         user_prompt = (
-            f"已有会话摘要：\n{previous_summary}\n\n"
-            f"新增消息：\n{block}\n\n"
-            "请在旧摘要基础上更新会话摘要。"
+            f"已有会话摘要：\n{previous_summary}\n\n新增消息：\n{block}\n\n请在旧摘要基础上更新会话摘要。"
             if previous_summary
             else f"会话消息：\n{block}\n\n请生成第一版会话摘要。"
         )
@@ -907,9 +890,7 @@ class Mem0MemoryManager:
             context_parts.append("")
         if preferences:
             context_parts.append("=== Effective User Preferences (highest priority) ===")
-            context_parts.append(
-                "Follow these preferences over older preference statements in recent conversation."
-            )
+            context_parts.append("Follow these preferences over older preference statements in recent conversation.")
             for idx, memory in enumerate(preferences, 1):
                 context_parts.append(f"[{idx}] {memory['content']}")
             context_parts.append("")

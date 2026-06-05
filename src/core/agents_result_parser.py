@@ -24,7 +24,11 @@ def parse_tool_calls_from_result(result: Any) -> list[dict[str, Any]]:
         if isinstance(item, ToolCallOutputItem):
             if item.raw_item is None:
                 continue
-            call_id = item.raw_item.get("call_id") if isinstance(item.raw_item, dict) else getattr(item.raw_item, "call_id", None)
+            call_id = (
+                item.raw_item.get("call_id")
+                if isinstance(item.raw_item, dict)
+                else getattr(item.raw_item, "call_id", None)
+            )
             if not call_id or call_id not in calls_in_progress:
                 continue
             call_data = calls_in_progress.pop(call_id)

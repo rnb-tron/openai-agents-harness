@@ -104,9 +104,7 @@ class HandoffManager:
         if not self.model:
             raise ValueError("未提供 Model 实例")
 
-        targets = [
-            agent for agent_name in handoff_agents if (agent := self._agents.get(agent_name))
-        ]
+        targets = [agent for agent_name in handoff_agents if (agent := self._agents.get(agent_name))]
         triage_agent = Agent(
             name=name,
             instructions=instructions,

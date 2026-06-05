@@ -93,7 +93,7 @@ def test_get_settings_loads_long_term_memory_names(monkeypatch):
     monkeypatch.setenv("MEMORY_LONG_TERM_PROVIDER", "mem0")
     monkeypatch.setenv("MEMORY_LONG_TERM_MEM0_MODE", "platform")
     monkeypatch.setenv("MEMORY_LONG_TERM_MEM0_API_KEY", "mem0-key")
-    monkeypatch.setenv("MEMORY_LONG_TERM_MEM0_CONFIG_JSON", "{\"x\": {}}")
+    monkeypatch.setenv("MEMORY_LONG_TERM_MEM0_CONFIG_JSON", '{"x": {}}')
     monkeypatch.setenv("MEMORY_LONG_TERM_VECTOR_STORE", "pgvector")
 
     settings = get_settings()
@@ -101,5 +101,5 @@ def test_get_settings_loads_long_term_memory_names(monkeypatch):
     assert settings.memory_long_term_provider == "mem0"
     assert settings.memory_long_term_mem0_mode == "platform"
     assert settings.memory_long_term_mem0_api_key == "mem0-key"
-    assert settings.memory_long_term_mem0_config_json == "{\"x\": {}}"
+    assert settings.memory_long_term_mem0_config_json == '{"x": {}}'
     assert settings.memory_long_term_vector_store == "pgvector"

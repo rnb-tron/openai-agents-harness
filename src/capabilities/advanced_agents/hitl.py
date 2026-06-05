@@ -29,7 +29,7 @@ class ApprovalStatus(Enum):
 
 class ApprovalRequest:
     """审批请求"""
-    
+
     def __init__(
         self,
         id: str,
@@ -75,29 +75,29 @@ class ApprovalRequest:
 
 class ApprovalManager:
     """HITL 审批管理器"""
-    
+
     def __init__(self, config: HITLConfig):
         self.config = config
         self._requests: dict[str, ApprovalRequest] = {}
         self._approval_events: dict[str, asyncio.Event] = {}
-    
+
     def is_enabled(self) -> bool:
         """是否启用 HITL"""
         return self.config.enabled
-    
+
     def requires_approval(self, tool_name: str) -> bool:
         """检查工具是否需要审批"""
         if not self.config.enabled:
             return False
-        
+
         # 如果在自动审批列表中,不需要审批
         if tool_name in self.config.auto_approve_tools:
             return False
-        
+
         # 如果在需要审批列表中,需要审批
         if tool_name in self.config.require_approval_tools:
             return True
-        
+
         # 默认不需要审批
         return False
 
@@ -107,7 +107,7 @@ class ApprovalManager:
         if session_id is not None:
             requests = [request for request in requests if request.session_id == session_id]
         return sorted(requests, key=lambda request: request.created_at)
-    
+
     async def request_approval(
         self,
         tool_name: str,
@@ -126,10 +126,10 @@ class ApprovalManager:
             user_id=user_id,
             reason=reason,
         )
-        
+
         self._requests[request_id] = request
         self._approval_events[request_id] = asyncio.Event()
-        
+
         logger.info(
             "approval_requested",
             extra={
@@ -141,7 +141,7 @@ class ApprovalManager:
                 "reason": reason,
             },
         )
-        
+
         return request
 
     async def request_sdk_approval(
@@ -155,9 +155,7 @@ class ApprovalManager:
         reason: str = "",
     ) -> ApprovalRequest:
         """Create an approval request from an OpenAI Agents SDK interruption."""
-        tool_name = getattr(interruption, "qualified_name", None) or getattr(
-            interruption, "name", None
-        ) or "unknown"
+        tool_name = getattr(interruption, "qualified_name", None) or getattr(interruption, "name", None) or "unknown"
         raw_args = getattr(interruption, "arguments", None)
         tool_args: dict[str, Any]
         if isinstance(raw_args, dict):
@@ -253,7 +251,7 @@ class ApprovalManager:
         else:
             await self.reject(request_id, reviewer=reviewer, reason=comment)
         return request
-    
+
     async def approve(
         self,
         request_id: str,
@@ -264,20 +262,20 @@ class ApprovalManager:
         request = self._requests.get(request_id)
         if not request:
             raise ValueError(f"审批请求不存在: {request_id}")
-        
+
         if request.status != ApprovalStatus.PENDING:
             raise ValueError(f"审批请求已完成: {request.status}")
-        
+
         request.status = ApprovalStatus.APPROVED
         request.reviewed_by = reviewer
         request.reviewed_at = time.time()
         request.review_comment = comment
-        
+
         # 通知等待者
         event = self._approval_events.get(request_id)
         if event:
             event.set()
-        
+
         logger.info(
             "approval_approved",
             extra={
@@ -287,7 +285,7 @@ class ApprovalManager:
             },
         )
         return True
-    
+
     async def reject(
         self,
         request_id: str,
@@ -298,20 +296,20 @@ class ApprovalManager:
         request = self._requests.get(request_id)
         if not request:
             raise ValueError(f"审批请求不存在: {request_id}")
-        
+
         if request.status != ApprovalStatus.PENDING:
             raise ValueError(f"审批请求已完成: {request.status}")
-        
+
         request.status = ApprovalStatus.REJECTED
         request.reviewed_by = reviewer
         request.reviewed_at = time.time()
         request.review_comment = reason
-        
+
         # 通知等待者
         event = self._approval_events.get(request_id)
         if event:
             event.set()
-        
+
         logger.info(
             "approval_rejected",
             extra={
@@ -321,7 +319,7 @@ class ApprovalManager:
             },
         )
         return True
-    
+
     async def wait_for_approval(
         self,
         request_id: str,
@@ -331,9 +329,9 @@ class ApprovalManager:
         event = self._approval_events.get(request_id)
         if not event:
             raise ValueError(f"审批请求不存在: {request_id}")
-        
+
         timeout = timeout or self.config.approval_timeout
-        
+
         try:
             await asyncio.wait_for(event.wait(), timeout=timeout)
             request = self._requests[request_id]
@@ -349,11 +347,11 @@ class ApprovalManager:
                 },
             )
             return False
-    
+
     def get_request(self, request_id: str) -> Optional[ApprovalRequest]:
         """获取审批请求"""
         return self._requests.get(request_id)
-    
+
     def cleanup(self):
         """清理所有请求和事件"""
         self._requests.clear()

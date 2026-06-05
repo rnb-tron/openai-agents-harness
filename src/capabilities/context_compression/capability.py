@@ -131,9 +131,7 @@ class ContextCompressionCapability(Capability):
                 }
                 return
 
-            result: CompressionResult = await self._strategy.compress(
-                ctx.enriched_input, budget_tokens=budget, ctx=ctx
-            )
+            result: CompressionResult = await self._strategy.compress(ctx.enriched_input, budget_tokens=budget, ctx=ctx)
             ctx.enriched_input = result.text
             payload: dict[str, Any] = result.to_dict()
             payload["budget_tokens"] = budget

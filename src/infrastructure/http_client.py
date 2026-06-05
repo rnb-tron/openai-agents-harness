@@ -27,20 +27,12 @@ class HttpClientConfig:
     def from_settings(cls, settings: Any) -> "HttpClientConfig":
         return cls(
             timeout_seconds=float(getattr(settings, "http_timeout_seconds", 30.0)),
-            connect_timeout_seconds=float(
-                getattr(settings, "http_connect_timeout_seconds", 10.0)
-            ),
+            connect_timeout_seconds=float(getattr(settings, "http_connect_timeout_seconds", 10.0)),
             read_timeout_seconds=float(getattr(settings, "http_read_timeout_seconds", 20.0)),
-            write_timeout_seconds=float(
-                getattr(settings, "http_write_timeout_seconds", 10.0)
-            ),
+            write_timeout_seconds=float(getattr(settings, "http_write_timeout_seconds", 10.0)),
             max_connections=int(getattr(settings, "http_max_connections", 100)),
-            max_keepalive_connections=int(
-                getattr(settings, "http_max_keepalive_connections", 20)
-            ),
-            keepalive_expiry_seconds=float(
-                getattr(settings, "http_keepalive_expiry_seconds", 30.0)
-            ),
+            max_keepalive_connections=int(getattr(settings, "http_max_keepalive_connections", 20)),
+            keepalive_expiry_seconds=float(getattr(settings, "http_keepalive_expiry_seconds", 30.0)),
             follow_redirects=bool(getattr(settings, "http_follow_redirects", True)),
             verify_tls=bool(getattr(settings, "http_verify_tls", True)),
         )

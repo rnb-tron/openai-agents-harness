@@ -19,7 +19,7 @@ class ModelRouter:
         self.default_model = default_model
         self.reasoning_model = reasoning_model
         self.resilience_config = resilience_config or ResilienceConfig()
-        
+
         # 如果启用了弹性调用,创建运行器
         self._resilient_runner: ResilientModelRunner | None = None
         if self.resilience_config.enabled:
@@ -47,21 +47,16 @@ class ModelRouter:
         if any(token in lowered for token in keywords):
             return "reasoning"
         return None
-    
-    async def run_with_resilience(
-        self,
-        agent_factory: Callable,
-        task_type: str | None = None,
-        **kwargs
-    ) -> Any:
+
+    async def run_with_resilience(self, agent_factory: Callable, task_type: str | None = None, **kwargs) -> Any:
         """
         弹性执行模型调用
-        
+
         Args:
             agent_factory: Agent 工厂函数,接收 model 参数
             task_type: 任务类型 (用于选择初始模型)
             **kwargs: 传递给 agent_factory 的参数
-            
+
         Returns:
             执行结果
         """
@@ -70,15 +65,15 @@ class ModelRouter:
             model = self.select(task_type)
             agent = await agent_factory(model=model)
             return await agent
-        
+
         # 如果配置了降级链路,使用配置的;否则使用当前模型作为单模型
         if not self.resilience_config.fallback.models:
             # 自动构建降级链路
             initial_model = self.select(task_type)
             self.resilience_config.fallback.models = [initial_model]
-        
+
         return await self._resilient_runner.run(agent_factory, **kwargs)
-    
+
     @property
     def last_metrics(self) -> ExecutionMetrics | None:
         """获取最后一次执行的指标"""

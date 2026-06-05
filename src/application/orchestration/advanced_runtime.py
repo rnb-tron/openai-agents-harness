@@ -51,18 +51,10 @@ class AdvancedAgentRuntime:
         if hitl_config is not None and ApprovalManager is not None and HITLCapability is not None:
             self.hitl_mgr = ApprovalManager(hitl_config)
             registry.register(HITLCapability(self.hitl_mgr))
-        if (
-            checkpoint_config is not None
-            and CheckpointManager is not None
-            and CheckpointCapability is not None
-        ):
+        if checkpoint_config is not None and CheckpointManager is not None and CheckpointCapability is not None:
             self.checkpoint_mgr = CheckpointManager(checkpoint_config)
             registry.register(CheckpointCapability(self.checkpoint_mgr))
-        if (
-            handoff_config is not None
-            and HandoffManager is not None
-            and HandoffCapability is not None
-        ):
+        if handoff_config is not None and HandoffManager is not None and HandoffCapability is not None:
             self.handoff_mgr = HandoffManager(handoff_config)
             registry.register(HandoffCapability(self.handoff_mgr))
 
@@ -82,16 +74,12 @@ class AdvancedAgentRuntime:
         if self.hitl_mgr is None:
             requests = [
                 {
-                    "tool_name": getattr(item, "qualified_name", None)
-                    or getattr(item, "name", None)
-                    or "unknown",
+                    "tool_name": getattr(item, "qualified_name", None) or getattr(item, "name", None) or "unknown",
                     "arguments": getattr(item, "arguments", None),
                     "call_id": getattr(item, "call_id", None),
                     "sdk_interruption_index": index,
                 }
-                for index, item in enumerate(
-                    list(getattr(run_result, "interruptions", []) or [])
-                )
+                for index, item in enumerate(list(getattr(run_result, "interruptions", []) or []))
             ]
             return run_state, requests
 

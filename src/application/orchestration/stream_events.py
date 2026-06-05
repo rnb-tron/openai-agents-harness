@@ -17,9 +17,7 @@ async def iter_stream_events(
 ) -> AsyncIterator[dict[str, Any]]:
     """Translate OpenAI Agents SDK stream events into API stream events."""
     async for event in run_result.stream_events():
-        if isinstance(event, RawResponsesStreamEvent) and isinstance(
-            event.data, ResponseTextDeltaEvent
-        ):
+        if isinstance(event, RawResponsesStreamEvent) and isinstance(event.data, ResponseTextDeltaEvent):
             yield {"type": "delta", "delta": event.data.delta}
         elif isinstance(event, RawResponsesStreamEvent) and isinstance(
             event.data, ResponseReasoningSummaryTextDeltaEvent

@@ -17,8 +17,7 @@ class ProtocolPlugin(Protocol):
 
     name: str
 
-    def is_enabled(self) -> bool:
-        ...
+    def is_enabled(self) -> bool: ...
 
     def install(self, app: FastAPI) -> None:
         """Install hooks/handlers onto the FastAPI app.

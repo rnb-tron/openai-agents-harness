@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "openai-agent-sdk"
+name = "openai-agents-harness"
 version = "0.1.0"
 description = "Agent Harness Engineering Scaffold with Memory System"
 readme = "README.md"
@@ -42,7 +42,6 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=5.0.0",
-    "black>=24.0.0",
     "ruff>=0.3.0",
     "mypy>=1.8.0",
 ]
@@ -51,13 +50,12 @@ dev = [
 where = ["."]
 include = ["src*"]
 
-[tool.black]
-line-length = 120
-target-version = ["py311"]
-
 [tool.ruff]
 line-length = 120
 target-version = "py311"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["E402", "F401", "F841"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/unit"]

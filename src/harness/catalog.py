@@ -50,6 +50,7 @@ SESSION_STORE_MANIFEST = CapabilityManifest(
     tags=("builder_resource", "mysql"),
 )
 
+
 def available_capability_manifests() -> list[CapabilityManifest]:
     """返回当前 Harness 能装配的能力清单。"""
     manifests = [
@@ -71,4 +72,3 @@ def available_capability_manifests() -> list[CapabilityManifest]:
         HITLCapability.manifest,
     ]
     return sorted(manifests, key=lambda item: (item.install_order, item.name))
-

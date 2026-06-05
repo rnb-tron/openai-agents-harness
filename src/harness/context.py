@@ -43,20 +43,12 @@ class HarnessContext:
         self.provides.update(name for name in names if name)
 
     def capability_manifests(self, *, enabled_only: bool = True) -> list[CapabilityManifest]:
-        capabilities = (
-            self.capability_registry.enabled
-            if enabled_only
-            else self.capability_registry.all
-        )
+        capabilities = self.capability_registry.enabled if enabled_only else self.capability_registry.all
         return [cap.manifest for cap in capabilities]
 
     def capability_snapshot(self, *, enabled_only: bool = False) -> dict[str, Any]:
         """返回当前运行实例的已注册能力快照。"""
-        capabilities = (
-            self.capability_registry.enabled
-            if enabled_only
-            else self.capability_registry.all
-        )
+        capabilities = self.capability_registry.enabled if enabled_only else self.capability_registry.all
         items = []
         for cap in capabilities:
             manifest = cap.manifest
@@ -102,9 +94,7 @@ class HarnessContext:
                 "tags": list(manifest.tags),
                 "runtime_configurable": "builder_resource" not in manifest.tags,
                 "assembled": (
-                    manifest.name in assembled
-                    or manifest.name in self.provides
-                    or manifest.name in self.resources
+                    manifest.name in assembled or manifest.name in self.provides or manifest.name in self.resources
                 ),
                 "enabled": manifest.name in enabled,
             }
@@ -152,7 +142,5 @@ class HarnessContext:
     def validate_dependencies(self, *, enabled_only: bool = True) -> None:
         missing = self.missing_dependencies(enabled_only=enabled_only)
         if missing:
-            detail = ", ".join(
-                f"{cap}: {deps}" for cap, deps in sorted(missing.items())
-            )
+            detail = ", ".join(f"{cap}: {deps}" for cap, deps in sorted(missing.items()))
             raise ValueError(f"能力依赖缺失: {detail}")

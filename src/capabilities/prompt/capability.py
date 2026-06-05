@@ -48,11 +48,7 @@ class PromptCapability(Capability):
         mgr = get_prompt_manager()
         if mgr is None:
             return cls(manager=None, warmup_names=[], enabled=False)
-        names = [
-            n.strip()
-            for n in (getattr(settings, "prompt_warmup_names", "") or "").split(",")
-            if n.strip()
-        ]
+        names = [n.strip() for n in (getattr(settings, "prompt_warmup_names", "") or "").split(",") if n.strip()]
         return cls(manager=mgr, warmup_names=names, enabled=True)
 
     # ---------- Capability 协议 ----------

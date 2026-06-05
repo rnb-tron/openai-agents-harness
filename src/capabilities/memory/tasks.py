@@ -82,8 +82,7 @@ class MemoryTaskScheduler:
                 healthy = await self.memory_manager.vector_store.health_check()
                 if not healthy:
                     service_logger.warning(
-                        f"Vector store health check failed: "
-                        f"backend={self.memory_manager.vector_store.backend_name}"
+                        f"Vector store health check failed: backend={self.memory_manager.vector_store.backend_name}"
                     )
 
             # 获取统计信息

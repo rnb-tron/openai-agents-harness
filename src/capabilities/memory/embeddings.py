@@ -51,7 +51,5 @@ class OpenAIEmbeddingProvider:
         )
         embedding = list(response.data[0].embedding)
         if len(embedding) != self.dimension:
-            raise ValueError(
-                f"Expected embedding dimension {self.dimension}, got {len(embedding)}"
-            )
+            raise ValueError(f"Expected embedding dimension {self.dimension}, got {len(embedding)}")
         return embedding

@@ -41,9 +41,7 @@ class CapabilityRegistry:
     def register(self, capability: Capability) -> None:
         """注册一个能力"""
         if not isinstance(capability, Capability):
-            raise TypeError(
-                f"capability must be a subclass of Capability, got {type(capability).__name__}"
-            )
+            raise TypeError(f"capability must be a subclass of Capability, got {type(capability).__name__}")
         self._capabilities.append(capability)
         logger.info(
             "capability_registered",

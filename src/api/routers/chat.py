@@ -159,17 +159,23 @@ async def chat_stream(
                     )
                 yield json.dumps(event, ensure_ascii=False) + "\n"
         except SessionPersistError as exc:
-            yield json.dumps(
-                {"type": "error", "detail": f"session persist failed: {exc}"},
-                ensure_ascii=False,
-            ) + "\n"
+            yield (
+                json.dumps(
+                    {"type": "error", "detail": f"session persist failed: {exc}"},
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
         except RuntimeError as exc:
             yield json.dumps({"type": "error", "detail": str(exc)}, ensure_ascii=False) + "\n"
         except Exception as exc:  # pragma: no cover
-            yield json.dumps(
-                {"type": "error", "detail": f"chat failed: {exc}"},
-                ensure_ascii=False,
-            ) + "\n"
+            yield (
+                json.dumps(
+                    {"type": "error", "detail": f"chat failed: {exc}"},
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
 
     return StreamingResponse(
         events(),
@@ -212,17 +218,23 @@ async def resume_chat_stream(
                     )
                 yield json.dumps(event, ensure_ascii=False) + "\n"
         except SessionPersistError as exc:
-            yield json.dumps(
-                {"type": "error", "detail": f"session persist failed: {exc}"},
-                ensure_ascii=False,
-            ) + "\n"
+            yield (
+                json.dumps(
+                    {"type": "error", "detail": f"session persist failed: {exc}"},
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
         except (RuntimeError, ValueError) as exc:
             yield json.dumps({"type": "error", "detail": str(exc)}, ensure_ascii=False) + "\n"
         except Exception as exc:  # pragma: no cover
-            yield json.dumps(
-                {"type": "error", "detail": f"chat resume failed: {exc}"},
-                ensure_ascii=False,
-            ) + "\n"
+            yield (
+                json.dumps(
+                    {"type": "error", "detail": f"chat resume failed: {exc}"},
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
 
     return StreamingResponse(
         events(),

@@ -135,13 +135,9 @@ async def test_list_requests_can_be_scoped_to_session():
 
 
 async def test_hitl_capability_does_not_request_approval_after_execution():
-    manager = ApprovalManager(
-        HITLConfig(enabled=True, require_approval_tools=["delete_user"])
-    )
+    manager = ApprovalManager(HITLConfig(enabled=True, require_approval_tools=["delete_user"]))
     capability = HITLCapability(manager)
 
-    await capability.after_run(
-        RunContext(session_id="s1", tool_calls=[{"tool": "delete_user", "args": {}}])
-    )
+    await capability.after_run(RunContext(session_id="s1", tool_calls=[{"tool": "delete_user", "args": {}}]))
 
     assert manager._requests == {}

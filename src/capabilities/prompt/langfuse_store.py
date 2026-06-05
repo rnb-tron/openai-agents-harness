@@ -53,9 +53,7 @@ class LangfuseStore(PromptStore):
         try:
             prompt_obj = await loop.run_in_executor(None, _call_sdk)
         except Exception as exc:
-            raise PromptFetchError(
-                f"langfuse get_prompt failed for '{name}': {exc}"
-            ) from exc
+            raise PromptFetchError(f"langfuse get_prompt failed for '{name}': {exc}") from exc
 
         # langfuse PromptClient: .prompt can be text or chat messages.
         raw_prompt = getattr(prompt_obj, "prompt", None)
@@ -109,11 +107,7 @@ class LangfuseStore(PromptStore):
             from src.capabilities.observability import get_config, get_tracer_manager
 
             tracer_manager = get_tracer_manager()
-            if (
-                tracer_manager is not None
-                and tracer_manager.is_initialized
-                and tracer_manager.langfuse is not None
-            ):
+            if tracer_manager is not None and tracer_manager.is_initialized and tracer_manager.langfuse is not None:
                 return tracer_manager.langfuse
 
             config = get_config()

@@ -55,5 +55,4 @@ class CompressionStrategy(Protocol):
         *,
         budget_tokens: int,
         ctx: RunContext,
-    ) -> CompressionResult:
-        ...
+    ) -> CompressionResult: ...

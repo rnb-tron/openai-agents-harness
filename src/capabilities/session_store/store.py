@@ -203,17 +203,9 @@ class SessionStore:
             row = await db.get(ChatSessionRecord, session_id)
             if row is None:
                 return False
-            await db.execute(
-                delete(ChatMessageRecord).where(ChatMessageRecord.session_id == session_id)
-            )
-            await db.execute(
-                delete(ChatSessionSummaryRecord).where(
-                    ChatSessionSummaryRecord.session_id == session_id
-                )
-            )
-            await db.execute(
-                delete(ChatSessionRecord).where(ChatSessionRecord.id == session_id)
-            )
+            await db.execute(delete(ChatMessageRecord).where(ChatMessageRecord.session_id == session_id))
+            await db.execute(delete(ChatSessionSummaryRecord).where(ChatSessionSummaryRecord.session_id == session_id))
+            await db.execute(delete(ChatSessionRecord).where(ChatSessionRecord.id == session_id))
             await db.commit()
             return True
 
@@ -267,9 +259,7 @@ class SessionStore:
         """统计会话消息数量，用于摘要更新的高水位判断。"""
         async with self._session_factory() as db:
             count = await db.scalar(
-                select(func.count())
-                .select_from(ChatMessageRecord)
-                .where(ChatMessageRecord.session_id == session_id)
+                select(func.count()).select_from(ChatMessageRecord).where(ChatMessageRecord.session_id == session_id)
             )
             return int(count or 0)
 

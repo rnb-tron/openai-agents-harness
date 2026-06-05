@@ -16,3 +16,7 @@ def test_chat_ui_serves_local_e2e_console():
     assert 'fetch("/chat/resume/stream"' in response.text
     assert "/advanced/sessions/" not in response.text
     assert 'data-testid="advanced-state"' not in response.text
+    assert "renderAdvanced()" not in response.text
+    assert "refreshAdvanced()" not in response.text
+    assert "currentAdvanced" not in response.text
+    assert "checkHealth();" in response.text

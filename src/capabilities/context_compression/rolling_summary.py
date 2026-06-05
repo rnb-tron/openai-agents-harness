@@ -149,12 +149,7 @@ class RollingSummary(CompressionStrategy):
 
         # 3) 拼接
         recent_block = "\n".join(recent_lines)
-        rebuilt = (
-            "Conversation memory:\n"
-            f"{_SUMMARY_HEADER}{summary}\n\n"
-            f"{recent_block}\n"
-            f"{current}"
-        )
+        rebuilt = f"Conversation memory:\n{_SUMMARY_HEADER}{summary}\n\n{recent_block}\n{current}"
 
         output_tokens = count_tokens(rebuilt)
         return CompressionResult(

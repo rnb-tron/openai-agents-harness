@@ -25,7 +25,6 @@ from typing import Any
 from agents import Agent, AsyncOpenAI, Runner, set_tracing_disabled
 
 from src.application.orchestration.advanced_runtime import (
-    ADVANCED_AGENTS_AVAILABLE,
     AdvancedAgentRuntime,
     CheckpointConfig,
     HandoffConfig,
@@ -128,13 +127,8 @@ class AgentOrchestrator:
                 long_term_enabled=memory_manager is not None,
             )
         )
-        long_term_enabled = (
-            getattr(self.settings, "memory_long_term_enabled", False)
-            and memory_manager is not None
-        )
-        self.registry.register(
-            LongTermMemoryCapability(enabled=long_term_enabled)
-        )
+        long_term_enabled = getattr(self.settings, "memory_long_term_enabled", False) and memory_manager is not None
+        self.registry.register(LongTermMemoryCapability(enabled=long_term_enabled))
         self.registry.register(
             VectorSearchCapability(
                 enabled=(
@@ -167,9 +161,7 @@ class AgentOrchestrator:
             from src.capabilities.prompt import PromptCapability
 
             warmup_names = [
-                n.strip()
-                for n in (getattr(self.settings, "prompt_warmup_names", "") or "").split(",")
-                if n.strip()
+                n.strip() for n in (getattr(self.settings, "prompt_warmup_names", "") or "").split(",") if n.strip()
             ]
             self.registry.register(
                 PromptCapability(

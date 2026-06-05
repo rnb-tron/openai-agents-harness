@@ -5,7 +5,7 @@ Memory Lifecycle Manager
 
 from datetime import datetime, timedelta
 
-from sqlalchemy import select, and_, func
+from sqlalchemy import select, and_
 
 from src.capabilities.memory.models import MemoryRecord
 from src.capabilities.memory.repository import MemoryRepository
@@ -73,9 +73,7 @@ class MemoryLifecycleManager:
             content_score = min(content_length / 500.0, 1.0)  # 500字符满分
 
             # 4. 加权计算
-            importance = (
-                access_weight * access_score + recency_weight * recency_score + content_weight * content_score
-            )
+            importance = access_weight * access_score + recency_weight * recency_score + content_weight * content_score
 
             return min(max(importance, 0.0), 1.0)  # 限制在0-1范围
 
@@ -246,8 +244,7 @@ class MemoryLifecycleManager:
 
             # 查询过期记忆
             old_memories = await self.repository.db.execute(
-                select(MemoryRecord.id)
-                .where(
+                select(MemoryRecord.id).where(
                     and_(
                         MemoryRecord.user_id == user_id,
                         MemoryRecord.is_deleted == 0,
@@ -311,9 +308,7 @@ class MemoryLifecycleManager:
                 users = [user_id]
             else:
                 # 获取所有有记忆的用户
-                result = await self.repository.db.execute(
-                    select(MemoryRecord.user_id).distinct()
-                )
+                result = await self.repository.db.execute(select(MemoryRecord.user_id).distinct())
                 users = [row[0] for row in result.all()]
 
             total_deleted = 0

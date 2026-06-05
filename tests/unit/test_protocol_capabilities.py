@@ -56,9 +56,7 @@ def test_protocol_capability_markers_use_protocol_kind():
 
 
 def test_harness_builder_registers_enabled_protocol_capabilities():
-    harness = HarnessBuilder(
-        _settings(auth_enabled=True, rate_limit_enabled=True)
-    ).build()
+    harness = HarnessBuilder(_settings(auth_enabled=True, rate_limit_enabled=True)).build()
 
     enabled = {manifest.name for manifest in harness.context.capability_manifests()}
 
@@ -75,15 +73,9 @@ def test_harness_builder_requires_auth_for_user_dimension_rate_limit():
 
 @pytest.mark.parametrize("key_strategy", ["ip", "principal_or_ip"])
 def test_harness_builder_allows_explicit_compatible_rate_limit_strategy(key_strategy):
-    harness = HarnessBuilder(
-        _settings(rate_limit_enabled=True, rate_limit_key_strategy=key_strategy)
-    ).build()
+    harness = HarnessBuilder(_settings(rate_limit_enabled=True, rate_limit_key_strategy=key_strategy)).build()
 
-    rate_limit = next(
-        manifest
-        for manifest in harness.context.capability_manifests()
-        if manifest.name == "rate_limit"
-    )
+    rate_limit = next(manifest for manifest in harness.context.capability_manifests() if manifest.name == "rate_limit")
     assert rate_limit.depends_on == ()
     assert "compatibility_key_strategy" in rate_limit.tags
 

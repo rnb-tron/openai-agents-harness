@@ -5,20 +5,19 @@
 """
 
 import json
-from datetime import datetime
 
 
 def print_separator(title):
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print(f"  {title}")
-    print("="*80)
+    print("=" * 80)
 
 
 def print_log(title, log_data):
     print(f"\n📝 {title}:")
-    print("-"*80)
+    print("-" * 80)
     print(json.dumps(log_data, indent=2, ensure_ascii=False))
-    print("-"*80)
+    print("-" * 80)
 
 
 # ============================================================
@@ -41,23 +40,15 @@ agent_call_success = {
     "module": "agent_runtime",
     "function": "run",
     "line": 152,
-    "context": {
-        "model": "qwen3.5-plus",
-        "tool_calls_count": 2,
-        "output_length": 156,
-        "memory_size": 5
-    },
+    "context": {"model": "qwen3.5-plus", "tool_calls_count": 2, "output_length": 156, "memory_size": 5},
     "performance": {
         "duration_ms": 1250,
         "tokens_prompt": 300,
         "tokens_completion": 200,
         "tokens_total": 500,
-        "cost_usd": 0.0025
+        "cost_usd": 0.0025,
     },
-    "metadata": {
-        "app_version": "1.0.0",
-        "env": "production"
-    }
+    "metadata": {"app_version": "1.0.0", "env": "production"},
 }
 
 print_log("Agent 调用成功", agent_call_success)
@@ -86,20 +77,15 @@ agent_call_failed = {
     "context": {
         "error_type": "RateLimitError",
         "error_message": "当前使用试用额度,每分钟最多请求5次",
-        "retry_count": 3
+        "retry_count": 3,
     },
-    "performance": {
-        "duration_ms": 45000
-    },
+    "performance": {"duration_ms": 45000},
     "exc_info": {
         "type": "RateLimitError",
         "message": "API rate limit exceeded",
-        "traceback": "Traceback (most recent call last):\\n  File \"agent_runtime.py\", line 152, in run\\n    result = await Runner.run(...)\\nopenai.RateLimitError: Error code: 429"
+        "traceback": 'Traceback (most recent call last):\\n  File "agent_runtime.py", line 152, in run\\n    result = await Runner.run(...)\\nopenai.RateLimitError: Error code: 429',
     },
-    "metadata": {
-        "app_version": "1.0.0",
-        "env": "production"
-    }
+    "metadata": {"app_version": "1.0.0", "env": "production"},
 }
 
 print_log("Agent 调用失败", agent_call_failed)
@@ -127,16 +113,10 @@ tool_call_success = {
     "line": 140,
     "context": {
         "tool_name": "create_ticket",
-        "tool_args": {
-            "title": "登录问题",
-            "description": "无法登录系统"
-        },
-        "approval_required": False
+        "tool_args": {"title": "登录问题", "description": "无法登录系统"},
+        "approval_required": False,
     },
-    "metadata": {
-        "app_version": "1.0.0",
-        "env": "production"
-    }
+    "metadata": {"app_version": "1.0.0", "env": "production"},
 }
 
 print_log("工具调用成功", tool_call_success)
@@ -164,17 +144,12 @@ hitl_approval_request = {
     "line": 165,
     "context": {
         "tool_name": "delete_ticket",
-        "tool_args": {
-            "ticket_id": "TKT-20260520123"
-        },
+        "tool_args": {"ticket_id": "TKT-20260520123"},
         "approval_id": "8ce28d77-xxx",
         "reason": "用户要求删除工单",
-        "approval_timeout": 300.0
+        "approval_timeout": 300.0,
     },
-    "metadata": {
-        "app_version": "1.0.0",
-        "env": "production"
-    }
+    "metadata": {"app_version": "1.0.0", "env": "production"},
 }
 
 print_log("HITL 审批请求", hitl_approval_request)
@@ -204,12 +179,9 @@ hitl_approval_approved = {
         "approval_id": "8ce28d77-xxx",
         "tool_name": "delete_ticket",
         "reviewer": "manager-001",
-        "wait_duration_ms": 2100
+        "wait_duration_ms": 2100,
     },
-    "metadata": {
-        "app_version": "1.0.0",
-        "env": "production"
-    }
+    "metadata": {"app_version": "1.0.0", "env": "production"},
 }
 
 print_log("HITL 审批通过", hitl_approval_approved)
@@ -239,12 +211,9 @@ checkpoint_saved = {
         "checkpoint_id": "69592743-xxx",
         "description": "Agent 调用前",
         "conversation_history_length": 2,
-        "tool_calls_count": 1
+        "tool_calls_count": 1,
     },
-    "metadata": {
-        "app_version": "1.0.0",
-        "env": "production"
-    }
+    "metadata": {"app_version": "1.0.0", "env": "production"},
 }
 
 print_log("Checkpoint 保存", checkpoint_saved)
@@ -275,15 +244,10 @@ model_fallback = {
         "fallback_model": "qwen3.5-plus",
         "reason": "rate_limit_exceeded",
         "retry_count": 3,
-        "error_message": "API rate limit exceeded"
+        "error_message": "API rate limit exceeded",
     },
-    "performance": {
-        "fallback_delay_ms": 500
-    },
-    "metadata": {
-        "app_version": "1.0.0",
-        "env": "production"
-    }
+    "performance": {"fallback_delay_ms": 500},
+    "metadata": {"app_version": "1.0.0", "env": "production"},
 }
 
 print_log("模型降级触发", model_fallback)
@@ -313,15 +277,10 @@ memory_retrieval = {
         "memory_type": "long_term",
         "retrieved_turns": 3,
         "relevance_scores": [0.95, 0.87, 0.72],
-        "total_memories_in_store": 156
+        "total_memories_in_store": 156,
     },
-    "performance": {
-        "retrieval_duration_ms": 45
-    },
-    "metadata": {
-        "app_version": "1.0.0",
-        "env": "production"
-    }
+    "performance": {"retrieval_duration_ms": 45},
+    "metadata": {"app_version": "1.0.0", "env": "production"},
 }
 
 print_log("记忆检索", memory_retrieval)
@@ -348,12 +307,9 @@ sensitive_data_sanitized = {
         "phone": "138***1234",
         "id_card": "110101***001X",
         "password": "***",
-        "authorization": "Bear***xyz"
+        "authorization": "Bear***xyz",
     },
-    "metadata": {
-        "app_version": "1.0.0",
-        "env": "production"
-    }
+    "metadata": {"app_version": "1.0.0", "env": "production"},
 }
 
 print_log("敏感信息脱敏", sensitive_data_sanitized)
@@ -384,12 +340,9 @@ handoff_routing = {
         "target_agent": "tech_support",
         "routing_reason": "technical_issue",
         "available_agents": ["tech_support", "billing", "general"],
-        "handoff_count": 1
+        "handoff_count": 1,
     },
-    "metadata": {
-        "app_version": "1.0.0",
-        "env": "production"
-    }
+    "metadata": {"app_version": "1.0.0", "env": "production"},
 }
 
 print_log("Handoff Agent 路由", handoff_routing)
@@ -445,6 +398,6 @@ print("""
    - CRITICAL: 严重错误
 """)
 
-print("="*80)
+print("=" * 80)
 print("🎉 结构化日志示例演示完成!")
-print("="*80 + "\n")
+print("=" * 80 + "\n")

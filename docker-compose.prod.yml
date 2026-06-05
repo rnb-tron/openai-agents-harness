@@ -3,8 +3,8 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
-    image: openai-agent-sdk:prod
-    container_name: openai-agent-sdk
+    image: openai-agents-harness:prod
+    container_name: openai-agents-harness
     env_file:
       - config/prod.env
     environment:

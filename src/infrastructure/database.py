@@ -32,12 +32,8 @@ class DatabaseConfig:
             echo=bool(getattr(settings, "debug", False)),
             pool_size=int(getattr(settings, "database_pool_size", 10)),
             max_overflow=int(getattr(settings, "database_max_overflow", 20)),
-            pool_timeout_seconds=float(
-                getattr(settings, "database_pool_timeout_seconds", 30.0)
-            ),
-            pool_recycle_seconds=int(
-                getattr(settings, "database_pool_recycle_seconds", 1800)
-            ),
+            pool_timeout_seconds=float(getattr(settings, "database_pool_timeout_seconds", 30.0)),
+            pool_recycle_seconds=int(getattr(settings, "database_pool_recycle_seconds", 1800)),
             pool_pre_ping=bool(getattr(settings, "database_pool_pre_ping", True)),
         )
 
@@ -47,9 +43,7 @@ class DatabaseResource:
 
     def __init__(self, config: DatabaseConfig) -> None:
         if not config.url:
-            raise ValueError(
-                "database connection settings are required to initialize database resource"
-            )
+            raise ValueError("database connection settings are required to initialize database resource")
         self.config = config
         pool_pre_ping = config.pool_pre_ping
         if config.url.startswith("mysql+aiomysql"):

@@ -816,10 +816,7 @@
       async function openSession(sessionId) {
         setSession(sessionId);
         clearPending();
-        currentAdvanced = {};
-        renderAdvanced();
         await loadCurrentMessages();
-        await refreshAdvanced();
         await refreshStorage();
       }
 
@@ -861,8 +858,6 @@
       }
 
       function startNewSessionView() {
-        currentAdvanced = {};
-        renderAdvanced();
         clearPending();
         rawResponse.textContent = "等待请求...";
         messageRecords.textContent = "发送消息后会写入 MySQL";
@@ -1169,7 +1164,6 @@
             await openSession(sessions[0].id);
           } else {
             clearMessages("没有找到本地历史会话，发送消息开始测试。");
-            await refreshAdvanced();
             await refreshStorage();
           }
         } catch (error) {
@@ -1179,7 +1173,6 @@
       }
 
       setSession(localStorage.getItem("agent-chat-session") || newSessionId());
-      renderAdvanced();
       checkHealth();
       messageInput.focus();
     </script>

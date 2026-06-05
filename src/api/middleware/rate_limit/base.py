@@ -10,7 +10,7 @@ from dataclasses import dataclass
 class RateLimitKey:
     """Identifies a single bucket (per dimension+value+route)."""
 
-    dim: str    # "user" / "ip" / "anonymous"
+    dim: str  # "user" / "ip" / "anonymous"
     value: str  # principal.user_id or client IP
     route: str  # request path used as bucket scope
 
@@ -47,8 +47,7 @@ class RateLimiter(ABC):
         limit: int,
         window_sec: int,
         burst: int,
-    ) -> RateLimitDecision:
-        ...
+    ) -> RateLimitDecision: ...
 
     async def setup(self) -> None:
         return None

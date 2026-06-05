@@ -62,9 +62,7 @@ class HybridStrategy(CompressionStrategy):
 
         # 第一步: 试 summary
         try:
-            primary = await self._summary.compress(
-                text, budget_tokens=budget_tokens, ctx=ctx
-            )
+            primary = await self._summary.compress(text, budget_tokens=budget_tokens, ctx=ctx)
             summary_calls = primary.summary_calls
             cache_hit = primary.cache_hit
             current = primary.text
@@ -79,9 +77,7 @@ class HybridStrategy(CompressionStrategy):
         # 第二步: 仍超 budget -> Truncate 兜底
         if count_tokens(current) > budget_tokens:
             fallback_used = True
-            tail = await self._truncate.compress(
-                current, budget_tokens=budget_tokens, ctx=ctx
-            )
+            tail = await self._truncate.compress(current, budget_tokens=budget_tokens, ctx=ctx)
             current = tail.text
 
         input_tokens = count_tokens(text)
