@@ -568,8 +568,10 @@
           <div id="session-summary" class="storage-list">尚未刷新</div>
           <h3>Redis 短期记忆 / Mem0 状态</h3>
           <div id="memory-stats" class="storage-list">尚未刷新</div>
-          <h3>Mem0 长期记忆搜索</h3>
-          <div id="memory-search-results" class="storage-list">点击“搜索长期记忆”</div>
+          <h3>Mem0 偏好记忆</h3>
+          <div id="preference-memory-results" class="storage-list">点击“搜索长期记忆”</div>
+          <h3>Mem0 普通长期记忆</h3>
+          <div id="long-term-memory-results" class="storage-list">点击“搜索长期记忆”</div>
         </div>
         <div class="panel-title">最近响应 JSON</div>
         <div class="raw">
@@ -593,7 +595,8 @@
       const messageRecords = document.querySelector("#message-records");
       const sessionSummary = document.querySelector("#session-summary");
       const memoryStats = document.querySelector("#memory-stats");
-      const memorySearchResults = document.querySelector("#memory-search-results");
+      const preferenceMemoryResults = document.querySelector("#preference-memory-results");
+      const longTermMemoryResults = document.querySelector("#long-term-memory-results");
       const sessionList = document.querySelector("#session-list");
       let pendingApproval = null;
       let cachedSessions = [];
@@ -797,7 +800,8 @@
       function syncLongTermMemoryUser() {
         const currentUserId = userInput.value.trim() || "anonymous";
         if (memorySearchUserId && memorySearchUserId !== currentUserId) {
-          memorySearchResults.textContent = "user_id 已变化，点击“搜索长期记忆”刷新用户级长期记忆";
+          preferenceMemoryResults.textContent = "user_id 已变化，点击“搜索长期记忆”刷新用户级偏好记忆";
+          longTermMemoryResults.textContent = "user_id 已变化，点击“搜索长期记忆”刷新普通长期记忆";
           memorySearchUserId = "";
         }
       }
@@ -897,26 +901,58 @@
         messageRecords.textContent = "发送消息后会写入 MySQL";
         sessionSummary.textContent = "达到 summary 阈值后会在这里展示";
         memoryStats.textContent = "发送消息后可查看 Redis 短期记忆";
+        preferenceMemoryResults.textContent = "点击“搜索长期记忆”";
+        longTermMemoryResults.textContent = "点击“搜索长期记忆”";
         clearMessages("新会话已准备好，发送消息开始测试。");
       }
 
       async function searchLongTermMemory() {
         const userId = userInput.value.trim() || "anonymous";
-        const query = "用户偏好 项目 记住 长期记忆";
-        const body = await fetchJson("/memory/search", {
+        preferenceMemoryResults.textContent = "正在读取偏好记忆...";
+        longTermMemoryResults.textContent = "正在读取普通长期记忆...";
+        const body = await fetchJson("/memory/list", {
           method: "POST",
           headers: headers(),
           body: JSON.stringify({
-            query,
             user_id: userId,
-            top_k: 5
+            limit: 50
           })
         });
-        const results = body.results || [];
         memorySearchUserId = userId;
-        memorySearchResults.textContent = results.length
-          ? results.map((item, index) => `[${index + 1}] ${item.content || item.memory || JSON.stringify(item)}`).join("\n\n")
-          : "没有搜索到长期记忆";
+        const allResults = body.results || [];
+        const preferenceResults = allResults.filter(isPreferenceMemory);
+        const normalResults = allResults.filter((item) => !isPreferenceMemory(item));
+        preferenceMemoryResults.textContent = formatMemoryResults(
+          preferenceResults,
+          "没有搜索到偏好记忆"
+        );
+        longTermMemoryResults.textContent = formatMemoryResults(
+          normalResults,
+          "没有普通长期记忆"
+        );
+      }
+
+      function isPreferenceMemory(item) {
+        const metadata = item && item.metadata && typeof item.metadata === "object" ? item.metadata : {};
+        return item.memory_category === "preference"
+          || metadata.memory_kind === "preference"
+          || Boolean(metadata.preference_key)
+          || (Array.isArray(metadata.preference_keys) && metadata.preference_keys.length > 0);
+      }
+
+      function formatMemoryResults(results, emptyText) {
+        if (!results.length) {
+          return emptyText;
+        }
+        return results
+          .map((item, index) => {
+            const content = item.content || item.memory || JSON.stringify(item);
+            const metadata = item.metadata && Object.keys(item.metadata).length
+              ? `\nmetadata: ${JSON.stringify(item.metadata)}`
+              : "";
+            return `[${index + 1}] ${content}${metadata}`;
+          })
+          .join("\n\n");
       }
 
       function showPending(data, originalMessage) {

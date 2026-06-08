@@ -48,8 +48,10 @@ Mem0 负责抽取、存储和搜索记忆，业务层不在写入阶段预判“
 
 1. 写入时直接把 user/assistant messages 和通用来源 metadata 提交给 Mem0。
 2. 由 Mem0 判断是否抽取、合并、更新或忽略长期记忆。
-3. 检索和注入上下文时，对偏好类结果按维度只保留最新一条。
-4. 不物理删除旧偏好，保留历史可追溯性。
+3. `MEMORY_LONG_TERM_ENABLED=true` 时，偏好记忆使用独立检索入口，并在每次请求 agent 前常驻注入，不受本轮普通长期记忆 top_k 限制。
+4. 检索和注入上下文时，使用 Mem0 返回的 `memory_kind` / `preference_keys` metadata 做冲突消解，对同一偏好维度只保留最新一条。
+5. 缺少偏好 metadata 的结果按普通长期记忆处理；Recent Conversation 不按关键词过滤，避免误删事实上下文。
+6. 不物理删除旧偏好，保留历史可追溯性。
 
 提交给 Mem0 的通用 metadata 类似：
 

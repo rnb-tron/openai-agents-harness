@@ -10,6 +10,7 @@ class _FakeMem0Client:
     def __init__(self):
         self.add_calls = []
         self.search_calls = []
+        self.get_all_calls = []
         self.delete_all_calls = []
 
     def add(self, messages, **kwargs):
@@ -19,9 +20,34 @@ class _FakeMem0Client:
     def search(self, *args, **kwargs):
         query = kwargs.get("query") or (args[0] if args else "")
         self.search_calls.append({"query": query, **kwargs})
+        if "preferences" in query or "communication style" in query:
+            return {
+                "results": [
+                    {
+                        "memory": "User prefers concise answers.",
+                        "metadata": {
+                            "memory_kind": "preference",
+                            "preference_keys": ["answer_detail"],
+                            "updated_at": "2026-05-29T10:00:00+00:00",
+                        },
+                    }
+                ]
+            }
         return {
             "results": [
                 {"memory": f"memory for {query}", "score": 0.9},
+            ]
+        }
+
+    def get_all(self, **kwargs):
+        self.get_all_calls.append(kwargs)
+        return {
+            "results": [
+                {
+                    "memory": "User prefers responses in Chinese and requests that conclusions be provided first.",
+                    "metadata": {"source": "chat", "memory_type": "long_term"},
+                },
+                {"memory": "Project uses Mem0 for long-term memory.", "metadata": {"source": "chat"}},
             ]
         }
 
@@ -166,6 +192,11 @@ async def test_mem0_manager_short_term_only_does_not_initialize_mem0_client():
     assert client.add_calls == []
     assert await manager.search_memories("u1", "用户偏好") == []
 
+    context = await manager.get_context("s1", "u1", "我的偏好是什么？")
+
+    assert "=== Effective User Preferences (highest priority) ===" not in context
+    assert client.search_calls == []
+
 
 @pytest.mark.asyncio
 async def test_mem0_manager_skips_low_value_long_term_write():
@@ -232,6 +263,8 @@ async def test_mem0_manager_caches_preferences_and_gates_long_term_search():
     assert "=== Effective User Preferences (highest priority) ===" in context
     assert "=== Relevant Long-Term Memories ===" in context
     assert len(client.search_calls) == 2
+    assert client.search_calls[0]["limit"] == 10
+    assert client.search_calls[1]["limit"] == 3
 
     client.search_calls.clear()
     context = await manager.get_context(
@@ -242,6 +275,41 @@ async def test_mem0_manager_caches_preferences_and_gates_long_term_search():
 
     assert "user: 好" in context
     assert client.search_calls == []
+
+
+@pytest.mark.asyncio
+async def test_mem0_manager_injects_preferences_when_normal_retrieval_is_disabled():
+    client = _FakeMem0Client()
+    manager = Mem0MemoryManager(_settings(), client=client)
+
+    context = await manager.get_context(
+        session_id="s1",
+        user_id="u1",
+        user_input="好",
+        enable_retrieval=False,
+    )
+
+    assert "=== Effective User Preferences (highest priority) ===" in context
+    assert "User prefers concise answers." in context
+    assert "=== Relevant Long-Term Memories ===" not in context
+    assert len(client.search_calls) == 1
+    assert client.search_calls[0]["limit"] == 10
+
+
+@pytest.mark.asyncio
+async def test_mem0_manager_lists_user_memories_without_query_search():
+    client = _FakeMem0Client()
+    manager = Mem0MemoryManager(_settings(), client=client)
+
+    results = await manager.list_memories("u1", limit=20)
+
+    assert [item["content"] for item in results] == [
+        "User prefers responses in Chinese and requests that conclusions be provided first.",
+        "Project uses Mem0 for long-term memory.",
+    ]
+    assert [item["memory_category"] for item in results] == ["preference", "long_term"]
+    assert client.search_calls == []
+    assert client.get_all_calls == [{"filters": {"user_id": "u1"}, "top_k": 20}]
 
 
 @pytest.mark.asyncio
@@ -282,7 +350,7 @@ async def test_mem0_manager_keeps_latest_preference_per_key_in_context():
     assert "responses in Chinese" not in context
 
 
-def test_mem0_manager_infers_preference_keys_for_legacy_memories():
+def test_mem0_manager_does_not_infer_preferences_without_metadata():
     memories = [
         {
             "content": "User prefers responses in Chinese and wants the conclusion presented first.",
@@ -296,8 +364,7 @@ def test_mem0_manager_infers_preference_keys_for_legacy_memories():
 
     selected = Mem0MemoryManager._select_effective_preferences(memories)
 
-    assert len(selected) == 1
-    assert "English" in selected[0]["content"]
+    assert selected == memories
 
 
 @pytest.mark.asyncio
@@ -307,11 +374,19 @@ async def test_mem0_manager_filters_preference_search_results():
         "results": [
             {
                 "content": "User prefers responses in Chinese.",
-                "created_at": "2026-05-28T10:00:00+00:00",
+                "metadata": {
+                    "memory_kind": "preference",
+                    "preference_keys": ["response_language"],
+                    "created_at": "2026-05-28T10:00:00+00:00",
+                },
             },
             {
                 "content": "User prefers responses in English.",
-                "created_at": "2026-05-29T10:00:00+00:00",
+                "metadata": {
+                    "memory_kind": "preference",
+                    "preference_keys": ["response_language"],
+                    "created_at": "2026-05-29T10:00:00+00:00",
+                },
             },
         ]
     }
@@ -410,7 +485,7 @@ async def test_mem0_manager_falls_back_to_mysql_messages_when_short_term_empty()
 
 
 @pytest.mark.asyncio
-async def test_mem0_manager_filters_stale_preference_turns_from_recent_context():
+async def test_mem0_manager_keeps_recent_preference_turns_but_places_effective_preferences_last():
     client = _FakeMem0Client()
     client.search = lambda *args, **kwargs: {  # noqa: E731
         "results": [
@@ -466,13 +541,13 @@ async def test_mem0_manager_filters_stale_preference_turns_from_recent_context()
 
     assert "=== Effective User Preferences (highest priority) ===" in context
     assert "primarily in Chinese" in context
-    assert "以后回答尽量使用英文" not in context
-    assert "I will use English for my responses" not in context
+    assert "以后回答尽量使用英文" in context
+    assert "I will use English for my responses" in context
     assert context.rfind("primarily in Chinese") > context.rfind("Recent Conversation")
 
 
 @pytest.mark.asyncio
-async def test_mem0_manager_filters_stale_preference_turns_from_redis_context():
+async def test_mem0_manager_keeps_redis_preference_turns_but_places_effective_preferences_last():
     client = _FakeMem0Client()
     client.search = lambda *args, **kwargs: {  # noqa: E731
         "results": [
@@ -507,8 +582,9 @@ async def test_mem0_manager_filters_stale_preference_turns_from_redis_context():
     )
 
     assert "User prefers Chinese responses" in context
-    assert "以后回答尽量使用英文" not in context
-    assert "I will use English for my responses" not in context
+    assert "以后回答尽量使用英文" in context
+    assert "I will use English for my responses" in context
+    assert context.rfind("User prefers Chinese responses") > context.rfind("Recent Conversation")
 
 
 @pytest.mark.asyncio
