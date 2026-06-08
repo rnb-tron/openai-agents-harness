@@ -7,6 +7,7 @@ from typing import Optional
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from src.api.middleware.base import ProtocolPlugin
 from src.api.middleware.auth.base import AuthBackend, AuthError, Principal
 from src.api.middleware.auth.jwt_backend import JWTAuthBackend
 from src.core.logging import bind_log_context, reset_log_context, setup_logger
@@ -16,7 +17,7 @@ logger = setup_logger("api.middleware.auth")
 _DEFAULT_SKIP_PATHS = ("/health", "/docs", "/redoc", "/openapi.json", "/ui")
 
 
-class AuthPlugin:
+class AuthPlugin(ProtocolPlugin):
     """Protocol-layer authentication plugin.
 
     name: "auth"
@@ -57,12 +58,6 @@ class AuthPlugin:
 
     def is_enabled(self) -> bool:
         return self._enabled
-
-    async def setup(self) -> None:
-        return None
-
-    async def teardown(self) -> None:
-        return None
 
     def _should_skip(self, path: str) -> bool:
         for p in self._skip_paths:

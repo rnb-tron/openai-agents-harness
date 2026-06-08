@@ -39,7 +39,7 @@ from src.capabilities.memory.capability import (
     MemoryCapability,
     VectorSearchCapability,
 )
-from src.capabilities.memory.manager import MemoryManager
+from src.capabilities.memory.mem0_manager import Mem0MemoryManager
 from src.capabilities.memory.store import MemoryStore
 from src.capabilities.model_routing.router import ModelRouter
 from src.capabilities.plugin import CapabilityRegistry, RunContext, RunPhase
@@ -94,7 +94,7 @@ class AgentOrchestrator:
         tool_registry: ToolRegistry,
         memory_store: MemoryStore,
         model_router: ModelRouter,
-        memory_manager: MemoryManager | None = None,
+        memory_manager: Mem0MemoryManager | None = None,
         prompt_manager: PromptManager | None = None,
         settings: Settings | None = None,
         capability_registry: CapabilityRegistry | None = None,

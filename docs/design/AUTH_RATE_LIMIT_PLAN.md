@@ -58,8 +58,7 @@
 
 ```python
 # src/api/middleware/base.py
-@runtime_checkable
-class ProtocolPlugin(Protocol):
+class ProtocolPlugin(ABC):
     name: str
     def is_enabled(self) -> bool: ...
     def install(self, app: FastAPI) -> None: ...
@@ -245,7 +244,7 @@ RATE_LIMIT_SKIP_PATHS=/health,/docs,/openapi.json
 | 路径 | 行数 | 职责 |
 |---|---|---|
 | `src/api/middleware/__init__.py` | 11 | 导出 |
-| `src/api/middleware/base.py` | 39 | `ProtocolPlugin` Protocol |
+| `src/api/middleware/base.py` | 39 | `ProtocolPlugin` 显式基类 |
 | `src/api/middleware/chain.py` | - | 显式请求执行链 + FastAPI 安装适配 |
 | `src/api/middleware/auth/__init__.py` | 17 | 导出 |
 | `src/api/middleware/auth/base.py` | 56 | `Principal / AuthError / AuthBackend` |

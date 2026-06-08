@@ -109,19 +109,19 @@ MEMORY_LONG_TERM_MEM0_API_KEY=your-mem0-api-key
 
 ## Runtime 数据流
 
-### 不装配 `MemoryManager`
+### 不装配 `Mem0MemoryManager`
 
 ```text
 before_run: 不注入记忆上下文
 after_run:  不写入进程内记忆
 ```
 
-### 装配 `MemoryManager`
+### 装配 `Mem0MemoryManager`
 
 ```text
-before_run: MemoryManager.get_context() -> preference cache + optional long-term retrieval
-                                      -> session summary cache/store
-                                      -> recent short-term messages from Redis or MySQL
+before_run: Mem0MemoryManager.get_context() -> preference cache + optional long-term retrieval
+                                           -> session summary cache/store
+                                           -> recent short-term messages from Redis or MySQL
 after_run:  user/output -> Mem0MemoryManager.add_memory()
                        -> Redis short-term raw messages
                        -> async noise filter

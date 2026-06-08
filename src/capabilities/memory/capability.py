@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from src.capabilities.memory.manager import MemoryManager
+from src.capabilities.memory.mem0_manager import Mem0MemoryManager
 from src.capabilities.memory.store import MemoryStore
 from src.capabilities.plugin import Capability, RunContext
 from src.core.logging import setup_logger
@@ -31,7 +31,7 @@ class MemoryCapability(Capability):
     def __init__(
         self,
         memory_store: MemoryStore,
-        memory_manager: MemoryManager | None = None,
+        memory_manager: Mem0MemoryManager | None = None,
         long_term_enabled: bool = False,
     ) -> None:
         self._store = memory_store

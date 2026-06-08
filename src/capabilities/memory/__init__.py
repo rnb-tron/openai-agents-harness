@@ -1,51 +1,16 @@
 """记忆能力集合。"""
 
 from src.capabilities.memory.store import ShortTermMemory, MemoryStore
-
-try:
-    from src.capabilities.memory.models import MemoryRecord
-    from src.capabilities.memory.repository import MemoryRepository
-    from src.capabilities.memory.vector_store import ElasticsearchVectorStore, VectorStore
-    from src.capabilities.memory.postgres_vector_store import PostgresVectorStore
-    from src.capabilities.memory.embeddings import EmbeddingProvider, OpenAIEmbeddingProvider
-    from src.capabilities.memory.lifecycle import MemoryLifecycleManager
-    from src.capabilities.memory.context_manager import ContextManager
-    from src.capabilities.memory.manager import MemoryManager
-    from src.capabilities.memory.mem0_manager import Mem0MemoryManager
-    from src.capabilities.memory.capability import (
-        LongTermMemoryCapability,
-        MemoryCapability,
-        VectorSearchCapability,
-    )
-except ImportError:  # pragma: no cover - 最小安装场景下可不安装这些依赖
-    MemoryRecord = None
-    MemoryRepository = None
-    ElasticsearchVectorStore = None
-    PostgresVectorStore = None
-    VectorStore = None
-    EmbeddingProvider = None
-    OpenAIEmbeddingProvider = None
-    MemoryLifecycleManager = None
-    ContextManager = None
-    MemoryManager = None
-    Mem0MemoryManager = None
-    MemoryCapability = None
-    LongTermMemoryCapability = None
-    VectorSearchCapability = None
+from src.capabilities.memory.mem0_manager import Mem0MemoryManager
+from src.capabilities.memory.capability import (
+    LongTermMemoryCapability,
+    MemoryCapability,
+    VectorSearchCapability,
+)
 
 __all__ = [
     "ShortTermMemory",
     "MemoryStore",
-    "MemoryRecord",
-    "MemoryRepository",
-    "ElasticsearchVectorStore",
-    "PostgresVectorStore",
-    "VectorStore",
-    "EmbeddingProvider",
-    "OpenAIEmbeddingProvider",
-    "MemoryLifecycleManager",
-    "ContextManager",
-    "MemoryManager",
     "Mem0MemoryManager",
     "MemoryCapability",
     "LongTermMemoryCapability",
