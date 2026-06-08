@@ -14,9 +14,9 @@
 
 | 能力 | 实现位置 | 评级 | 备注 |
 |---|---|---|---|
-| Token 计数 | `ContextManager._count_tokens` | ✅ 有 | tiktoken `cl100k_base`,失败兜底 `len/4` |
-| 阈值触发 | `ContextManager.build_context` | ✅ 有 | 超过 `max_tokens=8000` 才裁 |
-| 裁剪策略 | `ContextManager._truncate_context` | ⚠️ 弱 | 仅"砍轮数",非真正压缩 |
+| Token 计数 | `token_budget.py` / compression strategy | ✅ 有 | tiktoken `cl100k_base`,失败兜底估算 |
+| 阈值触发 | `ContextCompressionCapability.before_run` | ✅ 有 | 在 MemoryCapability 注入上下文后执行 |
+| 裁剪策略 | `TokenBudgetTruncate` | ✅ 有 | 按预算保留当前输入和最近上下文 |
 | 短期容量上限 | `MemoryStore`(内存模式 100 条) | ⚠️ 弱 | 仅 fallback 路径生效 |
 | LLM 摘要 | — | ❌ 无 | |
 | 滚动摘要 | — | ❌ 无 | |
@@ -26,18 +26,14 @@
 
 ### 关键缺陷
 
-> **默认配置下(`MEMORY_SHORT_TERM_ENABLED=false`)`MemoryCapability` 完全绕过 `ContextManager`,
-> 走的是旧版 `MemoryStore.render_context` 路径,token 计数和裁剪都没生效。**
+> 当前实现的记忆上下文由 `Mem0MemoryManager` 统一提供。
+> 上下文压缩通过 `ContextCompressionCapability` 接在 `MemoryCapability` 之后。
 
 参见 [`MemoryCapability.before_run`](../../src/capabilities/memory/capability.py):
 
 ```python
 if self._long_term_enabled and self._manager is not None:
-    # 走 ContextManager.build_context (有裁剪)
     memory_context = await self._manager.get_context(...)
-else:
-    # 走旧版 MemoryStore (无 token 控制) ← 默认走这里
-    memory_context = self._store.render_context(ctx.session_id)
 ```
 
 ### 痛点量化

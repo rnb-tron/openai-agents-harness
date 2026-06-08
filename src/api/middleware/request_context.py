@@ -2,6 +2,7 @@
 
 from fastapi import FastAPI, Request
 
+from src.api.middleware.base import ProtocolPlugin
 from src.core.logging import (
     bind_log_context,
     get_rid,
@@ -31,7 +32,7 @@ def install_request_context(app: FastAPI) -> None:
             reset_rid(rid_token)
 
 
-class RequestContextPlugin:
+class RequestContextPlugin(ProtocolPlugin):
     """Always-on outer protocol plugin providing request/log correlation IDs."""
 
     name = "request_context"
@@ -41,9 +42,3 @@ class RequestContextPlugin:
 
     def install(self, app: FastAPI) -> None:
         install_request_context(app)
-
-    async def setup(self) -> None:
-        return None
-
-    async def teardown(self) -> None:
-        return None

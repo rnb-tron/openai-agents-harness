@@ -11,6 +11,7 @@ def build_protocol_chain(settings) -> ProtocolRequestChain:
 
     请求执行顺序为 ``RequestContext -> Auth -> RateLimit``：
     RequestContext 创建请求关联 ID；
+    Auth 解析身份并写入 ``request.state.principal``；
     RateLimit 位于 Auth 之后，使用认证产生的 principal 作为用户维度限流键。
     """
     declared_request_order = (
