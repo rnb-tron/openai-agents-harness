@@ -646,6 +646,13 @@
         rawResponse.textContent = JSON.stringify(value, null, 2);
       }
 
+      function showAgentUpdate(event) {
+        if (!Array.isArray(event.agent_path) || event.agent_path.length <= 1) {
+          return;
+        }
+        addMessage("system", `切换到 Agent：${event.agent || "unknown"}`);
+      }
+
 
       function unwrapData(body) {
         return body && Object.prototype.hasOwnProperty.call(body, "data") ? body.data : body;
@@ -941,7 +948,7 @@
             if (event.type === "start") {
               setSession(event.session_id);
             } else if (event.type === "agent_updated") {
-              addMessage("system", `切换到 Agent：${event.agent || "unknown"}`);
+              showAgentUpdate(event);
             } else if (event.type === "delta") {
               if (!assistantBubble) {
                 assistantBubble = addMessage("assistant", "");
@@ -1044,7 +1051,7 @@
             if (event.type === "start") {
               // no-op: resume stream started
             } else if (event.type === "agent_updated") {
-              addMessage("system", `切换到 Agent：${event.agent || "unknown"}`);
+              showAgentUpdate(event);
             } else if (event.type === "delta") {
               if (!assistantBubble) {
                 assistantBubble = addMessage("assistant", "");

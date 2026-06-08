@@ -76,6 +76,17 @@ def test_get_settings_loads_split_memory_enable_switches(monkeypatch):
     assert settings.memory_long_term_enabled is True
 
 
+def test_get_settings_loads_reasoning_model_api_switches(monkeypatch):
+    monkeypatch.setenv("ENVTYPE", "unit")
+    monkeypatch.setenv("AGENT_MODEL_API", "chat_completions")
+    monkeypatch.setenv("REASONING_CHAT_ENABLE_THINKING", "false")
+
+    settings = get_settings()
+
+    assert settings.agent_model_api == "chat_completions"
+    assert settings.reasoning_chat_enable_thinking is False
+
+
 def test_get_settings_ignores_old_memory_enabled(monkeypatch):
     monkeypatch.setenv("ENVTYPE", "unit")
     monkeypatch.delenv("MEMORY_SHORT_TERM_ENABLED", raising=False)

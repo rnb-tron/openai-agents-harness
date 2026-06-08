@@ -4,9 +4,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from agents.stream_events import AgentUpdatedStreamEvent, RawResponsesStreamEvent
+from openai.types.responses.response_reasoning_summary_text_done_event import (
+    ResponseReasoningSummaryTextDoneEvent,
+)
 from openai.types.responses.response_reasoning_summary_text_delta_event import (
     ResponseReasoningSummaryTextDeltaEvent,
 )
+from openai.types.responses.response_reasoning_text_delta_event import ResponseReasoningTextDeltaEvent
 from openai.types.responses.response_text_delta_event import ResponseTextDeltaEvent
 
 from src.application.orchestration.agent_runtime import AgentOrchestrator, AgentSession
@@ -126,14 +130,34 @@ async def test_streamed_run_yields_text_delta_and_completed_result():
             )
         )
         yield RawResponsesStreamEvent(
+            data=ResponseReasoningSummaryTextDoneEvent(
+                item_id="reasoning-1",
+                output_index=0,
+                sequence_number=3,
+                summary_index=0,
+                text="正在整理",
+                type="response.reasoning_summary_text.done",
+            )
+        )
+        yield RawResponsesStreamEvent(
             data=ResponseTextDeltaEvent(
                 content_index=0,
                 delta="成",
                 item_id="message-1",
                 logprobs=[],
                 output_index=0,
-                sequence_number=3,
+                sequence_number=4,
                 type="response.output_text.delta",
+            )
+        )
+        yield RawResponsesStreamEvent(
+            data=ResponseReasoningTextDeltaEvent(
+                content_index=0,
+                delta="额外推理",
+                item_id="reasoning-2",
+                output_index=0,
+                sequence_number=5,
+                type="response.reasoning_text.delta",
             )
         )
 
@@ -183,7 +207,10 @@ async def test_streamed_run_yields_text_delta_and_completed_result():
 
     assert events[0]["type"] == "start"
     assert [event["delta"] for event in events if event["type"] == "delta"] == ["完", "成"]
-    assert [event["delta"] for event in events if event["type"] == "reasoning_summary_delta"] == ["正在整理"]
+    assert [event["delta"] for event in events if event["type"] == "reasoning_summary_delta"] == [
+        "正在整理",
+        "额外推理",
+    ]
     assert [event for event in events if event["type"] == "agent_updated"][0]["agent"] == "billing"
     assert events[-1]["type"] == "done"
     assert events[-1]["data"]["output"] == "完成"
@@ -205,6 +232,7 @@ def test_runtime_adds_reasoning_summary_model_settings_when_enabled():
     settings = _settings()
     settings.reasoning_summary_enabled = True
     settings.reasoning_summary_mode = "concise"
+    settings.reasoning_effort = "medium"
     orchestrator = AgentOrchestrator(
         tool_registry=ToolRegistry(),
         memory_store=MemoryStore(),
@@ -214,7 +242,7 @@ def test_runtime_adds_reasoning_summary_model_settings_when_enabled():
 
     with (
         patch(
-            "src.application.orchestration.agent_factory.OpenAIChatCompletionsModel",
+            "src.application.orchestration.agent_factory.OpenAIResponsesModel",
         ),
         patch(
             "src.application.orchestration.agent_factory.Agent",
@@ -229,6 +257,146 @@ def test_runtime_adds_reasoning_summary_model_settings_when_enabled():
 
     model_settings = agent_cls.call_args.kwargs["model_settings"]
     assert model_settings.reasoning.summary == "concise"
+    assert model_settings.reasoning.effort == "medium"
+
+
+def test_runtime_uses_chat_completions_thinking_for_compatible_base_url():
+    settings = _settings()
+    settings.openai_base_url = "https://openapi-compatible.example/v1"
+    settings.agent_model_api = "chat_completions"
+    settings.reasoning_summary_enabled = True
+    settings.reasoning_summary_mode = "auto"
+    settings.reasoning_effort = "low"
+    settings.reasoning_chat_enable_thinking = True
+    orchestrator = AgentOrchestrator(
+        tool_registry=ToolRegistry(),
+        memory_store=MemoryStore(),
+        model_router=ModelRouter(),
+        settings=settings,
+    )
+
+    with (
+        patch(
+            "src.application.orchestration.agent_factory.OpenAIChatCompletionsModel",
+        ) as chat_model_cls,
+        patch(
+            "src.application.orchestration.agent_factory.OpenAIResponsesModel",
+        ) as responses_model_cls,
+        patch(
+            "src.application.orchestration.agent_factory.Agent",
+            return_value=MagicMock(),
+        ) as agent_cls,
+    ):
+        orchestrator._build_agent(
+            model="qwen3.5-plus",
+            client=MagicMock(),
+            instructions="answer",
+        )
+
+    chat_model_cls.assert_called_once()
+    responses_model_cls.assert_not_called()
+    model_settings = agent_cls.call_args.kwargs["model_settings"]
+    assert model_settings.reasoning.effort == "low"
+    assert model_settings.extra_body == {"enable_thinking": True}
+
+
+def test_runtime_auto_prefers_responses_when_reasoning_summary_enabled():
+    settings = _settings()
+    settings.openai_base_url = "https://openapi-compatible.example/v1"
+    settings.agent_model_api = "auto"
+    settings.reasoning_summary_enabled = True
+    orchestrator = AgentOrchestrator(
+        tool_registry=ToolRegistry(),
+        memory_store=MemoryStore(),
+        model_router=ModelRouter(),
+        settings=settings,
+    )
+
+    with (
+        patch(
+            "src.application.orchestration.agent_factory.OpenAIResponsesModel",
+        ) as responses_model_cls,
+        patch(
+            "src.application.orchestration.agent_factory.OpenAIChatCompletionsModel",
+        ) as chat_model_cls,
+        patch(
+            "src.application.orchestration.agent_factory.Agent",
+            return_value=MagicMock(),
+        ),
+    ):
+        orchestrator._build_agent(
+            model="gpt-5-mini",
+            client=MagicMock(),
+            instructions="answer",
+        )
+
+    responses_model_cls.assert_called_once()
+    chat_model_cls.assert_not_called()
+
+
+def test_runtime_auto_uses_responses_without_reasoning_summary():
+    settings = _settings()
+    settings.agent_model_api = "auto"
+    settings.reasoning_summary_enabled = False
+    orchestrator = AgentOrchestrator(
+        tool_registry=ToolRegistry(),
+        memory_store=MemoryStore(),
+        model_router=ModelRouter(),
+        settings=settings,
+    )
+
+    with (
+        patch(
+            "src.application.orchestration.agent_factory.OpenAIResponsesModel",
+        ) as responses_model_cls,
+        patch(
+            "src.application.orchestration.agent_factory.OpenAIChatCompletionsModel",
+        ) as chat_model_cls,
+        patch(
+            "src.application.orchestration.agent_factory.Agent",
+            return_value=MagicMock(),
+        ),
+    ):
+        orchestrator._build_agent(
+            model="gpt-5-mini",
+            client=MagicMock(),
+            instructions="answer",
+        )
+
+    responses_model_cls.assert_called_once()
+    chat_model_cls.assert_not_called()
+
+
+def test_runtime_unknown_model_api_falls_back_to_responses():
+    settings = _settings()
+    settings.agent_model_api = "bad-value"
+    orchestrator = AgentOrchestrator(
+        tool_registry=ToolRegistry(),
+        memory_store=MemoryStore(),
+        model_router=ModelRouter(),
+        settings=settings,
+    )
+
+    with (
+        patch(
+            "src.application.orchestration.agent_factory.OpenAIResponsesModel",
+        ) as responses_model_cls,
+        patch(
+            "src.application.orchestration.agent_factory.OpenAIChatCompletionsModel",
+        ) as chat_model_cls,
+        patch(
+            "src.application.orchestration.agent_factory.Agent",
+            return_value=MagicMock(),
+        ),
+    ):
+        orchestrator._build_agent(
+            model="gpt-5-mini",
+            client=MagicMock(),
+            instructions="answer",
+        )
+
+    responses_model_cls.assert_called_once()
+    chat_model_cls.assert_not_called()
 
 
 @pytest.mark.asyncio

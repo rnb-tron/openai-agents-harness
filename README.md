@@ -266,30 +266,7 @@ AGENT_MODEL_DEFAULT=qwen3.5-plus
 
 数据库、Redis、pgvector、Elasticsearch 都是可选外部依赖：可以直接配置公司或云上的实例，也可以用本仓库的 Docker Compose 在本地启动一套开发依赖。
 
-使用已有外部依赖时，在 `config/test.env` 中填写对应地址即可：
-
-```bash
-SESSION_STORE_ENABLED=true
-SESSION_STORE_DATABASE_SCHEME=mysql+aiomysql
-SESSION_STORE_DATABASE_HOST=mysql.example.com
-SESSION_STORE_DATABASE_PORT=3306
-SESSION_STORE_DATABASE_NAME=agent_harness
-SESSION_STORE_DATABASE_USER=agent
-SESSION_STORE_DATABASE_PASSWORD=agent_pass
-
-REDIS_ENABLED=true
-REDIS_URL=redis://redis.example.com:6379/0
-
-MEMORY_LONG_TERM_ENABLED=true
-MEMORY_LONG_TERM_VECTOR_STORE=pgvector
-MEMORY_PGVECTOR_PGHOST=pgvector.example.com
-MEMORY_PGVECTOR_PGPORT=5432
-MEMORY_PGVECTOR_PGDATABASE=agent_memory
-MEMORY_PGVECTOR_PGUSER=agent
-MEMORY_PGVECTOR_PGPASSWORD=agent_pass
-```
-
-本地 Docker 快速启动依赖：
+- 本地 Docker 快速启动依赖：
 
 ```bash
 # 启动 MySQL、Redis、pgvector；常规会话存储和长期记忆足够使用
@@ -301,45 +278,11 @@ docker compose -f docker-compose.storage.yml up -d elasticsearch
 # 查看健康状态
 docker compose -f docker-compose.storage.yml ps
 ```
+config/test.env.example的连接信息即是本地 Docker 默认连接信息。
 
-本地 Docker 默认连接信息：
+- 使用已有外部依赖：
 
-| 服务 | 本地地址 | 账号 / 库 |
-| --- | --- | --- |
-| MySQL | `127.0.0.1:13306` | `agent` / `agent_pass`，数据库 `agent_harness` |
-| Redis | `127.0.0.1:6379` | 无密码，DB `0` |
-| pgvector | `127.0.0.1:15432` | `agent` / `agent_pass`，数据库 `agent_memory` |
-| Elasticsearch | `http://127.0.0.1:9200` | 关闭安全认证，仅本地开发 |
-
-对应 `config/test.env` 可直接使用：
-
-```bash
-SESSION_STORE_ENABLED=true
-SESSION_STORE_DATABASE_SCHEME=mysql+aiomysql
-SESSION_STORE_DATABASE_HOST=127.0.0.1
-SESSION_STORE_DATABASE_PORT=13306
-SESSION_STORE_DATABASE_NAME=agent_harness
-SESSION_STORE_DATABASE_USER=agent
-SESSION_STORE_DATABASE_PASSWORD=agent_pass
-
-REDIS_ENABLED=true
-REDIS_URL=redis://127.0.0.1:6379/0
-
-MEMORY_SHORT_TERM_ENABLED=true
-MEMORY_SESSION_SUMMARY_ENABLED=true
-MEMORY_LONG_TERM_ENABLED=true
-MEMORY_LONG_TERM_PROVIDER=mem0
-MEMORY_LONG_TERM_MEM0_MODE=local
-MEMORY_LONG_TERM_VECTOR_STORE=pgvector
-MEMORY_PGVECTOR_PGHOST=127.0.0.1
-MEMORY_PGVECTOR_PGPORT=15432
-MEMORY_PGVECTOR_PGDATABASE=agent_memory
-MEMORY_PGVECTOR_PGUSER=agent
-MEMORY_PGVECTOR_PGPASSWORD=agent_pass
-MEMORY_PGVECTOR_TABLE=agent_memories
-```
-
-如果只想验证最小聊天链路，可以先不启用 `SESSION_STORE_ENABLED`、`MEMORY_SHORT_TERM_ENABLED`、`MEMORY_SESSION_SUMMARY_ENABLED` 和 `MEMORY_LONG_TERM_ENABLED`，这样不依赖本地数据库或 Redis。
+在 `config/test.env` 中填写对应地址即可。
 
 ### 3. 启动服务
 
@@ -453,6 +396,7 @@ OPENAI_API_KEY=your-api-key
 OPENAI_BASE_URL=
 AGENT_MODEL_DEFAULT=gpt-4o-mini
 AGENT_MODEL_REASONING=gpt-4.1-mini
+AGENT_MODEL_API=auto
 ```
 
 模型弹性：
@@ -475,9 +419,11 @@ MODEL_PER_REQUEST_TIMEOUT=10.0
 ```bash
 REASONING_SUMMARY_ENABLED=false
 REASONING_SUMMARY_MODE=auto
+REASONING_EFFORT=low
+REASONING_CHAT_ENABLE_THINKING=true
 ```
 
-开启后会向 Agents SDK 传入 `ModelSettings(reasoning=Reasoning(summary=...))`。是否产生“推理摘要”流式事件取决于模型和 SDK 路径支持情况。
+开启后，`AGENT_MODEL_API=auto` 默认优先使用 Responses 模型，这是 OpenAI reasoning summary 的标准路径。服务端会将 `response.reasoning_summary_text.delta`、`response.reasoning_text.delta` 转成 `reasoning_summary_delta` 事件，UI 会展示为“推理摘要”。对只在 Chat Completions 扩展字段返回 thinking 的 OpenAI-compatible 服务，需要显式设置 `AGENT_MODEL_API=chat_completions`；此时 `REASONING_CHAT_ENABLE_THINKING=true` 会额外传入 `extra_body.enable_thinking=true`。
 
 ### 记忆管理
 
