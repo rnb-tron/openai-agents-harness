@@ -313,6 +313,11 @@
         margin-top: 10px;
       }
 
+      .composer-buttons {
+        display: flex;
+        gap: 8px;
+      }
+
       .hint {
         color: var(--muted);
         font-size: 12px;
@@ -327,6 +332,17 @@
 
       .primary:hover {
         background: var(--primary-dark);
+      }
+
+      .stop {
+        color: white;
+        background: #b14e42;
+        padding-left: 18px;
+        padding-right: 18px;
+      }
+
+      .stop:hover {
+        background: #963f36;
       }
 
       .approval {
@@ -531,7 +547,10 @@
           <textarea id="message" data-testid="message" placeholder="例如：用一句话介绍当前 Agent 能力" required></textarea>
           <div class="composer-actions">
             <span class="hint">Enter 发送，Shift + Enter 换行</span>
-            <button id="send" class="primary" data-testid="send" type="submit">发送</button>
+            <div class="composer-buttons">
+              <button id="cancel-chat" class="stop" data-testid="cancel-chat" type="button" disabled>中止</button>
+              <button id="send" class="primary" data-testid="send" type="submit">发送</button>
+            </div>
           </div>
         </form>
       </section>
@@ -564,6 +583,7 @@
       const tokenInput = document.querySelector("#auth-token");
       const messageInput = document.querySelector("#message");
       const sendButton = document.querySelector("#send");
+      const cancelChatButton = document.querySelector("#cancel-chat");
       const messages = document.querySelector("#messages");
       const rawResponse = document.querySelector("#raw-response");
       const health = document.querySelector("#health");
@@ -578,6 +598,8 @@
       let pendingApproval = null;
       let cachedSessions = [];
       let memorySearchUserId = "";
+      let chatStreaming = false;
+      let cancelRequested = false;
 
       function newSessionId() {
         return globalThis.crypto && crypto.randomUUID
@@ -640,6 +662,11 @@
         document.querySelector("#approve").disabled = busy;
         document.querySelector("#reject").disabled = busy;
         sendButton.textContent = busy ? "请求中..." : "发送";
+      }
+
+      function setChatStreaming(streaming) {
+        chatStreaming = streaming;
+        cancelChatButton.disabled = !streaming;
       }
 
       function showRaw(value) {
@@ -991,7 +1018,39 @@
           streamEnded = next.done;
         }
         if (!completed) {
+          if (cancelRequested) {
+            addMessage("system", "当前对话已中止。");
+            return;
+          }
           throw new Error("流式连接结束，但未收到完成事件");
+        }
+      }
+
+      async function cancelCurrentChat() {
+        if (!chatStreaming || cancelChatButton.disabled) {
+          return;
+        }
+        cancelRequested = true;
+        cancelChatButton.disabled = true;
+        const payload = {
+          sessionId: sessionInput.value,
+          userId: userInput.value.trim() || null
+        };
+        const response = await fetch("/chat/cancel", {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify(payload)
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const body = await response.json();
+        addMessage("system", body.msg || "已请求中止当前对话");
+        if (body.msg !== "取消成功") {
+          cancelRequested = false;
+          if (chatStreaming) {
+            cancelChatButton.disabled = false;
+          }
         }
       }
 
@@ -1104,6 +1163,25 @@
         }
       }
 
+      async function withChatFeedback(action) {
+        setBusy(true);
+        setChatStreaming(true);
+        cancelRequested = false;
+        try {
+          await action();
+        } catch (error) {
+          if (cancelRequested && error.message.includes("未收到完成事件")) {
+            addMessage("system", "当前对话已中止。");
+          } else {
+            addMessage("system", `请求失败：${error.message}`);
+          }
+        } finally {
+          setChatStreaming(false);
+          setBusy(false);
+          cancelRequested = false;
+        }
+      }
+
       document.querySelector("#composer").addEventListener("submit", async (event) => {
         event.preventDefault();
         const message = messageInput.value.trim();
@@ -1113,7 +1191,7 @@
         clearPending();
         addMessage("user", message);
         messageInput.value = "";
-        await withFeedback(() => sendChat(message));
+        await withChatFeedback(() => sendChat(message));
       });
 
       messageInput.addEventListener("keydown", (event) => {
@@ -1131,6 +1209,17 @@
         withFeedback(() => resumeChat(false));
       });
 
+      cancelChatButton.addEventListener("click", async () => {
+        try {
+          await cancelCurrentChat();
+        } catch (error) {
+          addMessage("system", `中止失败：${error.message}`);
+          cancelRequested = false;
+          if (chatStreaming) {
+            cancelChatButton.disabled = false;
+          }
+        }
+      });
 
       document.querySelector("#refresh-storage").addEventListener("click", () => {
         withFeedback(() => refreshStorage());
