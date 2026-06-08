@@ -22,6 +22,13 @@ class MemorySearchRequest(BaseModel):
     top_k: int = Field(default=5, ge=1, le=20, description="返回数量")
 
 
+class MemoryListRequest(BaseModel):
+    """长期记忆列表请求"""
+
+    user_id: str = Field(..., description="用户ID")
+    limit: int = Field(default=20, ge=1, le=100, description="返回数量")
+
+
 class MemoryClearRequest(BaseModel):
     """清空记忆请求"""
 
@@ -66,6 +73,34 @@ async def search_memories(
     except Exception as e:
         service_logger.error(f"Memory search failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Memory search failed: {e}")
+
+
+@router.post("/list")
+async def list_memories(
+    request: MemoryListRequest,
+    harness: Harness = Depends(get_harness),
+):
+    """列出指定用户的长期记忆，不按 query 做语义搜索。"""
+    try:
+        memory_manager = harness.memory_manager
+        results = []
+        if memory_manager is not None and hasattr(memory_manager, "list_memories"):
+            results = await memory_manager.list_memories(
+                user_id=request.user_id,
+                limit=request.limit,
+            )
+
+        return create_success_response(
+            data={
+                "user_id": request.user_id,
+                "results": results,
+                "count": len(results),
+            }
+        )
+
+    except Exception as e:
+        service_logger.error(f"Memory list failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Memory list failed: {e}")
 
 
 @router.post("/clear")

@@ -17,6 +17,10 @@ def test_chat_ui_serves_local_e2e_console():
     assert 'fetch("/chat/resume/stream"' in response.text
     assert 'data-testid="cancel-chat"' in response.text
     assert "中止" in response.text
+    assert "Mem0 偏好记忆" in response.text
+    assert "Mem0 普通长期记忆" in response.text
+    assert 'fetchJson("/memory/list"' in response.text
+    assert 'item.memory_category === "preference"' in response.text
     assert "/advanced/sessions/" not in response.text
     assert 'data-testid="advanced-state"' not in response.text
     assert "renderAdvanced()" not in response.text
