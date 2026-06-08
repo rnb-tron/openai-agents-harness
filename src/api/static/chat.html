@@ -495,7 +495,7 @@
   <body>
     <header>
       <h1>Agent Harness / Chat E2E Console</h1>
-      <span>POST /chat/stream · POST /chat/resume/stream</span>
+      <span>POST /chat · POST /chat/resume/stream</span>
     </header>
     <main>
       <section class="panel sidebar">
@@ -529,7 +529,7 @@
       <section class="panel chat">
         <div class="panel-title">聊天验证</div>
         <div id="messages" data-testid="messages">
-          <div class="empty" id="empty-state">输入一条消息，验证真实 /chat/stream 调用。<br>同一页面内会自动复用 session_id。</div>
+          <div class="empty" id="empty-state">输入一条消息，验证真实 /chat SSE 调用。<br>同一页面内会自动复用 sessionId。</div>
         </div>
         <div id="approval" class="approval" data-testid="approval">
           <h3>检测到需要人工审批的工具调用</h3>
@@ -603,6 +603,7 @@
       let memorySearchUserId = "";
       let chatStreaming = false;
       let cancelRequested = false;
+      let currentChatMsgId = null;
 
       function newSessionId() {
         return globalThis.crypto && crypto.randomUUID
@@ -681,6 +682,58 @@
           return;
         }
         addMessage("system", `切换到 Agent：${event.agent || "unknown"}`);
+      }
+
+      function formatThinkingCost(cost) {
+        if (typeof cost !== "number" || Number.isNaN(cost)) {
+          return "思考完成";
+        }
+        return `思考耗时：${(cost / 1000).toFixed(1)} 秒`;
+      }
+
+      function parseSseEventBlock(block) {
+        const parsed = {event: "message", data: null};
+        for (const rawLine of block.split("\n")) {
+          const line = rawLine.trimEnd();
+          if (!line) {
+            continue;
+          }
+          if (line.startsWith("event:")) {
+            parsed.event = line.slice("event:".length);
+          } else if (line.startsWith("id:")) {
+            parsed.id = line.slice("id:".length);
+          } else if (line.startsWith("data:")) {
+            parsed.data = JSON.parse(line.slice("data:".length));
+          }
+        }
+        return parsed.data ? parsed : null;
+      }
+
+      async function consumeSseStream(response, onEvent) {
+        if (!response.body) {
+          throw new Error("浏览器未提供流式响应体");
+        }
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let streamEnded = false;
+        while (!streamEnded) {
+          const next = await reader.read();
+          buffer += decoder.decode(next.value || new Uint8Array(), {stream: !next.done});
+          const normalized = buffer.replace(/\r\n/g, "\n");
+          const blocks = normalized.split("\n\n");
+          buffer = blocks.pop() || "";
+          for (const block of blocks) {
+            if (!block.trim()) {
+              continue;
+            }
+            const event = parseSseEventBlock(block);
+            if (event) {
+              await onEvent(event);
+            }
+          }
+          streamEnded = next.done;
+        }
       }
 
 
@@ -897,6 +950,7 @@
 
       function startNewSessionView() {
         clearPending();
+        currentChatMsgId = null;
         rawResponse.textContent = "等待请求...";
         messageRecords.textContent = "发送消息后会写入 MySQL";
         sessionSummary.textContent = "达到 summary 阈值后会在这里展示";
@@ -970,11 +1024,11 @@
 
       async function sendChat(message) {
         const payload = {
-          message,
-          session_id: sessionInput.value,
-          user_id: userInput.value.trim() || null
+          query: message,
+          sessionId: sessionInput.value,
+          userId: userInput.value.trim() || null
         };
-        const response = await fetch("/chat/stream", {
+        const response = await fetch("/chat", {
           method: "POST",
           headers: headers(),
           body: JSON.stringify(payload)
@@ -982,12 +1036,6 @@
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
-        if (!response.body) {
-          throw new Error("浏览器未提供流式响应体");
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
         const events = [];
         let buffer = "";
         let streamedOutput = "";
@@ -995,47 +1043,57 @@
         let assistantBubble = null;
         let reasoningBubble = null;
         let completed = false;
-        let streamEnded = false;
-        while (!streamEnded) {
-          const next = await reader.read();
-          buffer += decoder.decode(next.value || new Uint8Array(), {stream: !next.done});
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
-          for (const line of lines) {
-            if (!line.trim()) {
-              continue;
-            }
-            const event = JSON.parse(line);
+        await consumeSseStream(response, async (event) => {
             events.push(event);
             showRaw(events);
-            if (event.type === "start") {
-              setSession(event.session_id);
-            } else if (event.type === "agent_updated") {
-              showAgentUpdate(event);
-            } else if (event.type === "delta") {
-              if (!assistantBubble) {
-                assistantBubble = addMessage("assistant", "");
-              }
-              streamedOutput += event.delta;
-              updateMessage(assistantBubble, streamedOutput, "streaming...");
-            } else if (event.type === "reasoning_summary_delta") {
+            const data = event.data || {};
+            const protocol = data.protocol || {};
+            if (protocol.sessionId) {
+              setSession(protocol.sessionId);
+            }
+            if (protocol.msgId) {
+              currentChatMsgId = protocol.msgId;
+            }
+            if (event.event === "thinking") {
               if (!reasoningBubble) {
                 reasoningBubble = addMessage("system", "", "推理摘要");
               }
-              reasoningSummary += event.delta;
-              updateMessage(reasoningBubble, reasoningSummary, "推理摘要");
-            } else if (event.type === "error") {
-              throw new Error(event.detail || "流式请求失败");
-            } else if (event.type === "done") {
+              reasoningSummary += data.text || "";
+              updateMessage(reasoningBubble, reasoningSummary, "推理中...");
+            } else if (event.event === "thinkingEnd") {
+              if (reasoningBubble) {
+                updateMessage(reasoningBubble, reasoningSummary || "(无思考文本)", formatThinkingCost(protocol.cost));
+              }
+            } else if (event.event === "content") {
+              if (!assistantBubble) {
+                assistantBubble = addMessage("assistant", "");
+              }
+              streamedOutput += data.text || "";
+              updateMessage(assistantBubble, streamedOutput, "streaming...");
+            } else if (event.event === "replace") {
+              streamedOutput = "";
+              reasoningSummary = "";
+              if (assistantBubble) {
+                updateMessage(assistantBubble, "", "streaming...");
+              }
+              if (reasoningBubble) {
+                updateMessage(reasoningBubble, "", "推理摘要");
+              }
+            } else if (event.event === "error") {
+              throw new Error(data.msg || "流式请求失败");
+            } else if (event.event === "end") {
               completed = true;
-              const data = event.data;
-              setSession(data.session_id);
               if (data.interrupted) {
                 if (assistantBubble && !streamedOutput) {
                   assistantBubble.remove();
                 }
                 addMessage("system", "请求已暂停，等待人工审批。");
-                showPending(data, message);
+                showPending({
+                  ...data,
+                  session_id: protocol.sessionId,
+                  msg_id: protocol.msgId,
+                  run_state: data.runState
+                }, message);
                 await refreshStorage();
               } else {
                 if (!assistantBubble) {
@@ -1044,15 +1102,13 @@
                 updateMessage(
                   assistantBubble,
                   data.output || streamedOutput || "(无文本输出)",
-                  `model: ${data.model} · memory: ${data.memory_size}`
+                  `model: ${data.model || "-"} · memory: ${data.memorySize ?? "-"}`
                 );
                 await refreshSessionList();
                 await refreshStorage();
               }
             }
-          }
-          streamEnded = next.done;
-        }
+        });
         if (!completed) {
           if (cancelRequested) {
             addMessage("system", "当前对话已中止。");
@@ -1068,8 +1124,12 @@
         }
         cancelRequested = true;
         cancelChatButton.disabled = true;
+        if (!currentChatMsgId) {
+          throw new Error("当前没有可取消的 msgId");
+        }
         const payload = {
           sessionId: sessionInput.value,
+          msgId: currentChatMsgId,
           userId: userInput.value.trim() || null
         };
         const response = await fetch("/chat/cancel", {
@@ -1103,6 +1163,7 @@
           interruption_index: interruption.sdk_interruption_index || 0,
           approved,
           session_id: data.session_id,
+          msgId: data.msg_id,
           message: originalMessage,
           model: data.model,
           always: approved ? approvalAlways.checked : false,
@@ -1117,56 +1178,51 @@
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
-        if (!response.body) {
-          throw new Error("浏览器未提供流式响应体");
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
         const events = [];
-        let buffer = "";
         let streamedOutput = "";
         let reasoningSummary = "";
         let assistantBubble = null;
         let reasoningBubble = null;
         let completed = false;
-        let streamEnded = false;
-        while (!streamEnded) {
-          const next = await reader.read();
-          buffer += decoder.decode(next.value || new Uint8Array(), {stream: !next.done});
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
-          for (const line of lines) {
-            if (!line.trim()) {
-              continue;
-            }
-            const event = JSON.parse(line);
+        await consumeSseStream(response, async (event) => {
             events.push(event);
             showRaw(events);
-            if (event.type === "start") {
-              // no-op: resume stream started
-            } else if (event.type === "agent_updated") {
-              showAgentUpdate(event);
-            } else if (event.type === "delta") {
-              if (!assistantBubble) {
-                assistantBubble = addMessage("assistant", "");
-              }
-              streamedOutput += event.delta;
-              updateMessage(assistantBubble, streamedOutput, "streaming...");
-            } else if (event.type === "reasoning_summary_delta") {
+            const data = event.data || {};
+            const protocol = data.protocol || {};
+            if (protocol.sessionId) {
+              setSession(protocol.sessionId);
+            }
+            if (protocol.msgId) {
+              currentChatMsgId = protocol.msgId;
+            }
+            if (event.event === "thinking") {
               if (!reasoningBubble) {
                 reasoningBubble = addMessage("system", "", "推理摘要");
               }
-              reasoningSummary += event.delta;
-              updateMessage(reasoningBubble, reasoningSummary, "推理摘要");
-            } else if (event.type === "error") {
-              throw new Error(event.detail || "审批恢复失败");
-            } else if (event.type === "done") {
+              reasoningSummary += data.text || "";
+              updateMessage(reasoningBubble, reasoningSummary, "推理中...");
+            } else if (event.event === "thinkingEnd") {
+              if (reasoningBubble) {
+                updateMessage(reasoningBubble, reasoningSummary || "(无思考文本)", formatThinkingCost(protocol.cost));
+              }
+            } else if (event.event === "content") {
+              if (!assistantBubble) {
+                assistantBubble = addMessage("assistant", "");
+              }
+              streamedOutput += data.text || "";
+              updateMessage(assistantBubble, streamedOutput, "streaming...");
+            } else if (event.event === "error") {
+              throw new Error(data.msg || "审批恢复失败");
+            } else if (event.event === "end") {
               completed = true;
               clearPending();
-              const resumed = event.data;
-              if (resumed.interrupted) {
-                showPending(resumed, originalMessage);
+              if (data.interrupted) {
+                showPending({
+                  ...data,
+                  session_id: protocol.sessionId,
+                  msg_id: protocol.msgId,
+                  run_state: data.runState
+                }, originalMessage);
                 addMessage("system", "出现新的审批请求。");
               } else {
                 if (!assistantBubble) {
@@ -1174,15 +1230,13 @@
                 }
                 updateMessage(
                   assistantBubble,
-                  resumed.output || streamedOutput || "(无文本输出)",
-                  `model: ${resumed.model} · resumed`
+                  data.output || streamedOutput || "(无文本输出)",
+                  `model: ${data.model || "-"} · resumed`
                 );
                 await refreshStorage();
               }
             }
-          }
-          streamEnded = next.done;
-        }
+        });
         if (!completed) {
           throw new Error("流式连接结束，但未收到完成事件");
         }

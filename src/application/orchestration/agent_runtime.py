@@ -6,7 +6,7 @@
 - ``AgentRunObserver``：Langfuse observation 包装。
 - ``AgentResumeRuntime``：SDK interruption / HITL 审批恢复流程。
 - ``AdvancedAgentRuntime``：HITL / Checkpoint / Handoff 的可选接入。
-- ``iter_stream_events``：OpenAI Agents SDK 流事件到本服务事件的转换。
+- ``iter_chat_events``：OpenAI Agents SDK 流事件到统一聊天事件的转换。
 
 主流程只负责：
   1. 选模型
@@ -33,7 +33,7 @@ from src.application.orchestration.advanced_runtime import (
 from src.application.orchestration.agent_factory import AgentFactory
 from src.application.orchestration.agent_observation import AgentRunObserver
 from src.application.orchestration.agent_resume import AgentResumeRuntime
-from src.application.orchestration.stream_events import iter_stream_events
+from src.application.orchestration.stream_events import iter_chat_events
 from src.capabilities.memory.capability import (
     LongTermMemoryCapability,
     MemoryCapability,
@@ -203,20 +203,6 @@ class AgentOrchestrator:
         """供应用关闭期调用，释放 capability 持有的资源。"""
         await self.registry.teardown_all()
 
-    @staticmethod
-    def _execution_agent_name(run_result: Any) -> str:
-        """尽量从 SDK 结果中拿到最终执行 Agent 名称。
-
-        该信息只用于 agent_updated 流事件路径维护和调试展示，不参与业务判断。
-        不同 SDK 返回对象可能暴露 ``current_agent`` 或 ``last_agent``，这里兼容两者。
-        """
-        for attribute in ("current_agent", "last_agent"):
-            agent = getattr(run_result, attribute, None)
-            name = getattr(agent, "name", None)
-            if isinstance(name, str) and name:
-                return name
-        return "MinimalChatAgent"
-
     async def _memory_size(self, session_id: str) -> int:
         """读取当前会话记忆规模，用于响应元信息。
 
@@ -340,7 +326,7 @@ class AgentOrchestrator:
         ) as observation:
             try:
                 async for event in self._run_stream(session, user_input):
-                    if event["type"] == "done":
+                    if event["event"] == "end":
                         self.observer.update(observation, event["data"])
                     yield event
             except Exception as exc:
@@ -366,20 +352,19 @@ class AgentOrchestrator:
 
         run = await self._prepare_agent_run(session, user_input)
 
-        # agent_path 仅用于把 SDK handoff 过程透传给前端/调用方。
-        # 即使 handoff 未启用，它也只包含主 Agent。
-        agent_path = ["MinimalChatAgent"]
         yield {
-            "type": "start",
-            "session_id": session.session_id,
-            "model": run.selected_model,
+            "event": "init",
+            "data": {
+                "model": run.selected_model,
+                "userId": session.user_id,
+            },
         }
         try:
             run_result = Runner.run_streamed(
                 starting_agent=run.agent,
                 input=run.ctx.enriched_input,
             )
-            async for event in iter_stream_events(run_result, agent_path=agent_path):
+            async for event in iter_chat_events(run_result):
                 yield event
         except Exception as exc:
             # ON_ERROR 让能力有机会做清理或打点；异常仍然向上抛给路由层转成 error 事件。
@@ -391,12 +376,14 @@ class AgentOrchestrator:
         interruptions = list(getattr(run_result, "interruptions", []) or [])
         if interruptions:
             yield {
-                "type": "done",
-                "data": await self._build_interrupted_result(
-                    session=session,
-                    user_input=user_input,
-                    run=run,
-                    run_result=run_result,
+                "event": "end",
+                "data": self._result_to_chat_end_data(
+                    await self._build_interrupted_result(
+                        session=session,
+                        user_input=user_input,
+                        run=run,
+                        run_result=run_result,
+                    )
                 ),
             }
             return
@@ -404,12 +391,14 @@ class AgentOrchestrator:
         # 无中断时才进入正常完成路径：解析最终输出和工具调用，再触发 AFTER_RUN。
         # Memory/session summary 等持久化动作都应该挂在 AFTER_RUN capability 上。
         yield {
-            "type": "done",
-            "data": await self._complete_successful_run(
-                session=session,
-                user_input=user_input,
-                run=run,
-                run_result=run_result,
+            "event": "end",
+            "data": self._result_to_chat_end_data(
+                await self._complete_successful_run(
+                    session=session,
+                    user_input=user_input,
+                    run=run,
+                    run_result=run_result,
+                )
             ),
         }
 
@@ -451,6 +440,21 @@ class AgentOrchestrator:
             rejection_message=rejection_message,
         ):
             yield event
+
+    @staticmethod
+    def _result_to_chat_end_data(result: dict[str, Any]) -> dict[str, Any]:
+        data = {
+            "status": "interrupted" if result.get("interrupted") else "success",
+            "model": result.get("model"),
+            "memorySize": result.get("memory_size"),
+            "interrupted": bool(result.get("interrupted")),
+        }
+        for field in ("input", "output", "metadata", "interruptions", "tool_calls", "decision", "tool_executed"):
+            if field in result:
+                data[field] = result.get(field)
+        if "run_state" in result:
+            data["runState"] = result.get("run_state")
+        return data
 
     def _create_openai_client(self) -> AsyncOpenAI:
         return self.agent_factory.create_client()

@@ -34,11 +34,9 @@ def post_stream(
     )
     try:
         with urlopen(request, timeout=timeout) as response:
-            events = [
-                json.loads(line)
-                for line in response.read().decode("utf-8").splitlines()
-                if line.strip()
-            ]
+            body = response.read().decode("utf-8")
+            content_type = response.headers.get("Content-Type", "")
+            events = parse_stream_response(body, content_type)
     except HTTPError as exc:
         detail = exc.read().decode("utf-8")
         raise RuntimeError(f"HTTP {exc.code}: {detail}") from exc
@@ -47,10 +45,44 @@ def post_stream(
     for event in events:
         if event.get("type") == "error":
             raise RuntimeError(event.get("detail") or "stream returned error")
+        if event.get("event") == "error":
+            data = event.get("data") or {}
+            raise RuntimeError(data.get("msg") or "stream returned error")
     for event in reversed(events):
         if event.get("type") == "done":
             return event["data"]
+        if event.get("event") == "end":
+            data = event["data"]
+            protocol = data.get("protocol") or {}
+            if "sessionId" in protocol:
+                data["session_id"] = protocol["sessionId"]
+            if "msgId" in protocol:
+                data["msg_id"] = protocol["msgId"]
+            if "runState" in data and "run_state" not in data:
+                data["run_state"] = data["runState"]
+            return data
     raise RuntimeError("stream did not return done event")
+
+
+def parse_stream_response(body: str, content_type: str) -> list[dict[str, Any]]:
+    if "text/event-stream" not in content_type:
+        return [json.loads(line) for line in body.splitlines() if line.strip()]
+
+    events: list[dict[str, Any]] = []
+    for block in body.replace("\r\n", "\n").split("\n\n"):
+        if not block.strip():
+            continue
+        event: dict[str, Any] = {}
+        for line in block.splitlines():
+            if line.startswith("event:"):
+                event["event"] = line[len("event:") :]
+            elif line.startswith("id:"):
+                event["id"] = line[len("id:") :]
+            elif line.startswith("data:"):
+                event["data"] = json.loads(line[len("data:") :])
+        if event:
+            events.append(event)
+    return events
 
 
 def decision_from_args(args: argparse.Namespace) -> bool:
@@ -76,11 +108,11 @@ def main() -> None:
     args = parser.parse_args()
 
     initial = post_stream(
-        f"{args.base_url}/chat/stream",
+        f"{args.base_url}/chat",
         {
-            "message": args.message,
-            "session_id": args.session_id,
-            "user_id": args.user_id,
+            "query": args.message,
+            "sessionId": args.session_id,
+            "userId": args.user_id,
         },
         args.token,
         args.timeout,
@@ -100,6 +132,7 @@ def main() -> None:
         "interruption_index": interruption["sdk_interruption_index"],
         "approved": approved,
         "session_id": initial["session_id"],
+        "msg_id": initial["msg_id"],
         "message": initial["input"],
         "model": initial["model"],
         "user_id": args.user_id,

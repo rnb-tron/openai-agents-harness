@@ -24,7 +24,7 @@ sequenceDiagram
     participant API as Chat API
     participant SDK as OpenAI Agents SDK
 
-    C->>API: POST /chat/stream
+    C->>API: POST /chat
     API->>SDK: Runner.run_streamed
     SDK-->>API: interruptions + RunState
     API-->>C: interruptions + run_state
@@ -64,7 +64,7 @@ make run
 venv/bin/python examples/hitl_resume.py --approve --message "请查询北京天气。"
 ```
 
-示例会先请求 `POST /chat/stream`，读取 `done` 事件中的 `interruptions` 与 `run_state`，再将审批决定提交至 `POST /chat/resume/stream`。若模型没有触发待审批工具，脚本将打印本次的普通完成响应。
+示例会先请求 `POST /chat`，读取 `end` 事件中的 `interruptions` 与 `runState`，再将审批决定提交至 `POST /chat/resume/stream`。若模型没有触发待审批工具，脚本将打印本次的普通完成响应。
 
 涉及模型或 Langfuse 的示例应先按 [项目 README](../README.md) 的快速开始配置环境变量。
 
