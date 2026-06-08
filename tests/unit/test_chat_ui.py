@@ -12,7 +12,7 @@ def test_chat_ui_serves_local_e2e_console():
 
     assert response.status_code == 200
     assert "Agent Harness / Chat E2E Console" in response.text
-    assert 'fetch("/chat/stream"' in response.text
+    assert 'fetch("/chat", {' in response.text
     assert 'fetch("/chat/cancel"' in response.text
     assert 'fetch("/chat/resume/stream"' in response.text
     assert 'data-testid="cancel-chat"' in response.text

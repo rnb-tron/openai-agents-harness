@@ -11,9 +11,11 @@ from openai.types.responses.response_reasoning_summary_text_delta_event import (
     ResponseReasoningSummaryTextDeltaEvent,
 )
 from openai.types.responses.response_reasoning_text_delta_event import ResponseReasoningTextDeltaEvent
+from openai.types.responses.response_reasoning_text_done_event import ResponseReasoningTextDoneEvent
 from openai.types.responses.response_text_delta_event import ResponseTextDeltaEvent
 
 from src.application.orchestration.agent_runtime import AgentOrchestrator, AgentSession
+from src.application.orchestration.stream_events import iter_chat_events
 from src.capabilities.advanced_agents import CheckpointConfig, HandoffConfig, HITLConfig
 from src.capabilities.memory.store import MemoryStore
 from src.capabilities.model_routing.router import ModelRouter
@@ -34,7 +36,7 @@ def _settings():
 
 
 @pytest.mark.asyncio
-async def test_rejected_resume_stream_yields_controlled_deltas():
+async def test_rejected_resume_stream_yields_controlled_content_events():
     sdk_state = MagicMock()
     sdk_state.get_interruptions.return_value = [SimpleNamespace(name="get_weather")]
     orchestrator = AgentOrchestrator(
@@ -89,8 +91,8 @@ async def test_rejected_resume_stream_yields_controlled_deltas():
         ]
 
     runner_run_streamed.assert_not_called()
-    deltas = [event["delta"] for event in events if event["type"] == "delta"]
-    assert deltas == [
+    chunks = [event["data"]["text"] for event in events if event["event"] == "content"]
+    assert chunks == [
         "操作已被拒绝，",
         "未执行工具 get_weather。",
         "因此无法基于该工具的查询结果提供信息或建议。",
@@ -99,7 +101,7 @@ async def test_rejected_resume_stream_yields_controlled_deltas():
 
 
 @pytest.mark.asyncio
-async def test_streamed_run_yields_text_delta_and_completed_result():
+async def test_streamed_run_yields_unified_chat_events():
     fake_run_result = MagicMock()
     fake_run_result.interruptions = []
     fake_run_result.final_output = "完成"
@@ -205,14 +207,11 @@ async def test_streamed_run_yields_text_delta_and_completed_result():
     ):
         events = [event async for event in orchestrator.run_stream(AgentSession(session_id="s1"), "answer")]
 
-    assert events[0]["type"] == "start"
-    assert [event["delta"] for event in events if event["type"] == "delta"] == ["完", "成"]
-    assert [event["delta"] for event in events if event["type"] == "reasoning_summary_delta"] == [
-        "正在整理",
-        "额外推理",
-    ]
-    assert [event for event in events if event["type"] == "agent_updated"][0]["agent"] == "billing"
-    assert events[-1]["type"] == "done"
+    assert events[0]["event"] == "init"
+    assert [event["data"]["text"] for event in events if event["event"] == "content"] == ["完", "成"]
+    assert [event["data"]["text"] for event in events if event["event"] == "thinking"] == ["正在整理", "额外推理"]
+    assert any(event["event"] == "thinkingEnd" for event in events)
+    assert events[-1]["event"] == "end"
     assert events[-1]["data"]["output"] == "完成"
     langfuse.start_as_current_observation.assert_called_once_with(
         name="agent.chat.stream",
@@ -226,6 +225,45 @@ async def test_streamed_run_yields_text_delta_and_completed_result():
     assert update_kwargs["metadata"]["model"] == "stream-model"
     assert update_kwargs["metadata"]["interrupted"] is False
     assert "tools" in update_kwargs["metadata"]
+
+
+@pytest.mark.asyncio
+async def test_streamed_run_yields_reasoning_text_done_when_provider_skips_delta():
+    fake_run_result = MagicMock()
+
+    async def stream_events():
+        yield RawResponsesStreamEvent(
+            data=ResponseReasoningTextDoneEvent(
+                content_index=0,
+                item_id="reasoning-3",
+                output_index=0,
+                sequence_number=1,
+                text="完成态推理",
+                type="response.reasoning_text.done",
+            )
+        )
+        yield RawResponsesStreamEvent(
+            data=ResponseTextDeltaEvent(
+                content_index=0,
+                delta="答",
+                item_id="message-3",
+                logprobs=[],
+                output_index=0,
+                sequence_number=2,
+                type="response.output_text.delta",
+            )
+        )
+
+    fake_run_result.stream_events = stream_events
+    wrapped = SimpleNamespace(stream_events=lambda: fake_run_result.stream_events())
+
+    unified_events = [event async for event in iter_chat_events(wrapped)]
+
+    assert [event["data"]["text"] for event in unified_events if event["event"] == "thinking"] == ["完成态推理"]
+    assert [event["data"]["text"] for event in unified_events if event["event"] == "content"] == ["答"]
+    thinking_end_index = next(i for i, event in enumerate(unified_events) if event["event"] == "thinkingEnd")
+    content_index = next(i for i, event in enumerate(unified_events) if event["event"] == "content")
+    assert thinking_end_index < content_index
 
 
 def test_runtime_adds_reasoning_summary_model_settings_when_enabled():
@@ -400,7 +438,7 @@ def test_runtime_unknown_model_api_falls_back_to_responses():
 
 
 @pytest.mark.asyncio
-async def test_approved_resume_stream_yields_model_deltas():
+async def test_approved_resume_stream_yields_unified_content_events():
     sdk_state = MagicMock()
     sdk_state.get_interruptions.return_value = [object()]
     fake_result = MagicMock()
@@ -480,5 +518,5 @@ async def test_approved_resume_stream_yields_model_deltas():
             )
         ]
 
-    assert [event["delta"] for event in events if event["type"] == "delta"] == ["天气", "晴朗"]
+    assert [event["data"]["text"] for event in events if event["event"] == "content"] == ["天气", "晴朗"]
     assert events[-1]["data"]["output"] == "天气晴朗"

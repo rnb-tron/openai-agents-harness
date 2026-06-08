@@ -219,7 +219,7 @@ sequenceDiagram
     participant C as CapabilityRegistry
     participant SDK as OpenAI Agents SDK
 
-    U->>API: POST /chat/stream
+    U->>API: POST /chat
     API->>H: 获取 app.state.harness
     API->>R: runtime.run_stream(session, input)
     R->>C: BEFORE_RUN
@@ -229,16 +229,16 @@ sequenceDiagram
     alt 运行完成
         R->>C: AFTER_RUN
         C-->>R: 持久化 memory / checkpoint 等结果
-        R-->>API: NDJSON done event
+        R-->>API: SSE end event
     else 工具等待审批
         R-->>API: interruptions + run_state
-        API-->>U: 待审批 done event
+        API-->>U: 待审批 end event
         U->>API: POST /chat/resume/stream + 审批决策
         API->>R: resume_stream_with_approval(run_state)
         R->>SDK: Runner.run_streamed(agent, RunState)
         SDK-->>R: 恢复后 stream events
     end
-    API-->>U: NDJSON
+    API-->>U: SSE
 ```
 
 ## 🚀 快速开始
@@ -423,7 +423,7 @@ REASONING_EFFORT=low
 REASONING_CHAT_ENABLE_THINKING=true
 ```
 
-开启后，`AGENT_MODEL_API=auto` 默认优先使用 Responses 模型，这是 OpenAI reasoning summary 的标准路径。服务端会将 `response.reasoning_summary_text.delta`、`response.reasoning_text.delta` 转成 `reasoning_summary_delta` 事件，UI 会展示为“推理摘要”。对只在 Chat Completions 扩展字段返回 thinking 的 OpenAI-compatible 服务，需要显式设置 `AGENT_MODEL_API=chat_completions`；此时 `REASONING_CHAT_ENABLE_THINKING=true` 会额外传入 `extra_body.enable_thinking=true`。
+开启后，`AGENT_MODEL_API=auto` 默认优先使用 Responses 模型，这是 OpenAI reasoning summary 的标准路径。服务端会将 `response.reasoning_summary_text.delta`、`response.reasoning_text.delta` 直接映射为 SSE `thinking` 事件，UI 会展示为“推理摘要”。对只在 Chat Completions 扩展字段返回 thinking 的 OpenAI-compatible 服务，需要显式设置 `AGENT_MODEL_API=chat_completions`；此时 `REASONING_CHAT_ENABLE_THINKING=true` 会额外传入 `extra_body.enable_thinking=true`。
 
 ### 记忆管理
 
@@ -553,7 +553,7 @@ HITL_REQUIRE_APPROVAL_TOOLS=get_weather
 HITL_AUTO_APPROVE_TOOLS=
 ```
 
-启用后，命中配置工具的 `/chat/stream` 的 `done` 事件会包含 `input`、`model`、`interruptions` 与 `run_state`。人工决策通过 `POST /chat/resume/stream` 恢复执行，需原样回传 `message=input`、`model` 和 `run_state`；已装配 HITL manager 时，还必须携带 `interruptions[].id` 作为 `approval_request_id`。
+启用后，命中配置工具的 `POST /chat` 返回的 `end` 事件会包含 `interrupted`、`interruptions` 与 `runState`。人工决策通过 `POST /chat/resume/stream` 以 SSE 继续执行，需原样回传 `message=input`、`model`、`run_state` 以及当前轮次的 `msg_id`；已装配 HITL manager 时，还必须携带 `interruptions[].id` 作为 `approval_request_id`。
 
 Checkpoint 执行快照：
 

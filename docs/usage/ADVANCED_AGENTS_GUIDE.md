@@ -28,19 +28,19 @@ HITL_AUTO_APPROVE_TOOLS=
 请求示例：
 
 ```bash
-curl -X POST http://localhost:8080/chat/stream \
+curl -X POST http://localhost:8080/chat \
   -H 'Content-Type: application/json' \
-  -d '{"message":"请查询北京天气。","session_id":"hitl-demo"}'
+  -d '{"query":"请查询北京天气。","sessionId":"hitl-demo","userId":"demo-user"}'
 ```
 
-如果 SDK 中断，NDJSON 流中的 `done` 事件数据包含：
+如果 SDK 中断，SSE 流中的 `end` 事件 `data` 包含：
 
 ```json
 {
+  "protocol": {"sessionId": "hitl-demo", "msgId": "msg_xxx"},
   "interrupted": true,
   "interruptions": [{"id": "approval-id", "sdk_interruption_index": 0}],
-  "run_state": {},
-  "input": "请查询北京天气。",
+  "runState": {},
   "model": "gpt-4o-mini"
 }
 ```

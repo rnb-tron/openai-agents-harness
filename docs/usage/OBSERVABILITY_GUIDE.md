@@ -43,10 +43,10 @@ ENVTYPE=test venv/bin/python -m uvicorn src.main:app --host 0.0.0.0 --port 8080
 Runtime 调用 Agents SDK `Runner.run_streamed()` 时，instrumentor 负责 SDK spans。HTTP 层会补充请求 span：
 
 ```bash
-curl -i -X POST http://localhost:8080/chat/stream \
+curl -i -X POST http://localhost:8080/chat \
   -H 'Content-Type: application/json' \
   -H 'X-Request-ID: demo-rid' \
-  -d '{"message":"hello"}'
+  -d '{"query":"hello","userId":"demo-user"}'
 ```
 
 响应头包含：
