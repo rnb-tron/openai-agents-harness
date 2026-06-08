@@ -43,7 +43,7 @@ class AgentOrchestrator:
         tool_registry: ToolRegistry,
         memory_store: MemoryStore,
         model_router: ModelRouter,
-        memory_manager: MemoryManager | None = None,
+        memory_manager: Mem0MemoryManager | None = None,
         # 新增: 高级能力管理器 (可选)
         hitl_config: HITLConfig | None = None,
         checkpoint_config: CheckpointConfig | None = None,
