@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.api.middleware.capabilities import AuthCapability, RateLimitCapability
 from src.application.orchestration.agent_runtime import AgentOrchestrator
 from src.capabilities.advanced_agents import CheckpointConfig, HandoffConfig, HITLConfig
-from src.capabilities.memory.manager import MemoryManager
 from src.capabilities.memory.mem0_manager import Mem0MemoryManager
 from src.capabilities.memory.store import MemoryStore
 from src.capabilities.model_routing.capabilities import (
@@ -53,7 +52,7 @@ class Harness:
     # 与 context/runtime 共用的短期会话记忆实例，由 Harness 负责对外暴露。
     memory_store: MemoryStore
     # 与 context/runtime 共用的长期记忆管理器实例，由 Harness 负责生命周期。
-    memory_manager: MemoryManager | Mem0MemoryManager | None = None
+    memory_manager: Mem0MemoryManager | None = None
     prompt_manager: PromptManager | None = None
     session_store: SessionStore | None = None
     database_resource: DatabaseResource | None = None
@@ -282,7 +281,7 @@ class HarnessBuilder:
     def _build_memory_manager(
         self,
         session_store: SessionStore | None = None,
-    ) -> tuple[MemoryManager | Mem0MemoryManager | None, AsyncSession | None]:
+    ) -> tuple[Mem0MemoryManager | None, AsyncSession | None]:
         memory_required = any(
             (
                 getattr(self.settings, "memory_short_term_enabled", False),

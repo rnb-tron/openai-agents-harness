@@ -8,6 +8,7 @@ from typing import Optional
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from src.api.middleware.base import ProtocolPlugin
 from src.api.middleware.rate_limit.base import RateLimitDecision, RateLimitKey, RateLimiter
 from src.api.middleware.rate_limit.memory_backend import MemoryRateLimiter
 from src.api.middleware.rate_limit.redis_backend import RedisRateLimiter
@@ -18,7 +19,7 @@ logger = setup_logger("api.middleware.rate_limit")
 _DEFAULT_SKIP_PATHS = ("/health", "/docs", "/redoc", "/openapi.json", "/ui")
 
 
-class RateLimitPlugin:
+class RateLimitPlugin(ProtocolPlugin):
     """Protocol-layer rate limiting plugin.
 
     name: "rate_limit"

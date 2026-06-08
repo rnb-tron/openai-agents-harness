@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, AsyncGenerator
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import declarative_base
@@ -85,52 +85,3 @@ class DatabaseResource:
     async def close(self) -> None:
         await self.engine.dispose()
         service_logger.info("Database resource closed")
-
-
-_database_resource: DatabaseResource | None = None
-
-
-async def init_database(
-    database_url: str,
-    echo: bool = False,
-    *,
-    pool_size: int = 10,
-    max_overflow: int = 20,
-    pool_timeout_seconds: float = 30.0,
-    pool_recycle_seconds: int = 1800,
-    pool_pre_ping: bool = True,
-) -> DatabaseResource:
-    """兼容入口；新装配路径优先由 HarnessBuilder 创建资源。"""
-    global _database_resource
-    _database_resource = DatabaseResource(
-        DatabaseConfig(
-            url=database_url,
-            echo=echo,
-            pool_size=pool_size,
-            max_overflow=max_overflow,
-            pool_timeout_seconds=pool_timeout_seconds,
-            pool_recycle_seconds=pool_recycle_seconds,
-            pool_pre_ping=pool_pre_ping,
-        )
-    )
-    service_logger.info("Database initialized")
-    return _database_resource
-
-
-async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    if _database_resource is None:
-        raise RuntimeError("Database not initialized")
-    async with _database_resource.session() as session:
-        try:
-            yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
-
-
-async def close_database() -> None:
-    global _database_resource
-    if _database_resource is not None:
-        await _database_resource.close()
-        _database_resource = None

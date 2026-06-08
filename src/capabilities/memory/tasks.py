@@ -20,7 +20,7 @@ class MemoryTaskScheduler:
         启动定时任务
 
         Args:
-            memory_manager: MemoryManager实例
+            memory_manager: 当前装配的 Mem0MemoryManager 实例；未启用记忆能力时为 None。
         """
         self.memory_manager = memory_manager
 
@@ -77,15 +77,7 @@ class MemoryTaskScheduler:
             if not self.memory_manager:
                 return
 
-            # 检查当前向量存储连接
-            if self.memory_manager.vector_store:
-                healthy = await self.memory_manager.vector_store.health_check()
-                if not healthy:
-                    service_logger.warning(
-                        f"Vector store health check failed: backend={self.memory_manager.vector_store.backend_name}"
-                    )
-
-            # 获取统计信息
+            # Mem0 后端由 SDK 管理连接状态，这里只采集统一统计，避免依赖旧版本地向量存储对象。
             stats = await self.memory_manager.get_stats()
             service_logger.debug(f"Memory system stats: {stats}")
 
