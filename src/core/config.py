@@ -127,6 +127,7 @@ class Settings:
     openai_base_url: str | None
     agent_model_default: str
     agent_model_reasoning: str
+    agent_model_api: str
 
     # Memory System Configuration
     memory_short_term_enabled: bool
@@ -180,6 +181,8 @@ class Settings:
     # Optional reasoning summary POC for streamed runs
     reasoning_summary_enabled: bool = False
     reasoning_summary_mode: str = "auto"
+    reasoning_effort: str = "low"
+    reasoning_chat_enable_thinking: bool = True
 
     # Protocol-layer security (default disabled, zero overhead when off)
     auth_enabled: bool = False
@@ -262,6 +265,7 @@ def get_settings() -> Settings:
         openai_base_url=os.getenv("OPENAI_BASE_URL", "") or None,
         agent_model_default=os.getenv("AGENT_MODEL_DEFAULT", "gpt-4o-mini"),
         agent_model_reasoning=os.getenv("AGENT_MODEL_REASONING", "gpt-4.1-mini"),
+        agent_model_api=os.getenv("AGENT_MODEL_API", "auto"),
         # Memory Configuration
         memory_short_term_enabled=_env_bool("MEMORY_SHORT_TERM_ENABLED"),
         memory_long_term_enabled=_env_bool("MEMORY_LONG_TERM_ENABLED"),
@@ -309,6 +313,8 @@ def get_settings() -> Settings:
         # Reasoning summary POC
         reasoning_summary_enabled=os.getenv("REASONING_SUMMARY_ENABLED", "false").lower() == "true",
         reasoning_summary_mode=os.getenv("REASONING_SUMMARY_MODE", "auto"),
+        reasoning_effort=os.getenv("REASONING_EFFORT", "low"),
+        reasoning_chat_enable_thinking=os.getenv("REASONING_CHAT_ENABLE_THINKING", "true").lower() == "true",
         # Protocol-layer Auth
         auth_enabled=os.getenv("AUTH_ENABLED", "false").lower() == "true",
         auth_strict=os.getenv("AUTH_STRICT", "false").lower() == "true",
