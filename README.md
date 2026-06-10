@@ -53,8 +53,8 @@ flowchart TD
 | --------- | --------------------- | --------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------- | -------------------------------- |
 | 工具执行      | `tool_registry`       | runtime / 已实现，基础必选                | OpenAI Agents SDK `function_tool`          | `ToolRegistry` 注册工具元数据并转换为 SDK Tool；审批策略可附加到工具定义                                                  | Harness 默认创建                     |
 | 模型访问      | `model_router`        | runtime / 已实现，基础必选                | OpenAI Agents SDK + OpenAI-compatible API  | `ModelRouter` 按任务选择默认或推理模型，并由 `AgentOrchestrator` 调用 SDK `Runner`                                 | Harness 默认创建                     |
-| 模型稳定性     | `model_resilience`    | runtime / 部分实现                    | 自研 Retry / Timeout / Fallback              | 按弹性配置构建 runner 包装与 fallback 模型链，隔离模型调用故障                                                          | `MODEL_RESILIENCE_ENABLED`       |
-| 会话记录      | `session_store`       | resource / 已实现                    | MySQL/PostgreSQL + SQLAlchemy Async        | 持久化用户会话、完整消息流水和后续事件扩展，供 UI 历史会话与审计使用                                                              | `SESSION_STORE_ENABLED`          |
+| 模型稳定性     | `model_resilience`    | runtime / 组件实现，主流式链路待接入      | 自研 Retry / Timeout / Fallback              | 已提供弹性 runner 组件与示例；当前 `AgentOrchestrator.run_stream()` 仍直接调用 SDK streaming runner                         | `MODEL_RESILIENCE_ENABLED`       |
+| 会话记录      | `session_store`       | resource / 已实现                    | MySQL/PostgreSQL + SQLAlchemy Async        | 持久化用户会话、完整消息流水和后续事件扩展，消息使用 `turn_id` 标识一轮对话，供 UI 历史会话与审计使用                             | `SESSION_STORE_ENABLED`          |
 | 会话记忆      | `memory_session`      | runtime / 已实现                     | Redis ShortTermMemory + session\_store 回源  | 在 Agent 执行前后读取当前会话最近上下文；Redis 承载短期缓存，Redis 未启用或 miss 时读取会话存储最近消息，不使用进程内兜底                         | `MEMORY_SHORT_TERM_ENABLED`      |
 | 会话摘要      | `session_summary`     | runtime / 已实现                     | LLM Summary + session\_store + Redis Cache | `after_run` 后台滚动生成摘要，会话存储持久化、Redis 可缓存；当前轮消息可直接触发 summary，不依赖路由层先落库                               | `MEMORY_SESSION_SUMMARY_ENABLED` |
 | 长期记忆      | `long_term_memory`    | runtime / 已实现                     | Mem0                                       | 由 Mem0 负责用户偏好与长期记忆抽取、写入和搜索；删除会话不会删除长期记忆，用户级长期记忆需显式清理                                              | `MEMORY_LONG_TERM_ENABLED`       |
@@ -104,7 +104,7 @@ CapabilityManifest(
 | --------------------- | ---------- | ------- | ----------------------------------------------- |
 | `tool_registry`       | runtime    | ✅ 已实现   | 工具注册、元数据、OpenAI Agents SDK 工具适配                 |
 | `model_router`        | runtime    | ✅ 已实现   | 模型选择、任务类型推断                                     |
-| `model_resilience`    | runtime    | 🟡 部分实现 | 降级、重试、超时 runner 已具备                             |
+| `model_resilience`    | runtime    | 🟡 组件实现，主流式链路待接入 | 降级、重试、超时 runner 已具备；默认 `/chat` streaming 路径尚未包裹该 runner |
 | `memory_session`      | runtime    | ✅ 已实现   | 短期会话记忆                                          |
 | `long_term_memory`    | runtime    | ✅ 已实现   | Mem0 后端已接入                                      |
 | `vector_search`       | runtime    | ✅ 已实现   | Mem0 Search                                     |
@@ -280,6 +280,11 @@ docker compose -f docker-compose.storage.yml ps
 
 config/test.env.example的连接信息即是本地 Docker 默认连接信息。
 
+首次创建空的 MySQL volume 时，Docker 会自动执行 `docker/mysql/initdb/` 下的初始化 SQL，
+创建会话存储表并包含 `chat_messages.turn_id` 字段。已经用旧版本 Docker 初始化过
+MySQL 的环境，请参考 [`docs/usage/SESSION_STORE_MIGRATION.md`](docs/usage/SESSION_STORE_MIGRATION.md)
+执行增量迁移和历史数据回填。
+
 - 使用已有外部依赖：
 
 在 `config/test.env` 中填写对应地址即可。
@@ -302,11 +307,11 @@ make test-all
 
 开发代码后建议先执行 `make format`，它会运行 `ruff check --fix src/ tests/` 和 `ruff format src/ tests/`，再运行对应测试。
 
-当前本地测试状态：
+当前默认回归入口：
 
 ```text
-make test      -> 74 passed
-make test-all  -> 146 passed, 10 skipped
+make test      # runs tests/unit
+make test-all  # runs unit, integration, and e2e suites
 ```
 
 依赖外部模型服务的 E2E 测试默认跳过；`tests/e2e/test_langfuse.py` 当前会随全量测试执行。如需显式运行外部模型用例：
