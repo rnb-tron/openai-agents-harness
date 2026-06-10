@@ -154,6 +154,7 @@ class SessionStore:
                 )
             else:
                 existing.updated_at = datetime.now()
+            effective_turn_id = turn_id or self._generate_turn_id()
             db.add(
                 ChatMessageRecord(
                     id=str(uuid.uuid4()),
@@ -161,7 +162,7 @@ class SessionStore:
                     user_id=normalized_user_id,
                     role="user",
                     content=user_input,
-                    turn_id=turn_id,
+                    turn_id=effective_turn_id,
                     status="completed",
                     metadata_json=self._message_metadata(metadata),
                 )
@@ -174,7 +175,7 @@ class SessionStore:
                         user_id=normalized_user_id,
                         role="assistant",
                         content=assistant_output,
-                        turn_id=turn_id,
+                        turn_id=effective_turn_id,
                         model=model,
                         status=status,
                         metadata_json=self._message_metadata(metadata),
@@ -226,6 +227,7 @@ class SessionStore:
                 .where(ChatMessageRecord.session_id == session_id)
                 .order_by(
                     ChatMessageRecord.created_at.asc(),
+                    func.coalesce(ChatMessageRecord.turn_id, ChatMessageRecord.id).asc(),
                     case(
                         (ChatMessageRecord.role == "user", 0),
                         (ChatMessageRecord.role == "assistant", 1),
@@ -249,6 +251,7 @@ class SessionStore:
                 .where(ChatMessageRecord.session_id == session_id)
                 .order_by(
                     ChatMessageRecord.created_at.desc(),
+                    func.coalesce(ChatMessageRecord.turn_id, ChatMessageRecord.id).desc(),
                     case(
                         (ChatMessageRecord.role == "assistant", 0),
                         (ChatMessageRecord.role == "user", 1),
@@ -373,3 +376,7 @@ class SessionStore:
         cleaned.pop("msg_id", None)
         cleaned.pop("turn_id", None)
         return cleaned
+
+    @staticmethod
+    def _generate_turn_id() -> str:
+        return f"turn_{datetime.now().strftime('%Y%m%d%H%M%S%f')}_{uuid.uuid4().hex}"
