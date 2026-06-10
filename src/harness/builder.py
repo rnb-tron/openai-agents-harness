@@ -229,7 +229,6 @@ class HarnessBuilder:
 
     def _build_tool_registry(self, hitl_config: HITLConfig) -> ToolRegistry:
         registry = ToolRegistry()
-        registry.register_defaults()
         if hitl_config.enabled:
             registry.configure_approval_policy(
                 require_approval=hitl_config.require_approval_tools,

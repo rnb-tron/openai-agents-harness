@@ -70,7 +70,7 @@ def test_capability_snapshot_enabled_only_filters_disabled_capabilities():
     assert "langfuse" in snapshot["provided"]
 
 
-def test_harness_builder_enables_hitl_and_configures_sdk_tool_approval():
+def test_harness_builder_enables_hitl_without_registering_demo_tools():
     harness = HarnessBuilder(
         _settings(
             hitl_enabled=True,
@@ -81,12 +81,11 @@ def test_harness_builder_enables_hitl_and_configures_sdk_tool_approval():
     ).build()
 
     enabled = {item["name"] for item in harness.context.capability_snapshot(enabled_only=True)["capabilities"]}
-    weather_tool = next(tool for tool in harness.context.tool_registry.list_agent_tools() if tool.name == "get_weather")
 
     assert harness.runtime.hitl_mgr is not None
     assert "hitl" in enabled
-    assert harness.context.tool_registry.list_approval_required() == ["get_weather"]
-    assert weather_tool.needs_approval is True
+    assert harness.context.tool_registry.list_tools() == []
+    assert harness.context.tool_registry.list_approval_required() == []
 
 
 def test_harness_builder_enables_in_process_checkpoint_snapshots():
