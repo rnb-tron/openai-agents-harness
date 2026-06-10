@@ -139,7 +139,7 @@ async def chat(
     user_id = resolve_user_id(principal, request.user_id)
     session_id = request.session_id or str(uuid.uuid4())
     session = AgentSession(session_id=session_id, user_id=user_id)
-    session.context["business"] = dict(request.options or {})
+    session.context["request_context"] = dict(request.options or {})
     store = session_store_from_harness(harness)
 
     async def events():
@@ -197,7 +197,7 @@ async def resume_chat_stream(
     """以 SSE 流式返回人工审批后的继续执行结果。"""
     user_id = resolve_user_id(principal, request.user_id)
     session = AgentSession(session_id=request.session_id, user_id=user_id)
-    session.context["business"] = dict(request.options or {})
+    session.context["request_context"] = dict(request.options or {})
     store = session_store_from_harness(harness)
 
     async def events():

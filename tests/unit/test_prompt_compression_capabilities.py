@@ -60,7 +60,7 @@ def test_user_prompt_capability_falls_back_to_legacy_format():
     assert ctx.enriched_input == "Conversation memory:\nuser: hi\nassistant: hello\n\nUser:\nfollow-up"
 
 
-def test_user_prompt_capability_includes_city_id_in_fallback():
+def test_user_prompt_capability_includes_request_context_in_fallback():
     cap = UserPromptCapability(manager=None)
     ctx = RunContext(
         session_id="s1",
@@ -68,7 +68,7 @@ def test_user_prompt_capability_includes_city_id_in_fallback():
         user_input="follow-up",
         metadata={
             "memory_context": "summary",
-            "business": {"city_id": "310100"},
+            "request_context": {"scene": "ticket_dispatch", "tenant_id": "tenant-1"},
         },
     )
 
@@ -78,7 +78,7 @@ def test_user_prompt_capability_includes_city_id_in_fallback():
 
     assert ctx.enriched_input == (
         "Conversation memory:\nsummary\n\n"
-        "City ID: 310100\n"
+        'Request context:\n{"scene": "ticket_dispatch", "tenant_id": "tenant-1"}\n\n'
         "User:\nfollow-up"
     )
 
@@ -96,7 +96,7 @@ def test_user_prompt_capability_uses_prompt_manager_when_available():
         user_input="follow-up",
         metadata={
             "memory_context": "summary",
-            "business": {"city_id": "310100"},
+            "request_context": {"scene": "ticket_dispatch", "tenant_id": "tenant-1"},
         },
     )
 
@@ -109,7 +109,7 @@ def test_user_prompt_capability_uses_prompt_manager_when_available():
     manager.get.assert_awaited_once_with(
         "agents.main_user_chat",
         memory_block="Conversation memory:\nsummary\n\n",
-        city_id="310100",
+        request_context='Request context:\n{"scene": "ticket_dispatch", "tenant_id": "tenant-1"}\n\n',
         user_input="follow-up",
     )
 

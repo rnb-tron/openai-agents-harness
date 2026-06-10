@@ -2,7 +2,7 @@ name: agents.main_user_chat
 version: "1.0.0"
 label: prod
 template: |-
-  {memory_block}City ID: {city_id}
+  {memory_block}{request_context}
   User:
   {user_input}
 metadata:
@@ -11,9 +11,9 @@ metadata:
     - name: memory_block
       default: ""
       description: "Optional memory section prefix ending with a blank line"
-    - name: city_id
+    - name: request_context
       default: ""
-      description: "City identifier from frontend business options"
+      description: "Optional request context block rendered from generic request options"
     - name: user_input
       default: ""
       description: "Current user input"

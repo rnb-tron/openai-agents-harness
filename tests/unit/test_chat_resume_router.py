@@ -162,7 +162,7 @@ async def test_chat_stream_emits_sse_and_uses_authenticated_identity(monkeypatch
     assert response.headers["x-accel-buffering"] == "no"
     assert runtime.session.user_id == "auth-user"
     assert runtime.user_input == "回答我"
-    assert runtime.session.context["business"] == {"scene": "ticket_dispatch", "tenant_id": "tenant-1"}
+    assert runtime.session.context["request_context"] == {"scene": "ticket_dispatch", "tenant_id": "tenant-1"}
     assert events[0] == {
         "event": "init",
         "id": "turn-fixed_1",

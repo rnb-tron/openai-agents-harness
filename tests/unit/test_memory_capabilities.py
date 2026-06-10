@@ -106,7 +106,7 @@ async def test_memory_capability_writes_memory_context_metadata_without_touching
 
 
 @pytest.mark.asyncio
-async def test_prepare_agent_run_injects_business_metadata(monkeypatch):
+async def test_prepare_agent_run_injects_request_context_metadata(monkeypatch):
     orchestrator = AgentOrchestrator(
         tool_registry=ToolRegistry(),
         memory_store=MemoryStore(),
@@ -117,12 +117,16 @@ async def test_prepare_agent_run_injects_business_metadata(monkeypatch):
     monkeypatch.setattr(orchestrator, "_build_agent", lambda **kwargs: object())
 
     async def _resolve_instructions(task_type, ctx):
-        assert ctx.metadata["business"] == {"scene": "ticket_dispatch", "tenant_id": "tenant-1"}
+        assert ctx.metadata["request_context"] == {"scene": "ticket_dispatch", "tenant_id": "tenant-1"}
         return "ok"
 
     monkeypatch.setattr(orchestrator, "_resolve_instructions", _resolve_instructions)
-    session = AgentSession(session_id="session-1", user_id="user-1", context={"business": {"scene": "ticket_dispatch", "tenant_id": "tenant-1"}})
+    session = AgentSession(
+        session_id="session-1",
+        user_id="user-1",
+        context={"request_context": {"scene": "ticket_dispatch", "tenant_id": "tenant-1"}},
+    )
 
     run = await orchestrator._prepare_agent_run(session, "follow-up")
 
-    assert run.ctx.metadata["business"] == {"scene": "ticket_dispatch", "tenant_id": "tenant-1"}
+    assert run.ctx.metadata["request_context"] == {"scene": "ticket_dispatch", "tenant_id": "tenant-1"}

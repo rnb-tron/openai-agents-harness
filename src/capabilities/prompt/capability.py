@@ -11,6 +11,8 @@
 
 from __future__ import annotations
 
+import json
+
 from src.capabilities.plugin import Capability, RunContext
 from src.core.logging import setup_logger
 from src.harness.manifest import CapabilityKind, CapabilityManifest
@@ -103,18 +105,18 @@ class UserPromptCapability(Capability):
         memory_block = ""
         if memory_context:
             memory_block = f"Conversation memory:\n{memory_context}\n\n"
-        business = dict(ctx.metadata.get("business") or {})
-        city_id = str(business.get("city_id", ""))
+        request_context = dict(ctx.metadata.get("request_context") or {})
+        request_context_block = self._format_request_context(request_context)
 
         if self._manager is None:
-            ctx.enriched_input = self._fallback_input(memory_block, city_id, ctx.user_input)
+            ctx.enriched_input = self._fallback_input(memory_block, request_context_block, ctx.user_input)
             return
 
         try:
             rendered = await self._manager.get(
                 self._prompt_name,
                 memory_block=memory_block,
-                city_id=city_id,
+                request_context=request_context_block,
                 user_input=ctx.user_input,
             )
             ctx.enriched_input = rendered.text
@@ -131,10 +133,16 @@ class UserPromptCapability(Capability):
             )
             if not self._fail_open:
                 raise
-            ctx.enriched_input = self._fallback_input(memory_block, city_id, ctx.user_input)
+            ctx.enriched_input = self._fallback_input(memory_block, request_context_block, ctx.user_input)
 
     @staticmethod
-    def _fallback_input(memory_block: str, city_id: str, user_input: str) -> str:
-        city_line = f"City ID: {city_id}\n" if city_id else ""
-        prefix = f"{memory_block}{city_line}"
+    def _fallback_input(memory_block: str, request_context_block: str, user_input: str) -> str:
+        prefix = f"{memory_block}{request_context_block}"
         return f"{prefix}User:\n{user_input}" if prefix else user_input
+
+    @staticmethod
+    def _format_request_context(request_context: dict) -> str:
+        if not request_context:
+            return ""
+        payload = json.dumps(request_context, ensure_ascii=False, sort_keys=True)
+        return f"Request context:\n{payload}\n\n"

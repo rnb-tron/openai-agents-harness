@@ -251,7 +251,7 @@ class AgentOrchestrator:
             "available": self.tool_registry.list_tools(),
             "approval_required": self.tool_registry.list_approval_required(),
         }
-        ctx.metadata["business"] = dict(session.context.get("business") or {})
+        ctx.metadata["request_context"] = dict(session.context.get("request_context") or {})
 
         await self.registry.dispatch(RunPhase.BEFORE_RUN, ctx)
         client = self._create_openai_client()
@@ -460,9 +460,9 @@ class AgentOrchestrator:
             "memorySize": result.get("memory_size"),
             "interrupted": bool(result.get("interrupted")),
         }
-        for field in ("input", "output", "metadata", "interruptions", "tool_calls", "decision", "tool_executed"):
-            if field in result:
-                data[field] = result.get(field)
+        for field_name in ("input", "output", "metadata", "interruptions", "tool_calls", "decision", "tool_executed"):
+            if field_name in result:
+                data[field_name] = result.get(field_name)
         if "run_state" in result:
             data["runState"] = result.get("run_state")
         return data
