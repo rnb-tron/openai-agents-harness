@@ -553,7 +553,7 @@ HITL_REQUIRE_APPROVAL_TOOLS=get_weather
 HITL_AUTO_APPROVE_TOOLS=
 ```
 
-启用后，命中配置工具的 `POST /chat` 返回的 `end` 事件会包含 `interrupted`、`interruptions` 与 `runState`。人工决策通过 `POST /chat/resume/stream` 以 SSE 继续执行，需原样回传 `message=input`、`model`、`run_state` 以及当前轮次的 `msg_id`；已装配 HITL manager 时，还必须携带 `interruptions[].id` 作为 `approval_request_id`。
+启用后，命中配置工具的 `POST /chat` 返回的 `end` 事件会包含 `interrupted`、`interruptions` 与 `runState`。人工决策通过 `POST /chat/resume/stream` 以 SSE 继续执行，需原样回传 `message=input`、`model`、`run_state` 以及当前轮次的 `turn_id`；已装配 HITL manager 时，还必须携带 `interruptions[].id` 作为 `approval_request_id`。
 
 Checkpoint 执行快照：
 

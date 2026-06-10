@@ -56,8 +56,8 @@ def post_stream(
             protocol = data.get("protocol") or {}
             if "sessionId" in protocol:
                 data["session_id"] = protocol["sessionId"]
-            if "msgId" in protocol:
-                data["msg_id"] = protocol["msgId"]
+            if "turnId" in protocol:
+                data["turn_id"] = protocol["turnId"]
             if "runState" in data and "run_state" not in data:
                 data["run_state"] = data["runState"]
             return data
@@ -132,7 +132,7 @@ def main() -> None:
         "interruption_index": interruption["sdk_interruption_index"],
         "approved": approved,
         "session_id": initial["session_id"],
-        "msg_id": initial["msg_id"],
+        "turn_id": initial["turn_id"],
         "message": initial["input"],
         "model": initial["model"],
         "user_id": args.user_id,

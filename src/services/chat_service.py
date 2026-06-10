@@ -30,7 +30,7 @@ class SessionPersistError(Exception):
 @dataclass
 class ChatStreamState:
     session_id: str
-    msg_id: str
+    turn_id: str
     user_id: str | None
     user_input: str
     requested_model: str | None = None
@@ -39,10 +39,10 @@ class ChatStreamState:
 
     def next_id(self) -> str:
         self.sequence += 1
-        return f"{self.msg_id}_{self.sequence}"
+        return f"{self.turn_id}_{self.sequence}"
 
     def protocol(self, **extra: Any) -> dict[str, Any]:
-        payload = {"sessionId": self.session_id, "msgId": self.msg_id}
+        payload = {"sessionId": self.session_id, "turnId": self.turn_id}
         payload.update(extra)
         return payload
 
@@ -57,8 +57,8 @@ def session_store_from_harness(harness) -> SessionStore | None:
     return getattr(harness, "session_store", None)
 
 
-def chat_task_key(session_id: str, user_id: str | None, msg_id: str) -> tuple[str, str, str]:
-    return (session_id, user_id or "anonymous", msg_id)
+def chat_task_key(session_id: str, user_id: str | None, turn_id: str) -> tuple[str, str, str]:
+    return (session_id, user_id or "anonymous", turn_id)
 
 
 async def register_chat_task(key: tuple[str, str, str], task: asyncio.Task[None]) -> None:
@@ -84,11 +84,11 @@ async def remove_chat_task(key: tuple[str, str, str], task: asyncio.Task[None]) 
             _active_chat_tasks.pop(key, None)
 
 
-def generate_msg_id() -> str:
-    return f"msg_{uuid.uuid4().hex}"
+def generate_turn_id() -> str:
+    return f"turn_{uuid.uuid4().hex}"
 
 
-def parse_msg_id_from_event_id(event_id: str | None) -> str | None:
+def parse_turn_id_from_event_id(event_id: str | None) -> str | None:
     if not event_id or "_" not in event_id:
         return None
     prefix, _, _ = event_id.rpartition("_")
@@ -124,13 +124,13 @@ def build_sse_frame(
 def build_error_frame(
     *,
     session_id: str,
-    msg_id: str | None,
+    turn_id: str | None,
     detail: str,
     code: str = "chatError",
 ) -> dict[str, Any]:
     protocol: dict[str, Any] = {"sessionId": session_id}
-    if msg_id:
-        protocol["msgId"] = msg_id
+    if turn_id:
+        protocol["turnId"] = turn_id
     return {
         "event": "error",
         "data": {
@@ -144,14 +144,14 @@ def build_error_frame(
 async def cache_frame(
     *,
     session_id: str,
-    msg_id: str,
+    turn_id: str,
     frame: dict[str, Any],
     logger,
     meta: dict[str, Any] | None = None,
 ) -> None:
     await cache_stream_frame(
         session_id=session_id,
-        msg_id=msg_id,
+        turn_id=turn_id,
         frame=frame,
         logger=logger,
         meta=meta,
@@ -177,12 +177,12 @@ async def persist_chat_turn(
             user_id=user_id,
             user_input=user_input,
             assistant_output=result.get("output"),
+            turn_id=result.get("turnId"),
             model=result.get("model"),
             status=status,
             metadata={
                 "source": source,
                 "tool_calls": result.get("tool_calls", []),
-                "msg_id": result.get("msgId"),
             },
         )
     except Exception as exc:
@@ -215,6 +215,7 @@ async def persist_resume_result(
             user_id=user_id,
             role="assistant",
             content=result.get("output") or "",
+            turn_id=result.get("turnId"),
             model=result.get("model"),
             status="interrupted" if result.get("interrupted") else "completed",
             metadata={
@@ -234,14 +235,14 @@ async def persist_resume_result(
         raise SessionPersistError(f"session store append resume failed: {exc}") from exc
 
 
-def _persist_result_from_end_data(data: dict[str, Any], msg_id: str) -> dict[str, Any]:
+def _persist_result_from_end_data(data: dict[str, Any], turn_id: str) -> dict[str, Any]:
     return {
         "output": data.get("output"),
         "model": data.get("model"),
         "interrupted": bool(data.get("interrupted")),
         "tool_calls": data.get("tool_calls", []),
         "metadata": data.get("metadata", {}),
-        "msgId": msg_id,
+        "turnId": turn_id,
     }
 
 
@@ -285,7 +286,7 @@ async def process_chat_event(
         return [
             build_error_frame(
                 session_id=state.session_id,
-                msg_id=state.msg_id,
+                turn_id=state.turn_id,
                 detail=str(data.get("msg") or "chat failed"),
                 code=str(data.get("code") or "chatError"),
             )
@@ -295,13 +296,13 @@ async def process_chat_event(
     meta = {"userInput": state.user_input} if event_name == "init" else None
     await cache_frame(
         session_id=state.session_id,
-        msg_id=state.msg_id,
+        turn_id=state.turn_id,
         frame=frame,
         logger=logger,
         meta=meta,
     )
     if event_name == "end":
-        result = _persist_result_from_end_data(frame["data"], state.msg_id)
+        result = _persist_result_from_end_data(frame["data"], state.turn_id)
         if source == _CHAT_STREAM_SOURCE:
             await persist_chat_turn(
                 store=store,
@@ -327,26 +328,26 @@ async def process_chat_event(
 async def replay_chat_events(
     *,
     session_id: str,
-    msg_id: str,
+    turn_id: str,
     last_event_id: str | None,
     logger,
 ):
-    if await is_chat_cancelled(session_id, msg_id, logger):
+    if await is_chat_cancelled(session_id, turn_id, logger):
         yield serialize_sse_frame(
             build_error_frame(
                 session_id=session_id,
-                msg_id=msg_id,
+                turn_id=turn_id,
                 detail="当前轮次已取消，拒绝续传",
                 code="chatCancelled",
             )
         )
         return
-    frames = await load_cached_stream_frames(session_id, msg_id, logger)
+    frames = await load_cached_stream_frames(session_id, turn_id, logger)
     if not frames:
         yield serialize_sse_frame(
             build_error_frame(
                 session_id=session_id,
-                msg_id=msg_id,
+                turn_id=turn_id,
                 detail="未找到可续传的消息缓存",
                 code="chatReplayNotFound",
             )
@@ -362,7 +363,7 @@ async def replay_chat_events(
             yield serialize_sse_frame(
                 build_error_frame(
                     session_id=session_id,
-                    msg_id=msg_id,
+                    turn_id=turn_id,
                     detail="lastEventId 不存在",
                     code="chatReplayInvalidCursor",
                 )
@@ -380,32 +381,32 @@ async def stream_chat_events(
     user_id: str | None,
     user_input: str,
     model: str | None,
-    msg_id: str | None,
+    turn_id: str | None,
     last_event_id: str | None,
     store: SessionStore | None,
     logger,
 ):
-    replay_msg_id = msg_id or parse_msg_id_from_event_id(last_event_id)
-    if replay_msg_id is not None:
+    replay_turn_id = turn_id or parse_turn_id_from_event_id(last_event_id)
+    if replay_turn_id is not None:
         async for chunk in replay_chat_events(
             session_id=session_id,
-            msg_id=replay_msg_id,
+            turn_id=replay_turn_id,
             last_event_id=last_event_id,
             logger=logger,
         ):
             yield chunk
         return
 
-    resolved_msg_id = generate_msg_id()
+    resolved_turn_id = generate_turn_id()
     state = ChatStreamState(
         session_id=session_id,
-        msg_id=resolved_msg_id,
+        turn_id=resolved_turn_id,
         user_id=user_id,
         user_input=user_input,
         requested_model=model,
     )
     queue: asyncio.Queue[dict[str, Any] | object] = asyncio.Queue()
-    task_key = chat_task_key(session_id, user_id, resolved_msg_id)
+    task_key = chat_task_key(session_id, user_id, resolved_turn_id)
     producer_task: asyncio.Task[None] | None = None
 
     async def produce() -> None:
@@ -429,14 +430,14 @@ async def stream_chat_events(
                 "chat_stream_cancelled",
                 session_id=session_id,
                 user_id=user_id,
-                msg_id=resolved_msg_id,
+                turn_id=resolved_turn_id,
             )
             raise
         except SessionPersistError as exc:
             await queue.put(
                 build_error_frame(
                     session_id=session_id,
-                    msg_id=resolved_msg_id,
+                    turn_id=resolved_turn_id,
                     detail=f"session persist failed: {exc}",
                     code="sessionPersistFailed",
                 )
@@ -445,7 +446,7 @@ async def stream_chat_events(
             await queue.put(
                 build_error_frame(
                     session_id=session_id,
-                    msg_id=resolved_msg_id,
+                    turn_id=resolved_turn_id,
                     detail=str(exc),
                 )
             )
@@ -453,7 +454,7 @@ async def stream_chat_events(
             await queue.put(
                 build_error_frame(
                     session_id=session_id,
-                    msg_id=resolved_msg_id,
+                    turn_id=resolved_turn_id,
                     detail=f"chat failed: {exc}",
                 )
             )
@@ -489,12 +490,12 @@ async def stream_resume_events(
 ):
     state = ChatStreamState(
         session_id=request.session_id,
-        msg_id=request.msg_id,
+        turn_id=request.turn_id,
         user_id=user_id,
         user_input=request.message,
         requested_model=request.model,
         selected_model=request.model,
-        sequence=await load_last_frame_sequence(request.session_id, request.msg_id, logger),
+        sequence=await load_last_frame_sequence(request.session_id, request.turn_id, logger),
     )
     try:
         async for event in runtime.resume_stream_with_approval(
@@ -522,7 +523,7 @@ async def stream_resume_events(
         yield serialize_sse_frame(
             build_error_frame(
                 session_id=request.session_id,
-                msg_id=request.msg_id,
+                turn_id=request.turn_id,
                 detail=f"session persist failed: {exc}",
                 code="sessionPersistFailed",
             )
@@ -531,7 +532,7 @@ async def stream_resume_events(
         yield serialize_sse_frame(
             build_error_frame(
                 session_id=request.session_id,
-                msg_id=request.msg_id,
+                turn_id=request.turn_id,
                 detail=str(exc),
             )
         )
@@ -539,7 +540,7 @@ async def stream_resume_events(
         yield serialize_sse_frame(
             build_error_frame(
                 session_id=request.session_id,
-                msg_id=request.msg_id,
+                turn_id=request.turn_id,
                 detail=f"chat resume failed: {exc}",
             )
         )
@@ -549,14 +550,14 @@ def schedule_cancel_persist(
     *,
     store: SessionStore | None,
     session_id: str,
-    msg_id: str,
+    turn_id: str,
     user_id: str | None,
     logger,
 ) -> None:
     schedule_cancelled_chat_persist(
         store=store,
         session_id=session_id,
-        msg_id=msg_id,
+        turn_id=turn_id,
         user_id=user_id,
         logger=logger,
     )

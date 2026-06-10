@@ -134,17 +134,17 @@ class PromptStore(Protocol):
 ```
 prompts/
   agents/
-    main_chat.yaml           # 主 chat agent system prompt
+    main_system_chat.yaml    # 主 chat agent system prompt
     handoff_router.yaml
   capabilities/
     summary.yaml             # rolling_summary 摘要 prompt
   defaults.yaml              # 共享变量默认值
 ```
 
-**单个文件示例** (`prompts/agents/main_chat.yaml`):
+**单个文件示例** (`prompts/agents/main_system_chat.yaml`):
 
 ```yaml
-name: agents.main_chat
+name: agents.main_system_chat
 version: "1.0.0"
 label: prod
 template: |
@@ -239,7 +239,7 @@ agent = Agent(
 )
 
 # 改造后
-rendered = await self._prompt_mgr.get("agents.main_chat", task_type=task_type)
+rendered = await self._prompt_mgr.get("agents.main_system_chat", task_type=task_type)
 agent = Agent(
     name="MinimalChatAgent",
     instructions=rendered.text,
@@ -300,7 +300,7 @@ messages = [{"role": "system", "content": rendered.text}, ...]
 
 ```json
 {
-  "name": "agents.main_chat",
+  "name": "agents.main_system_chat",
   "version": "1.0.0",
   "source": "langfuse",
   "label": "prod",
@@ -338,7 +338,7 @@ PROMPT_FAIL_OPEN=true                  # 失败放行(调用方走兜底 string)
 | **D3** | 渲染时机 | **调用方主动 get** (非自动改 enriched_input) | prompt 用途多样,不该一刀切 |
 | **D4** | 变量缺失 | **保留原样 + warning** | 不抛错,允许多层渲染 |
 | **D5** | 缓存 | **进程内 LRU + TTL** (本期不做 Redis) | 简单优先,后期再升 |
-| **D6** | 改造范围 | **本期 3 处**: main_chat / summary / handoff | 范围可控,验证闭环 |
+| **D6** | 改造范围 | **本期 3 处**: main_system_chat / summary / handoff | 范围可控,验证闭环 |
 
 ---
 
@@ -356,7 +356,7 @@ PROMPT_FAIL_OPEN=true                  # 失败放行(调用方走兜底 string)
 | `src/capabilities/prompt/composite_store.py` | 60 | 主备组合 |
 | `src/capabilities/prompt/capability.py` | 80 | `PromptCapability`(预热/释放) |
 | `src/capabilities/prompt/errors.py` | 20 | 异常类 |
-| `prompts/agents/main_chat.yaml` | - | 主 chat prompt |
+| `prompts/agents/main_system_chat.yaml` | - | 主 chat prompt |
 | `prompts/capabilities/summary.yaml` | - | 摘要 prompt |
 | `tests/test_prompt_management.py` | ~250 | 单测 |
 
@@ -376,14 +376,14 @@ PROMPT_FAIL_OPEN=true                  # 失败放行(调用方走兜底 string)
 ## 十一、验收清单
 
 - [ ] `prompt_enabled=False` 时整链路零变更(主 agent 仍用硬编码 fallback)
-- [ ] `LocalYamlStore.fetch("agents.main_chat")` 正确加载并渲染变量
+- [ ] `LocalYamlStore.fetch("agents.main_system_chat")` 正确加载并渲染变量
 - [ ] `LangfuseStore.fetch` 调用 `get_prompt`,version/label 透传
 - [ ] `CompositeStore`: Langfuse 失败时自动走 Yaml,日志告警
 - [ ] PromptManager 缓存: 二次 get 同 name 不重新拉,`cache_hit=True`
 - [ ] 变量缺失时 `{var}` 保留原样,warning
 - [ ] `prompt_warmup_names` 启动期预热,失败不阻塞 lifespan
 - [ ] `ctx.metadata["prompt"]` 字段完整(含 source / version / cache_hit)
-- [ ] 主 chat agent 改造后,响应不变(用 main_chat.yaml 内容与原硬编码一致)
+- [ ] 主 chat agent 改造后,响应不变(用 main_system_chat.yaml 内容与原硬编码一致)
 - [ ] 测试 ≥ 8 用例全绿,模块导入 OK
 
 ---
@@ -418,7 +418,7 @@ chat() → AgentOrchestrator.run()
   • PromptCapability.before_run        → ctx.metadata["prompt_manager_ready"] = True
   ↓
 agent_runtime.run() 主动:
-  • PromptManager.get("agents.main_chat", task_type=...)  ← NEW
+  • PromptManager.get("agents.main_system_chat", task_type=...)  ← NEW
   • Agent(instructions=rendered.text)
   ↓
 Runner.run(enriched_input)

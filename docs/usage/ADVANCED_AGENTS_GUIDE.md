@@ -37,7 +37,7 @@ curl -X POST http://localhost:8080/chat \
 
 ```json
 {
-  "protocol": {"sessionId": "hitl-demo", "msgId": "msg_xxx"},
+  "protocol": {"sessionId": "hitl-demo", "turnId": "turn_xxx"},
   "interrupted": true,
   "interruptions": [{"id": "approval-id", "sdk_interruption_index": 0}],
   "runState": {},

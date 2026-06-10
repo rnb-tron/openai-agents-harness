@@ -24,14 +24,14 @@ from src.core.logging import setup_logger
 logger = setup_logger("capabilities.context_compression.token_budget")
 
 
-# 与 MemoryCapability.before_run 中拼接的格式保持一致
+# 与 UserPromptCapability/fallback 产出的格式保持一致
 _USER_ANCHOR = "\nUser:\n"
 
 
 def _split_history_and_current(text: str) -> tuple[str, str]:
     """把 enriched_input 拆成 (history_block, current_block)
 
-    优先用 ``"\\nUser:\\n"`` 锚点 (MemoryCapability 拼接的格式);
+    优先用 ``"\\nUser:\\n"`` 锚点 (user prompt 渲染后的格式);
     若不存在则视全文为当前输入, 历史为空。
     """
     idx = text.rfind(_USER_ANCHOR)

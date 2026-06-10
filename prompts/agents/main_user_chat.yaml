@@ -1,0 +1,19 @@
+name: agents.main_user_chat
+version: "1.0.0"
+label: prod
+template: |-
+  {memory_block}City ID: {city_id}
+  User:
+  {user_input}
+metadata:
+  description: "Main user prompt template for enriched_input"
+  variables:
+    - name: memory_block
+      default: ""
+      description: "Optional memory section prefix ending with a blank line"
+    - name: city_id
+      default: ""
+      description: "City identifier from frontend business options"
+    - name: user_input
+      default: ""
+      description: "Current user input"

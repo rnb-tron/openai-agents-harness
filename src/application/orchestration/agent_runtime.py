@@ -144,19 +144,9 @@ class AgentOrchestrator:
             )
         )
 
-        # 2) 上下文压缩默认关闭；开启后在 Memory 注入上下文之后再压缩。
-        if self.settings.compression_enabled:
-            from src.capabilities.context_compression import ContextCompressionCapability
-
-            self.registry.register(
-                ContextCompressionCapability.from_settings(
-                    self.settings,
-                    model_router=model_router,
-                    prompt_manager=self.prompt_manager,
-                )
-            )
-
-        # 3) Prompt 管理默认关闭；manager 由 HarnessBuilder 组装，这里只注册能力。
+        # 2) Prompt 管理默认关闭；manager 由 HarnessBuilder 组装，这里注册 lifecycle
+        # capability 以及 user prompt 渲染 capability。后者即使 manager 为空也会
+        # 走 fallback，把 user prompt 构造逻辑统一收敛到一处。
         if self.settings.prompt_enabled and self.prompt_manager is not None:
             from src.capabilities.prompt import PromptCapability
 
@@ -168,6 +158,26 @@ class AgentOrchestrator:
                     manager=self.prompt_manager,
                     warmup_names=warmup_names,
                     enabled=True,
+                )
+            )
+        from src.capabilities.prompt import UserPromptCapability
+
+        self.registry.register(
+            UserPromptCapability(
+                manager=self.prompt_manager if self.settings.prompt_enabled else None,
+                fail_open=getattr(self.settings, "prompt_fail_open", True),
+            )
+        )
+
+        # 3) 上下文压缩默认关闭；开启后在 user prompt 渲染之后再压缩。
+        if self.settings.compression_enabled:
+            from src.capabilities.context_compression import ContextCompressionCapability
+
+            self.registry.register(
+                ContextCompressionCapability.from_settings(
+                    self.settings,
+                    model_router=model_router,
+                    prompt_manager=self.prompt_manager,
                 )
             )
 
@@ -241,6 +251,7 @@ class AgentOrchestrator:
             "available": self.tool_registry.list_tools(),
             "approval_required": self.tool_registry.list_approval_required(),
         }
+        ctx.metadata["business"] = dict(session.context.get("business") or {})
 
         await self.registry.dispatch(RunPhase.BEFORE_RUN, ctx)
         client = self._create_openai_client()

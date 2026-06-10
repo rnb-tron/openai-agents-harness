@@ -42,7 +42,7 @@ class MemoryCapability(Capability):
         return True
 
     async def before_run(self, ctx: RunContext) -> None:
-        """构建携带记忆上下文的 ``ctx.enriched_input``。"""
+        """读取记忆上下文并写入 ``ctx.metadata``，由后续能力统一渲染输入。"""
         memory_context = ""
         if self._memory_context_enabled:
             try:
@@ -61,11 +61,7 @@ class MemoryCapability(Capability):
                         "error": str(e),
                     },
                 )
-
-        if memory_context:
-            ctx.enriched_input = f"Conversation memory:\n{memory_context}\n\nUser:\n{ctx.user_input}"
-        else:
-            ctx.enriched_input = ctx.user_input
+        ctx.metadata["memory_context"] = memory_context
 
     async def after_run(self, ctx: RunContext) -> None:
         """写入 Mem0 manager；失败时不做进程内兜底。"""
