@@ -84,6 +84,9 @@ Homepage = "https://github.com/rnb-tron/openai-agents-harness"
 Documentation = "https://github.com/rnb-tron/openai-agents-harness#readme"
 Issues = "https://github.com/rnb-tron/openai-agents-harness/issues"
 
+[project.scripts]
+openai-agents-harness = "src.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["src*"]
