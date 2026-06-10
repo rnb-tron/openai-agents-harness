@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 from src.capabilities.prompt.base import PromptStore, PromptTemplate, RenderedPrompt
-from src.capabilities.prompt.capability import PromptCapability
+from src.capabilities.prompt.capability import PromptCapability, UserPromptCapability
 from src.capabilities.prompt.composite_store import CompositeStore
 from src.capabilities.prompt.errors import (
     PromptError,
@@ -30,6 +30,7 @@ from src.capabilities.prompt.manager import PromptManager
 __all__ = [
     # Capability + Manager
     "PromptCapability",
+    "UserPromptCapability",
     "PromptManager",
     "get_prompt_manager",
     "build_prompt_manager",

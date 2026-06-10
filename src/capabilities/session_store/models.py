@@ -47,7 +47,10 @@ class ChatMessageRecord(Base):
     """会话消息流水表。"""
 
     __tablename__ = "chat_messages"
-    __table_args__ = (Index("idx_chat_messages_session_created", "session_id", "created_at"),)
+    __table_args__ = (
+        Index("idx_chat_messages_session_created", "session_id", "created_at"),
+        Index("idx_chat_messages_session_turn", "session_id", "turn_id"),
+    )
 
     id: Mapped[str] = mapped_column(CHAR(36), primary_key=True)
     session_id: Mapped[str] = mapped_column(
@@ -58,6 +61,7 @@ class ChatMessageRecord(Base):
     user_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     role: Mapped[str] = mapped_column(String(32), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    turn_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     model: Mapped[str | None] = mapped_column(String(128), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="completed")
     metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)

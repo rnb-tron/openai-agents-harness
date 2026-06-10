@@ -603,7 +603,7 @@
       let memorySearchUserId = "";
       let chatStreaming = false;
       let cancelRequested = false;
-      let currentChatMsgId = null;
+      let currentChatTurnId = null;
 
       function newSessionId() {
         return globalThis.crypto && crypto.randomUUID
@@ -950,7 +950,7 @@
 
       function startNewSessionView() {
         clearPending();
-        currentChatMsgId = null;
+        currentChatTurnId = null;
         rawResponse.textContent = "等待请求...";
         messageRecords.textContent = "发送消息后会写入 MySQL";
         sessionSummary.textContent = "达到 summary 阈值后会在这里展示";
@@ -1051,8 +1051,8 @@
             if (protocol.sessionId) {
               setSession(protocol.sessionId);
             }
-            if (protocol.msgId) {
-              currentChatMsgId = protocol.msgId;
+            if (protocol.turnId) {
+              currentChatTurnId = protocol.turnId;
             }
             if (event.event === "thinking") {
               if (!reasoningBubble) {
@@ -1091,7 +1091,7 @@
                 showPending({
                   ...data,
                   session_id: protocol.sessionId,
-                  msg_id: protocol.msgId,
+                  turn_id: protocol.turnId,
                   run_state: data.runState
                 }, message);
                 await refreshStorage();
@@ -1124,12 +1124,12 @@
         }
         cancelRequested = true;
         cancelChatButton.disabled = true;
-        if (!currentChatMsgId) {
-          throw new Error("当前没有可取消的 msgId");
+        if (!currentChatTurnId) {
+          throw new Error("当前没有可取消的 turnId");
         }
         const payload = {
           sessionId: sessionInput.value,
-          msgId: currentChatMsgId,
+          turnId: currentChatTurnId,
           userId: userInput.value.trim() || null
         };
         const response = await fetch("/chat/cancel", {
@@ -1163,7 +1163,7 @@
           interruption_index: interruption.sdk_interruption_index || 0,
           approved,
           session_id: data.session_id,
-          msgId: data.msg_id,
+          turnId: data.turn_id,
           message: originalMessage,
           model: data.model,
           always: approved ? approvalAlways.checked : false,
@@ -1192,8 +1192,8 @@
             if (protocol.sessionId) {
               setSession(protocol.sessionId);
             }
-            if (protocol.msgId) {
-              currentChatMsgId = protocol.msgId;
+            if (protocol.turnId) {
+              currentChatTurnId = protocol.turnId;
             }
             if (event.event === "thinking") {
               if (!reasoningBubble) {
@@ -1220,7 +1220,7 @@
                 showPending({
                   ...data,
                   session_id: protocol.sessionId,
-                  msg_id: protocol.msgId,
+                  turn_id: protocol.turnId,
                   run_state: data.runState
                 }, originalMessage);
                 addMessage("system", "出现新的审批请求。");

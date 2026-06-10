@@ -36,10 +36,10 @@ class ChatRequest(BaseModel):
     )
     query: str | None = Field(default=None, description="用户本轮输入")
     model: str | None = Field(default=None, description="可选模型")
-    msg_id: str | None = Field(
+    turn_id: str | None = Field(
         default=None,
-        validation_alias=AliasChoices("msgId", "msg_id"),
-        description="整轮续传的消息 ID",
+        validation_alias=AliasChoices("turnId", "turn_id", "msgId", "msg_id"),
+        description="整轮续传的轮次 ID",
     )
     last_event_id: str | None = Field(
         default=None,
@@ -58,7 +58,7 @@ class ChatRequest(BaseModel):
     def validate_request(self) -> "ChatRequest":
         if not self.user_id:
             raise ValueError("userId is required")
-        if self.last_event_id or self.msg_id:
+        if self.last_event_id or self.turn_id:
             if not self.session_id:
                 raise ValueError("sessionId is required for replay requests")
             return self
@@ -81,16 +81,17 @@ class ChatResumeRequest(BaseModel):
     interruption_index: int = Field(..., ge=0, description="待批准或拒绝的中断序号")
     approved: bool = Field(..., description="人工审批决策")
     session_id: str = Field(..., description="中断响应返回的会话标识")
-    msg_id: str = Field(
+    turn_id: str = Field(
         ...,
-        validation_alias=AliasChoices("msgId", "msg_id"),
-        description="本轮消息标识",
+        validation_alias=AliasChoices("turnId", "turn_id", "msgId", "msg_id"),
+        description="本轮轮次标识",
     )
     message: str = Field(..., min_length=1, description="中断响应中的原始用户输入")
     model: str = Field(..., description="中断响应中的实际执行模型")
     always: bool = Field(default=False, description="是否对匹配的后续工具调用复用该决策")
     rejection_message: str | None = Field(default=None, description="拒绝工具调用时返回的说明")
     user_id: str | None = Field(default=None, description="可选用户标识")
+    options: dict[str, Any] | None = Field(default=None, description="保留字段")
 
 
 class ChatCancelRequest(BaseModel):
@@ -101,10 +102,10 @@ class ChatCancelRequest(BaseModel):
         validation_alias=AliasChoices("sessionId", "session_id"),
         description="要取消的会话标识",
     )
-    msg_id: str | None = Field(
+    turn_id: str | None = Field(
         default=None,
-        validation_alias=AliasChoices("msgId", "msg_id"),
-        description="要取消的消息标识",
+        validation_alias=AliasChoices("turnId", "turn_id", "msgId", "msg_id"),
+        description="要取消的轮次标识",
     )
     user_id: str | None = Field(
         default=None,
@@ -116,8 +117,8 @@ class ChatCancelRequest(BaseModel):
     def validate_session_id(self) -> "ChatCancelRequest":
         if not self.session_id:
             raise ValueError("sessionId is required")
-        if not self.msg_id:
-            raise ValueError("msgId is required")
+        if not self.turn_id:
+            raise ValueError("turnId is required")
         if not self.user_id:
             raise ValueError("userId is required")
         return self
@@ -138,6 +139,7 @@ async def chat(
     user_id = resolve_user_id(principal, request.user_id)
     session_id = request.session_id or str(uuid.uuid4())
     session = AgentSession(session_id=session_id, user_id=user_id)
+    session.context["business"] = dict(request.options or {})
     store = session_store_from_harness(harness)
 
     async def events():
@@ -148,7 +150,7 @@ async def chat(
             user_id=user_id,
             user_input=request.query or "",
             model=request.model,
-            msg_id=request.msg_id,
+            turn_id=request.turn_id,
             last_event_id=request.last_event_id,
             store=store,
             logger=logger,
@@ -170,16 +172,16 @@ async def cancel_chat(
 ) -> ChatCancelResponse:
     """取消当前会话正在执行的普通 chat stream。"""
     session_id = request.session_id or ""
-    msg_id = request.msg_id or ""
+    turn_id = request.turn_id or ""
     user_id = resolve_user_id(principal, request.user_id)
-    task = await get_chat_task(chat_task_key(session_id, user_id, msg_id))
+    task = await get_chat_task(chat_task_key(session_id, user_id, turn_id))
     if task is None:
         return ChatCancelResponse(code="1", msg="未找到运行中的会话")
     task.cancel()
     schedule_cancel_persist(
         store=session_store_from_harness(harness),
         session_id=session_id,
-        msg_id=msg_id,
+        turn_id=turn_id,
         user_id=user_id,
         logger=logger,
     )
@@ -195,6 +197,7 @@ async def resume_chat_stream(
     """以 SSE 流式返回人工审批后的继续执行结果。"""
     user_id = resolve_user_id(principal, request.user_id)
     session = AgentSession(session_id=request.session_id, user_id=user_id)
+    session.context["business"] = dict(request.options or {})
     store = session_store_from_harness(harness)
 
     async def events():

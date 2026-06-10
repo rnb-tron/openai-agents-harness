@@ -1,4 +1,4 @@
-name: agents.main_chat
+name: agents.main_system_chat
 version: "1.0.0"
 label: prod
 template: |-

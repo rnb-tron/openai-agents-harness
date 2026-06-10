@@ -143,10 +143,15 @@ async def test_list_chat_messages_can_return_recent_messages():
 @pytest.mark.asyncio
 async def test_chat_stream_emits_sse_and_uses_authenticated_identity(monkeypatch):
     runtime = _StreamingRuntime()
-    monkeypatch.setattr(chat_service, "generate_msg_id", lambda: "msg-fixed")
+    monkeypatch.setattr(chat_service, "generate_turn_id", lambda: "turn-fixed")
 
     response = await chat(
-        ChatRequest(query="回答我", session_id="session-1", user_id="body-user"),
+        ChatRequest(
+            query="回答我",
+            session_id="session-1",
+            user_id="body-user",
+            options={"scene": "ticket_dispatch", "tenant_id": "tenant-1"},
+        ),
         Principal(user_id="auth-user", is_anonymous=False),
         SimpleNamespace(runtime=runtime),
     )
@@ -157,11 +162,12 @@ async def test_chat_stream_emits_sse_and_uses_authenticated_identity(monkeypatch
     assert response.headers["x-accel-buffering"] == "no"
     assert runtime.session.user_id == "auth-user"
     assert runtime.user_input == "回答我"
+    assert runtime.session.context["business"] == {"scene": "ticket_dispatch", "tenant_id": "tenant-1"}
     assert events[0] == {
         "event": "init",
-        "id": "msg-fixed_1",
+        "id": "turn-fixed_1",
         "data": {
-            "protocol": {"sessionId": "session-1", "msgId": "msg-fixed"},
+            "protocol": {"sessionId": "session-1", "turnId": "turn-fixed"},
             "model": "test-model",
             "userId": "auth-user",
         },
@@ -182,9 +188,9 @@ async def test_chat_cancel_cancels_active_stream_and_persists_partial_cache(monk
                 {
                     "frame": {
                         "event": "init",
-                        "id": "msg-fixed_1",
+                        "id": "turn-fixed_1",
                         "data": {
-                            "protocol": {"sessionId": "session-1", "msgId": "msg-fixed"},
+                            "protocol": {"sessionId": "session-1", "turnId": "turn-fixed"},
                             "model": "test-model",
                         },
                     },
@@ -195,8 +201,8 @@ async def test_chat_cancel_cancels_active_stream_and_persists_partial_cache(monk
                 {
                     "frame": {
                         "event": "content",
-                        "id": "msg-fixed_2",
-                        "data": {"protocol": {"sessionId": "session-1", "msgId": "msg-fixed"}, "text": "部"},
+                        "id": "turn-fixed_2",
+                        "data": {"protocol": {"sessionId": "session-1", "turnId": "turn-fixed"}, "text": "部"},
                     }
                 }
             ),
@@ -204,15 +210,15 @@ async def test_chat_cancel_cancels_active_stream_and_persists_partial_cache(monk
                 {
                     "frame": {
                         "event": "content",
-                        "id": "msg-fixed_3",
-                        "data": {"protocol": {"sessionId": "session-1", "msgId": "msg-fixed"}, "text": "分完成"},
+                        "id": "turn-fixed_3",
+                        "data": {"protocol": {"sessionId": "session-1", "turnId": "turn-fixed"}, "text": "分完成"},
                     }
                 }
             ),
         ]
     )
     monkeypatch.setattr(chat_stream_cache, "get_redis_client", lambda for_write=True: redis)
-    monkeypatch.setattr(chat_service, "generate_msg_id", lambda: "msg-fixed")
+    monkeypatch.setattr(chat_service, "generate_turn_id", lambda: "turn-fixed")
     response = await chat(
         ChatRequest(query="回答我", session_id="session-1", user_id="body-user"),
         Principal(user_id="auth-user", is_anonymous=False),
@@ -226,7 +232,7 @@ async def test_chat_cancel_cancels_active_stream_and_persists_partial_cache(monk
     await asyncio.wait_for(runtime.started.wait(), timeout=1)
 
     result = await cancel_chat(
-        ChatCancelRequest(sessionId="session-1", msgId="msg-fixed", userId="body-user"),
+        ChatCancelRequest(sessionId="session-1", turnId="turn-fixed", userId="body-user"),
         Principal(user_id="auth-user", is_anonymous=False),
         SimpleNamespace(session_store=store),
     )
@@ -238,16 +244,17 @@ async def test_chat_cancel_cancels_active_stream_and_persists_partial_cache(monk
     events = _parse_sse(chunks)
     await asyncio.sleep(0)
     assert [event["event"] for event in events] == ["init"]
-    assert redis.lrange_calls == [("chat:sse:events:session-1:msg-fixed", 0, -1)]
+    assert redis.lrange_calls == [("chat:sse:events:session-1:turn-fixed", 0, -1)]
     assert store.calls == [
         {
             "session_id": "session-1",
             "user_id": "auth-user",
             "user_input": "回答我",
             "assistant_output": "部分完成",
+            "turn_id": "turn-fixed",
             "model": "test-model",
             "status": "cancelled",
-            "metadata": {"source": "chat_cancel_cache", "partial": True, "msg_id": "msg-fixed"},
+            "metadata": {"source": "chat_cancel_cache", "partial": True},
         }
     ]
 
@@ -255,7 +262,7 @@ async def test_chat_cancel_cancels_active_stream_and_persists_partial_cache(monk
 @pytest.mark.asyncio
 async def test_chat_cancel_returns_not_found_for_missing_or_forbidden_task(monkeypatch):
     runtime = _BlockingRuntime()
-    monkeypatch.setattr(chat_service, "generate_msg_id", lambda: "msg-fixed")
+    monkeypatch.setattr(chat_service, "generate_turn_id", lambda: "turn-fixed")
     response = await chat(
         ChatRequest(query="回答我", session_id="session-2", user_id="body-user"),
         Principal(user_id="auth-user", is_anonymous=False),
@@ -269,7 +276,7 @@ async def test_chat_cancel_returns_not_found_for_missing_or_forbidden_task(monke
     await asyncio.wait_for(runtime.started.wait(), timeout=1)
 
     forbidden = await cancel_chat(
-        ChatCancelRequest(sessionId="session-2", msgId="msg-missing", userId="other-user"),
+        ChatCancelRequest(sessionId="session-2", turnId="turn-missing", userId="other-user"),
         Principal(user_id="other-user", is_anonymous=False),
     )
     assert forbidden.code == "1"
@@ -277,13 +284,13 @@ async def test_chat_cancel_returns_not_found_for_missing_or_forbidden_task(monke
     assert not runtime.cancelled.is_set()
 
     missing = await cancel_chat(
-        ChatCancelRequest(sessionId="missing", msgId="msg-missing", userId="auth-user"),
+        ChatCancelRequest(sessionId="missing", turnId="turn-missing", userId="auth-user"),
         Principal(user_id="auth-user", is_anonymous=False),
     )
     assert missing.msg == "未找到运行中的会话"
 
     await cancel_chat(
-        ChatCancelRequest(sessionId="session-2", msgId="msg-fixed", userId="auth-user"),
+        ChatCancelRequest(sessionId="session-2", turnId="turn-fixed", userId="auth-user"),
         Principal(user_id="auth-user", is_anonymous=False),
     )
     await asyncio.wait_for(runtime.cancelled.wait(), timeout=1)
@@ -294,7 +301,7 @@ async def test_chat_cancel_returns_not_found_for_missing_or_forbidden_task(monke
 async def test_chat_stream_caches_sse_frames_to_redis(monkeypatch):
     redis = _FakeRedis()
     monkeypatch.setattr(chat_stream_cache, "get_redis_client", lambda for_write=True: redis)
-    monkeypatch.setattr(chat_service, "generate_msg_id", lambda: "msg-fixed")
+    monkeypatch.setattr(chat_service, "generate_turn_id", lambda: "turn-fixed")
 
     response = await chat(
         ChatRequest(query="回答我", session_id="session-3", user_id="body-user"),
@@ -307,16 +314,16 @@ async def test_chat_stream_caches_sse_frames_to_redis(monkeypatch):
     assert events[-1]["event"] == "end"
     assert [json.loads(value)["frame"]["event"] for _, value in redis.rpush_calls] == ["init", "content", "end"]
     assert redis.expire_calls == [
-        ("chat:sse:events:session-3:msg-fixed", 600),
-        ("chat:sse:events:session-3:msg-fixed", 600),
-        ("chat:sse:events:session-3:msg-fixed", 600),
+        ("chat:sse:events:session-3:turn-fixed", 600),
+        ("chat:sse:events:session-3:turn-fixed", 600),
+        ("chat:sse:events:session-3:turn-fixed", 600),
     ]
 
 
 @pytest.mark.asyncio
 async def test_chat_stream_ignores_redis_cache_failures(monkeypatch):
     monkeypatch.setattr(chat_stream_cache, "get_redis_client", lambda for_write=True: _FakeRedis(fail=True))
-    monkeypatch.setattr(chat_service, "generate_msg_id", lambda: "msg-fixed")
+    monkeypatch.setattr(chat_service, "generate_turn_id", lambda: "turn-fixed")
 
     response = await chat(
         ChatRequest(query="回答我", session_id="session-4", user_id="body-user"),
@@ -347,15 +354,15 @@ async def test_chat_stream_reports_session_persist_failure():
 
 
 @pytest.mark.asyncio
-async def test_chat_stream_can_replay_by_msg_id(monkeypatch):
+async def test_chat_stream_can_replay_by_turn_id(monkeypatch):
     redis = _FakeRedis(
         values=[
             json.dumps(
                 {
                     "frame": {
                         "event": "init",
-                        "id": "msg-replay_1",
-                        "data": {"protocol": {"sessionId": "session-9", "msgId": "msg-replay"}},
+                        "id": "turn-replay_1",
+                        "data": {"protocol": {"sessionId": "session-9", "turnId": "turn-replay"}},
                     }
                 }
             ),
@@ -363,8 +370,8 @@ async def test_chat_stream_can_replay_by_msg_id(monkeypatch):
                 {
                     "frame": {
                         "event": "content",
-                        "id": "msg-replay_2",
-                        "data": {"protocol": {"sessionId": "session-9", "msgId": "msg-replay"}, "text": "重放"},
+                        "id": "turn-replay_2",
+                        "data": {"protocol": {"sessionId": "session-9", "turnId": "turn-replay"}, "text": "重放"},
                     }
                 }
             ),
@@ -373,7 +380,7 @@ async def test_chat_stream_can_replay_by_msg_id(monkeypatch):
     monkeypatch.setattr(chat_stream_cache, "get_redis_client", lambda for_write=True: redis)
 
     response = await chat(
-        ChatRequest(sessionId="session-9", msgId="msg-replay", userId="body-user"),
+        ChatRequest(sessionId="session-9", turnId="turn-replay", userId="body-user"),
         Principal(user_id="auth-user", is_anonymous=False),
         SimpleNamespace(runtime=_StreamingRuntime()),
     )
@@ -398,7 +405,7 @@ async def test_resume_chat_stream_emits_ndjson_continuation_events():
         interruption_index=0,
         approved=True,
         session_id="session-1",
-        msg_id="msg-1",
+        turn_id="turn-1",
         message="查询天气",
         model="gpt-4o-mini",
     )
@@ -429,7 +436,7 @@ async def test_resume_chat_stream_emits_error_for_invalid_sdk_state():
         interruption_index=3,
         approved=True,
         session_id="session-1",
-        msg_id="msg-1",
+        turn_id="turn-1",
         message="删除数据",
         model="gpt-4o-mini",
     )
@@ -446,7 +453,7 @@ async def test_resume_chat_stream_emits_error_for_invalid_sdk_state():
         {
             "event": "error",
             "data": {
-                "protocol": {"sessionId": "session-1", "msgId": "msg-1"},
+                "protocol": {"sessionId": "session-1", "turnId": "turn-1"},
                 "code": "chatError",
                 "msg": "审批中断不存在: 3",
             },

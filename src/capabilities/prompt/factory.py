@@ -7,7 +7,7 @@
     from src.capabilities.prompt.factory import get_prompt_manager
     mgr = get_prompt_manager()
     if mgr is not None:
-        rendered = await mgr.get("agents.main_chat", task_type=task_type)
+        rendered = await mgr.get("agents.main_system_chat", task_type=task_type)
 
 单测:
     reset_prompt_manager()  # 清空单例, 在 setUp/tearDown 中调用

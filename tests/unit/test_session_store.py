@@ -19,8 +19,9 @@ async def test_session_store_persists_sessions_and_messages(tmp_path):
         user_id="user-1",
         user_input="我要去上海旅行",
         assistant_output="可以先看天气，再安排路线。",
+        turn_id="turn-1",
         model="gpt-test",
-        metadata={"source": "chat"},
+        metadata={"source": "chat", "msg_id": "legacy-msg"},
     )
 
     sessions = await store.list_sessions(user_id="user-1")
@@ -29,7 +30,9 @@ async def test_session_store_persists_sessions_and_messages(tmp_path):
     assert sessions[0]["id"] == "session-1"
     assert sessions[0]["title"] == "我要去上海旅行"
     assert [item["role"] for item in messages] == ["user", "assistant"]
+    assert [item["turn_id"] for item in messages] == ["turn-1", "turn-1"]
     assert messages[1]["model"] == "gpt-test"
+    assert messages[1]["metadata"] == {"source": "chat"}
 
     await database.close()
 

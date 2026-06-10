@@ -63,8 +63,8 @@ def _make_yaml_dir() -> Path:
     tmp = Path(tempfile.mkdtemp(prefix="prompt_yaml_"))
     _write_yaml(
         tmp,
-        "agents/main_chat.yaml",
-        "name: agents.main_chat\n"
+        "agents/main_system_chat.yaml",
+        "name: agents.main_system_chat\n"
         'version: "1.0.0"\n'
         "label: prod\n"
         "template: |-\n"
@@ -118,11 +118,11 @@ def test_local_yaml_store_load() -> None:
     tmp = _make_yaml_dir()
     store = LocalYamlStore(base_dir=tmp)
     names = store.list_names()
-    assert "agents.main_chat" in names
+    assert "agents.main_system_chat" in names
     assert "capabilities.summary" in names
 
-    tpl = asyncio.run(store.fetch("agents.main_chat"))
-    assert tpl.name == "agents.main_chat"
+    tpl = asyncio.run(store.fetch("agents.main_system_chat"))
+    assert tpl.name == "agents.main_system_chat"
     assert tpl.version == "1.0.0"
     assert tpl.label == "prod"
     assert tpl.source == "yaml"
@@ -254,7 +254,7 @@ def test_composite_falls_back_on_primary_error() -> None:
 
 def test_langfuse_store_reuses_injected_client() -> None:
     class FakePrompt:
-        name = "agents.main_chat"
+        name = "agents.main_system_chat"
         prompt = "Hello {{name}}"
         version = 7
         labels = ["prod"]
@@ -272,18 +272,18 @@ def test_langfuse_store_reuses_injected_client() -> None:
 
     client = FakeClient()
     store = LangfuseStore(default_label="prod", client=client)
-    tpl = asyncio.run(store.fetch("agents.main_chat"))
+    tpl = asyncio.run(store.fetch("agents.main_system_chat"))
 
     assert tpl.template == "Hello {{name}}"
     assert tpl.version == 7
     assert tpl.label == "prod"
     assert tpl.metadata["langfuse_labels"] == ["prod"]
-    assert client.calls == [("agents.main_chat", {"label": "prod"})]
+    assert client.calls == [("agents.main_system_chat", {"label": "prod"})]
 
 
 def test_langfuse_store_accepts_chat_prompt_payload() -> None:
     class FakePrompt:
-        name = "agents.main_chat"
+        name = "agents.main_system_chat"
         prompt = [
             {"role": "system", "content": "You are {{role}}."},
             {"role": "user", "content": {"type": "placeholder", "name": "input"}},
@@ -299,7 +299,7 @@ def test_langfuse_store_accepts_chat_prompt_payload() -> None:
             return FakePrompt()
 
     store = LangfuseStore(default_label="prod", client=FakeClient())
-    tpl = asyncio.run(store.fetch("agents.main_chat"))
+    tpl = asyncio.run(store.fetch("agents.main_system_chat"))
 
     assert tpl.template.startswith("system: You are {{role}}.")
     assert "user:" in tpl.template
@@ -338,7 +338,7 @@ def test_warmup_failure_does_not_crash() -> None:
     assert r.cache_hit is True
 
 
-def test_main_chat_fallback_when_get_fails() -> None:
+def test_main_system_chat_fallback_when_get_fails() -> None:
     """集成: agent_runtime 中 prompt 失败时 instructions 走硬编码 fallback,
     主流程不挂。
 
@@ -438,7 +438,7 @@ if __name__ == "__main__":
         test_langfuse_store_accepts_chat_prompt_payload,
         test_composite_propagates_when_both_fail,
         test_warmup_failure_does_not_crash,
-        test_main_chat_fallback_when_get_fails,
+        test_main_system_chat_fallback_when_get_fails,
     ]
     failed = 0
     for t in tests:

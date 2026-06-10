@@ -4,7 +4,7 @@
 作为 Langfuse 不可用时的兜底, 也可作为离线/单测主用。
 
 YAML 格式约定:
-    name: agents.main_chat        # 必填
+    name: agents.main_system_chat # 必填
     template: |                   # 必填
       You are a concise assistant...
     version: "1.0.0"              # 可选

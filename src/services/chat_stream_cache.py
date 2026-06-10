@@ -13,12 +13,12 @@ _CHAT_CANCEL_CACHE_SOURCE = "chat_cancel_cache"
 _CHAT_PARTIAL_METADATA_KEY = "partial"
 
 
-def chat_stream_event_cache_key(session_id: str, msg_id: str) -> str:
-    return f"{_CHAT_STREAM_EVENT_CACHE_KEY_PREFIX}:{session_id}:{msg_id}"
+def chat_stream_event_cache_key(session_id: str, turn_id: str) -> str:
+    return f"{_CHAT_STREAM_EVENT_CACHE_KEY_PREFIX}:{session_id}:{turn_id}"
 
 
-def chat_stream_cancelled_key(session_id: str, msg_id: str) -> str:
-    return f"{_CHAT_STREAM_CANCELLED_KEY_PREFIX}:{session_id}:{msg_id}"
+def chat_stream_cancelled_key(session_id: str, turn_id: str) -> str:
+    return f"{_CHAT_STREAM_CANCELLED_KEY_PREFIX}:{session_id}:{turn_id}"
 
 
 def _extract_frame(record: dict[str, Any]) -> dict[str, Any] | None:
@@ -42,7 +42,7 @@ def frame_sequence(frame: dict[str, Any]) -> int:
 async def cache_stream_frame(
     *,
     session_id: str,
-    msg_id: str,
+    turn_id: str,
     frame: dict[str, Any],
     logger,
     meta: dict[str, Any] | None = None,
@@ -50,7 +50,7 @@ async def cache_stream_frame(
     redis = get_redis_client(for_write=True)
     if redis is None:
         return
-    key = chat_stream_event_cache_key(session_id, msg_id)
+    key = chat_stream_event_cache_key(session_id, turn_id)
     record = {"frame": frame, "meta": meta or {}}
     try:
         await redis.rpush(key, json.dumps(record, ensure_ascii=False))
@@ -61,7 +61,7 @@ async def cache_stream_frame(
             "chat_stream_event_cache_failed",
             level=30,
             session_id=session_id,
-            msg_id=msg_id,
+            turn_id=turn_id,
             error_type=type(exc).__name__,
             error=str(exc),
         )
@@ -69,13 +69,13 @@ async def cache_stream_frame(
 
 async def load_cached_stream_records(
     session_id: str,
-    msg_id: str,
+    turn_id: str,
     logger,
 ) -> list[dict[str, Any]]:
     redis = get_redis_client(for_write=False)
     if redis is None:
         return []
-    key = chat_stream_event_cache_key(session_id, msg_id)
+    key = chat_stream_event_cache_key(session_id, turn_id)
     try:
         values = await redis.lrange(key, 0, -1)
     except Exception as exc:
@@ -84,7 +84,7 @@ async def load_cached_stream_records(
             "chat_stream_event_cache_read_failed",
             level=30,
             session_id=session_id,
-            msg_id=msg_id,
+            turn_id=turn_id,
             error_type=type(exc).__name__,
             error=str(exc),
         )
@@ -103,19 +103,19 @@ async def load_cached_stream_records(
 
 async def load_cached_stream_frames(
     session_id: str,
-    msg_id: str,
+    turn_id: str,
     logger,
 ) -> list[dict[str, Any]]:
     frames: list[dict[str, Any]] = []
-    for record in await load_cached_stream_records(session_id, msg_id, logger):
+    for record in await load_cached_stream_records(session_id, turn_id, logger):
         frame = _extract_frame(record)
         if frame is not None:
             frames.append(frame)
     return frames
 
 
-async def load_last_frame_sequence(session_id: str, msg_id: str, logger) -> int:
-    frames = await load_cached_stream_frames(session_id, msg_id, logger)
+async def load_last_frame_sequence(session_id: str, turn_id: str, logger) -> int:
+    frames = await load_cached_stream_frames(session_id, turn_id, logger)
     return max((frame_sequence(frame) for frame in frames), default=0)
 
 
@@ -151,13 +151,13 @@ def build_cancelled_turn_from_records(records: list[dict[str, Any]]) -> tuple[st
 async def mark_chat_cancelled(
     *,
     session_id: str,
-    msg_id: str,
+    turn_id: str,
     logger,
 ) -> None:
     redis = get_redis_client(for_write=True)
     if redis is None:
         return
-    key = chat_stream_cancelled_key(session_id, msg_id)
+    key = chat_stream_cancelled_key(session_id, turn_id)
     try:
         await redis.set(key, "1", ex=_CHAT_STREAM_EVENT_CACHE_TTL_SECONDS)
     except Exception as exc:
@@ -166,17 +166,17 @@ async def mark_chat_cancelled(
             "chat_stream_cancel_mark_failed",
             level=30,
             session_id=session_id,
-            msg_id=msg_id,
+            turn_id=turn_id,
             error_type=type(exc).__name__,
             error=str(exc),
         )
 
 
-async def is_chat_cancelled(session_id: str, msg_id: str, logger) -> bool:
+async def is_chat_cancelled(session_id: str, turn_id: str, logger) -> bool:
     redis = get_redis_client(for_write=False)
     if redis is None:
         return False
-    key = chat_stream_cancelled_key(session_id, msg_id)
+    key = chat_stream_cancelled_key(session_id, turn_id)
     try:
         return bool(await redis.get(key))
     except Exception as exc:
@@ -185,7 +185,7 @@ async def is_chat_cancelled(session_id: str, msg_id: str, logger) -> bool:
             "chat_stream_cancel_mark_read_failed",
             level=30,
             session_id=session_id,
-            msg_id=msg_id,
+            turn_id=turn_id,
             error_type=type(exc).__name__,
             error=str(exc),
         )
@@ -196,13 +196,13 @@ async def persist_cancelled_chat_from_cache(
     *,
     store: SessionStore | None,
     session_id: str,
-    msg_id: str,
+    turn_id: str,
     user_id: str | None,
     logger,
 ) -> None:
     if store is None:
         return
-    records = await load_cached_stream_records(session_id, msg_id, logger)
+    records = await load_cached_stream_records(session_id, turn_id, logger)
     cancelled_turn = build_cancelled_turn_from_records(records)
     if cancelled_turn is None:
         return
@@ -214,9 +214,10 @@ async def persist_cancelled_chat_from_cache(
             user_id=user_id,
             user_input=user_input,
             assistant_output=assistant_output,
+            turn_id=turn_id,
             model=model,
             status="cancelled",
-            metadata={"source": _CHAT_CANCEL_CACHE_SOURCE, _CHAT_PARTIAL_METADATA_KEY: True, "msg_id": msg_id},
+            metadata={"source": _CHAT_CANCEL_CACHE_SOURCE, _CHAT_PARTIAL_METADATA_KEY: True},
         )
     except Exception as exc:
         log_event(
@@ -224,7 +225,7 @@ async def persist_cancelled_chat_from_cache(
             "session_store_append_cancelled_failed",
             level=30,
             session_id=session_id,
-            msg_id=msg_id,
+            turn_id=turn_id,
             error_type=type(exc).__name__,
             error=str(exc),
         )
@@ -234,16 +235,16 @@ def schedule_cancelled_chat_persist(
     *,
     store: SessionStore | None,
     session_id: str,
-    msg_id: str,
+    turn_id: str,
     user_id: str | None,
     logger,
 ) -> None:
     async def _runner() -> None:
-        await mark_chat_cancelled(session_id=session_id, msg_id=msg_id, logger=logger)
+        await mark_chat_cancelled(session_id=session_id, turn_id=turn_id, logger=logger)
         await persist_cancelled_chat_from_cache(
             store=store,
             session_id=session_id,
-            msg_id=msg_id,
+            turn_id=turn_id,
             user_id=user_id,
             logger=logger,
         )

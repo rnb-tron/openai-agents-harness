@@ -69,3 +69,72 @@ class PromptCapability(Capability):
     async def before_run(self, ctx: RunContext) -> None:
         if self._enabled:
             ctx.metadata["prompt_manager_ready"] = True
+
+
+class UserPromptCapability(Capability):
+    """统一构造传给模型的 user prompt/enriched_input。"""
+
+    name = "user_prompt"
+    manifest = CapabilityManifest(
+        name="user_prompt",
+        kind=CapabilityKind.RUNTIME,
+        config_section="prompt",
+        depends_on=("conversation_context",),
+        provides=("user_prompt_rendering",),
+        install_order=25,
+    )
+
+    def __init__(
+        self,
+        manager,  # PromptManager | None
+        *,
+        prompt_name: str = "agents.main_user_chat",
+        fail_open: bool = True,
+    ) -> None:
+        self._manager = manager
+        self._prompt_name = prompt_name
+        self._fail_open = fail_open
+
+    def is_enabled(self) -> bool:
+        return True
+
+    async def before_run(self, ctx: RunContext) -> None:
+        memory_context = str(ctx.metadata.get("memory_context") or "")
+        memory_block = ""
+        if memory_context:
+            memory_block = f"Conversation memory:\n{memory_context}\n\n"
+        business = dict(ctx.metadata.get("business") or {})
+        city_id = str(business.get("city_id", ""))
+
+        if self._manager is None:
+            ctx.enriched_input = self._fallback_input(memory_block, city_id, ctx.user_input)
+            return
+
+        try:
+            rendered = await self._manager.get(
+                self._prompt_name,
+                memory_block=memory_block,
+                city_id=city_id,
+                user_input=ctx.user_input,
+            )
+            ctx.enriched_input = rendered.text
+            ctx.metadata["user_prompt"] = rendered.to_metadata()
+        except Exception as exc:
+            logger.warning(
+                "user_prompt_get_failed_using_fallback",
+                extra={
+                    "prompt_name": self._prompt_name,
+                    "session_id": ctx.session_id,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+            )
+            if not self._fail_open:
+                raise
+            ctx.enriched_input = self._fallback_input(memory_block, city_id, ctx.user_input)
+
+    @staticmethod
+    def _fallback_input(memory_block: str, city_id: str, user_input: str) -> str:
+        city_line = f"City ID: {city_id}\n" if city_id else ""
+        prefix = f"{memory_block}{city_line}"
+        return f"{prefix}User:\n{user_input}" if prefix else user_input
