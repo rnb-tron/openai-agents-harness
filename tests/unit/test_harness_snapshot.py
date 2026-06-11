@@ -13,6 +13,7 @@ def _settings(**overrides):
         agent_model_reasoning="gpt-4.1-mini",
         auth_enabled=False,
         rate_limit_enabled=False,
+        mysql_enabled=False,
         database_url="",
         session_store_enabled=False,
         session_store_auto_create=True,
@@ -184,6 +185,22 @@ def test_harness_builder_assembles_session_store_from_database_resource():
     assert harness.database_resource is not None
     assert harness.session_store is not None
     assert harness.context.get_resource("session_store") is harness.session_store
+
+
+def test_harness_builder_can_enable_mysql_without_session_store():
+    harness = HarnessBuilder(
+        _settings(
+            mysql_enabled=True,
+            session_store_enabled=False,
+            database_url="mysql+aiomysql://agent:secret@localhost/agent",
+        )
+    ).build()
+
+    assert harness.database_resource is not None
+    assert harness.session_store is None
+    assert harness.context.get_resource("database") is harness.database_resource
+    assert harness.context.get_resource("session_store") is None
+    assert "database" in harness.context.capability_catalog()["current_enabled"]
 
 
 @pytest.mark.asyncio

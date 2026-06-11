@@ -13,7 +13,7 @@ Runtime
         -> Mem0                      # 用户偏好、长期记忆、语义检索
 ```
 
-`HarnessBuilder` 在 `SESSION_STORE_ENABLED=true` 时装配 MySQL 会话仓储；在短期会话记忆、会话摘要或长期记忆任一能力启用时装配 `Mem0MemoryManager`。只有 `MEMORY_LONG_TERM_ENABLED=true` 时才初始化 Mem0 长期记忆客户端；短期会话记忆优先使用 Redis，Redis 未启用或 miss 时从 MySQL 会话记录读取最近消息，不使用进程内兜底。
+`HarnessBuilder` 在 `MYSQL_ENABLED=true` 时装配共享数据库资源，在 `SESSION_STORE_ENABLED=true` 时基于该资源装配会话仓储；为兼容旧配置，单独开启 `SESSION_STORE_ENABLED=true` 也会隐式装配数据库资源。在短期会话记忆、会话摘要或长期记忆任一能力启用时装配 `Mem0MemoryManager`。只有 `MEMORY_LONG_TERM_ENABLED=true` 时才初始化 Mem0 长期记忆客户端；短期会话记忆优先使用 Redis，Redis 未启用或 miss 时从 MySQL 会话记录读取最近消息，不使用进程内兜底。
 
 ## 存储分层
 
@@ -31,6 +31,7 @@ Runtime
 | 配置 | 当前行为 |
 | --- | --- |
 | 默认配置 | 不启用记忆上下文；需要会话历史时启用 `SESSION_STORE_ENABLED=true`，需要上下文记忆时按层启用对应 Memory 开关 |
+| `MYSQL_ENABLED=true` | 初始化共享 MySQL/关系数据库资源；可不启用会话存储 |
 | `SESSION_STORE_ENABLED=true` | 使用业务数据库持久化 `chat_sessions` / `chat_messages` |
 | `MEMORY_SHORT_TERM_ENABLED=true` | 启用短期会话记忆上下文，Redis 优先、MySQL 兜底 |
 | `MEMORY_LONG_TERM_ENABLED=true` | 启用长期记忆，由 `MEMORY_LONG_TERM_PROVIDER` 指定管理框架，目前为 Mem0 |
@@ -85,8 +86,14 @@ MEMORY_SHORT_TERM_ENABLED=true
 MEMORY_SESSION_SUMMARY_ENABLED=true
 MEMORY_LONG_TERM_ENABLED=true
 REDIS_ENABLED=true
+MYSQL_ENABLED=true
 SESSION_STORE_ENABLED=true
-DATABASE_URL=mysql+aiomysql://agent:secret@localhost:3306/agent
+SESSION_STORE_DATABASE_SCHEME=mysql+aiomysql
+SESSION_STORE_DATABASE_HOST=localhost
+SESSION_STORE_DATABASE_PORT=3306
+SESSION_STORE_DATABASE_NAME=agent
+SESSION_STORE_DATABASE_USER=agent
+SESSION_STORE_DATABASE_PASSWORD=secret
 MEMORY_LONG_TERM_VECTOR_STORE=none
 MEMORY_LONG_TERM_MEM0_MODE=local
 MEMORY_PREFERENCE_CACHE_TTL_SEC=900

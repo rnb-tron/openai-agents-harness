@@ -78,7 +78,7 @@ class HarnessContext:
         enabled = {cap.manifest.name for cap in self.capability_registry.enabled}
         enabled.update(
             name
-            for name in ("tool_registry", "session_store", "memory_manager")
+            for name in ("tool_registry", "database", "session_store", "memory_manager")
             if name in self.provides or name in self.resources
         )
         manifests = available_capability_manifests()

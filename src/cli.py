@@ -24,8 +24,8 @@ def _doctor() -> int:
     issues: list[str] = []
     if not settings.openai_api_key:
         issues.append("OPENAI_API_KEY is empty; /chat will fail until a model credential is configured.")
-    if settings.session_store_enabled and not settings.database_url:
-        issues.append("SESSION_STORE_ENABLED=true requires SESSION_STORE_DATABASE_* settings.")
+    if (settings.mysql_enabled or settings.session_store_enabled) and not settings.database_url:
+        issues.append("MYSQL_ENABLED=true or SESSION_STORE_ENABLED=true requires SESSION_STORE_DATABASE_* settings.")
     if settings.rate_limit_enabled and settings.rate_limit_backend == "redis" and not settings.redis_enabled:
         issues.append("RATE_LIMIT_BACKEND=redis requires REDIS_ENABLED=true.")
 

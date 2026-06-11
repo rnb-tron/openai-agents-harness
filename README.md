@@ -54,6 +54,7 @@ flowchart TD
 | 工具执行      | `tool_registry`       | runtime / 已实现，基础必选                | OpenAI Agents SDK `function_tool`          | `ToolRegistry` 注册工具元数据并转换为 SDK Tool；审批策略可附加到工具定义                                                  | Harness 默认创建                     |
 | 模型访问      | `model_router`        | runtime / 已实现，基础必选                | OpenAI Agents SDK + OpenAI-compatible API  | `ModelRouter` 按任务选择默认或推理模型，并由 `AgentOrchestrator` 调用 SDK `Runner`                                 | Harness 默认创建                     |
 | 模型稳定性     | `model_resilience`    | runtime / 组件实现，主流式链路待接入      | 自研 Retry / Timeout / Fallback              | 已提供弹性 runner 组件与示例；当前 `AgentOrchestrator.run_stream()` 仍直接调用 SDK streaming runner                         | `MODEL_RESILIENCE_ENABLED`       |
+| 数据库资源      | `database`            | resource / 已实现                    | MySQL/PostgreSQL + SQLAlchemy Async        | 持有共享关系数据库连接池，可独立于会话存储启用，供业务方或可选能力复用                                                       | `MYSQL_ENABLED`                  |
 | 会话记录      | `session_store`       | resource / 已实现                    | MySQL/PostgreSQL + SQLAlchemy Async        | 持久化用户会话、完整消息流水和后续事件扩展，消息使用 `turn_id` 标识一轮对话，供 UI 历史会话与审计使用                             | `SESSION_STORE_ENABLED`          |
 | 会话记忆      | `memory_session`      | runtime / 已实现                     | Redis ShortTermMemory + session\_store 回源  | 在 Agent 执行前后读取当前会话最近上下文；Redis 承载短期缓存，Redis 未启用或 miss 时读取会话存储最近消息，不使用进程内兜底                         | `MEMORY_SHORT_TERM_ENABLED`      |
 | 会话摘要      | `session_summary`     | runtime / 已实现                     | LLM Summary + session\_store + Redis Cache | `after_run` 后台滚动生成摘要，会话存储持久化、Redis 可缓存；当前轮消息可直接触发 summary，不依赖路由层先落库                               | `MEMORY_SESSION_SUMMARY_ENABLED` |
@@ -351,9 +352,11 @@ HTTP_FOLLOW_REDIRECTS=true
 HTTP_VERIFY_TLS=true
 ```
 
-会话存储数据库：
+MySQL / 会话存储数据库：
 
 ```bash
+MYSQL_ENABLED=true
+SESSION_STORE_ENABLED=false
 SESSION_STORE_DATABASE_SCHEME=mysql+aiomysql
 SESSION_STORE_DATABASE_HOST=localhost
 SESSION_STORE_DATABASE_PORT=3306
@@ -368,7 +371,7 @@ SESSION_STORE_DATABASE_POOL_RECYCLE_SECONDS=1800
 SESSION_STORE_DATABASE_POOL_PRE_PING=true
 ```
 
-会话存储数据库统一使用拆分字段配置，服务启动时会自动组装 SQLAlchemy URL；密码里包含 `%`、`@`、`!` 等特殊字符时也可以直接写原始值。MySQL 使用 `SESSION_STORE_DATABASE_SCHEME=mysql+aiomysql`，PostgreSQL 使用 `SESSION_STORE_DATABASE_SCHEME=postgresql+asyncpg`，并按需设置 `SESSION_STORE_DATABASE_PORT=5432`、`SESSION_STORE_DATABASE_SSLMODE=require`。
+数据库资源由 `MYSQL_ENABLED` 控制，会话存储由 `SESSION_STORE_ENABLED` 控制。需要 MySQL 连接池但不持久化聊天记录时，可以设置 `MYSQL_ENABLED=true`、`SESSION_STORE_ENABLED=false`。会话存储数据库统一使用拆分字段配置，服务启动时会自动组装 SQLAlchemy URL；密码里包含 `%`、`@`、`!` 等特殊字符时也可以直接写原始值。MySQL 使用 `SESSION_STORE_DATABASE_SCHEME=mysql+aiomysql`，PostgreSQL 使用 `SESSION_STORE_DATABASE_SCHEME=postgresql+asyncpg`，并按需设置 `SESSION_STORE_DATABASE_PORT=5432`、`SESSION_STORE_DATABASE_SSLMODE=require`。
 
 PostgreSQL 会话存储示例：
 
@@ -437,6 +440,7 @@ REASONING_CHAT_ENABLE_THINKING=true
 ```bash
 SESSION_STORE_ENABLED=false
 SESSION_STORE_AUTO_CREATE=true
+MYSQL_ENABLED=true
 SESSION_STORE_DATABASE_SCHEME=mysql+aiomysql
 SESSION_STORE_DATABASE_HOST=localhost
 SESSION_STORE_DATABASE_PORT=3306
