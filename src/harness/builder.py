@@ -229,6 +229,8 @@ class HarnessBuilder:
 
     def _build_tool_registry(self, hitl_config: HITLConfig) -> ToolRegistry:
         registry = ToolRegistry()
+        # Harness 默认不注册业务工具；业务方 fork 后可在这里注册自己的工具，
+        # 或替换 HarnessBuilder / runtime 以接入业务侧 ToolRegistry。
         if hitl_config.enabled:
             registry.configure_approval_policy(
                 require_approval=hitl_config.require_approval_tools,
