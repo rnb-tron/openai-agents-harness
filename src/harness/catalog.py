@@ -41,6 +41,15 @@ MEMORY_MANAGER_MANIFEST = CapabilityManifest(
     tags=("builder_resource", "mem0"),
 )
 
+DATABASE_MANIFEST = CapabilityManifest(
+    name="database",
+    kind=CapabilityKind.RUNTIME,
+    config_section="mysql",
+    provides=("database",),
+    install_order=17,
+    tags=("builder_resource", "mysql"),
+)
+
 SESSION_STORE_MANIFEST = CapabilityManifest(
     name="session_store",
     kind=CapabilityKind.RUNTIME,
@@ -61,6 +70,7 @@ def available_capability_manifests() -> list[CapabilityManifest]:
         ModelRouterCapability.manifest,
         ModelResilienceCapability.manifest,
         PromptCapability.manifest,
+        DATABASE_MANIFEST,
         SESSION_STORE_MANIFEST,
         MEMORY_MANAGER_MANIFEST,
         MemoryCapability.manifest,

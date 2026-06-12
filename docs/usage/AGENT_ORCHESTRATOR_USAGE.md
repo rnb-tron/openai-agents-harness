@@ -73,7 +73,7 @@ finally:
 ```mermaid
 sequenceDiagram
     participant Client
-    participant API as POST /chat/stream
+    participant API as POST /chat
     participant R as AgentOrchestrator
     participant SDK as Agents SDK
     Client->>API: message

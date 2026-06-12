@@ -115,6 +115,7 @@ class Settings:
     redis_enabled: bool
     redis_url: str
     redis_slave_url: str | None
+    mysql_enabled: bool
     database_url: str
     database_pool_size: int
     database_max_overflow: int
@@ -233,6 +234,11 @@ def get_settings() -> Settings:
     env_type = _load_env_file()
     app_profile = os.getenv("APP_PROFILE", env_type)
     database_url = _build_session_store_database_url_from_env()
+    session_store_enabled = _env_bool("SESSION_STORE_ENABLED")
+    mysql_enabled = _env_bool(
+        "MYSQL_ENABLED",
+        "true" if session_store_enabled else "false",
+    )
     return Settings(
         env_type=env_type,
         app_name=os.getenv("APP_NAME", "openai-agents-harness"),
@@ -253,13 +259,14 @@ def get_settings() -> Settings:
         redis_enabled=os.getenv("REDIS_ENABLED", "false").lower() == "true",
         redis_url=os.getenv("REDIS_URL", "redis://localhost:6379/0"),
         redis_slave_url=os.getenv("REDIS_SLAVE_URL", "") or None,
+        mysql_enabled=mysql_enabled,
         database_url=database_url,
         database_pool_size=int(os.getenv("SESSION_STORE_DATABASE_POOL_SIZE", "10")),
         database_max_overflow=int(os.getenv("SESSION_STORE_DATABASE_MAX_OVERFLOW", "20")),
         database_pool_timeout_seconds=float(os.getenv("SESSION_STORE_DATABASE_POOL_TIMEOUT_SECONDS", "30")),
         database_pool_recycle_seconds=int(os.getenv("SESSION_STORE_DATABASE_POOL_RECYCLE_SECONDS", "1800")),
         database_pool_pre_ping=os.getenv("SESSION_STORE_DATABASE_POOL_PRE_PING", "true").lower() == "true",
-        session_store_enabled=os.getenv("SESSION_STORE_ENABLED", "false").lower() == "true",
+        session_store_enabled=session_store_enabled,
         session_store_auto_create=os.getenv("SESSION_STORE_AUTO_CREATE", "true").lower() == "true",
         openai_api_key=os.getenv("OPENAI_API_KEY", ""),
         openai_base_url=os.getenv("OPENAI_BASE_URL", "") or None,

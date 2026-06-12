@@ -313,6 +313,11 @@
         margin-top: 10px;
       }
 
+      .composer-buttons {
+        display: flex;
+        gap: 8px;
+      }
+
       .hint {
         color: var(--muted);
         font-size: 12px;
@@ -327,6 +332,17 @@
 
       .primary:hover {
         background: var(--primary-dark);
+      }
+
+      .stop {
+        color: white;
+        background: #b14e42;
+        padding-left: 18px;
+        padding-right: 18px;
+      }
+
+      .stop:hover {
+        background: #963f36;
       }
 
       .approval {
@@ -427,6 +443,16 @@
         padding: 7px 9px;
       }
 
+      .storage-danger {
+        color: #a13e36;
+        background: #fcefed;
+        grid-column: 1 / -1;
+      }
+
+      .storage-danger:hover {
+        background: #f8deda;
+      }
+
       .storage h3 {
         margin: 10px 0 6px;
         color: var(--ink);
@@ -479,7 +505,7 @@
   <body>
     <header>
       <h1>Agent Harness / Chat E2E Console</h1>
-      <span>POST /chat/stream · POST /chat/resume/stream</span>
+      <span>POST /chat · POST /chat/resume/stream</span>
     </header>
     <main>
       <section class="panel sidebar">
@@ -513,7 +539,7 @@
       <section class="panel chat">
         <div class="panel-title">聊天验证</div>
         <div id="messages" data-testid="messages">
-          <div class="empty" id="empty-state">输入一条消息，验证真实 /chat/stream 调用。<br>同一页面内会自动复用 session_id。</div>
+          <div class="empty" id="empty-state">输入一条消息，验证真实 /chat SSE 调用。<br>同一页面内会自动复用 sessionId。</div>
         </div>
         <div id="approval" class="approval" data-testid="approval">
           <h3>检测到需要人工审批的工具调用</h3>
@@ -531,7 +557,10 @@
           <textarea id="message" data-testid="message" placeholder="例如：用一句话介绍当前 Agent 能力" required></textarea>
           <div class="composer-actions">
             <span class="hint">Enter 发送，Shift + Enter 换行</span>
-            <button id="send" class="primary" data-testid="send" type="submit">发送</button>
+            <div class="composer-buttons">
+              <button id="cancel-chat" class="stop" data-testid="cancel-chat" type="button" disabled>中止</button>
+              <button id="send" class="primary" data-testid="send" type="submit">发送</button>
+            </div>
           </div>
         </form>
       </section>
@@ -542,6 +571,7 @@
           <div class="storage-actions">
             <button id="refresh-storage" class="secondary" type="button">刷新存储状态</button>
             <button id="search-memory" class="secondary" type="button">搜索长期记忆</button>
+            <button id="clear-user-memory" class="storage-danger" type="button">删除长期/偏好记忆</button>
           </div>
           <h3>当前消息</h3>
           <div id="message-records" class="storage-list">尚未刷新</div>
@@ -549,8 +579,10 @@
           <div id="session-summary" class="storage-list">尚未刷新</div>
           <h3>Redis 短期记忆 / Mem0 状态</h3>
           <div id="memory-stats" class="storage-list">尚未刷新</div>
-          <h3>Mem0 长期记忆搜索</h3>
-          <div id="memory-search-results" class="storage-list">点击“搜索长期记忆”</div>
+          <h3>Mem0 偏好记忆</h3>
+          <div id="preference-memory-results" class="storage-list">点击“搜索长期记忆”</div>
+          <h3>Mem0 普通长期记忆</h3>
+          <div id="long-term-memory-results" class="storage-list">点击“搜索长期记忆”</div>
         </div>
         <div class="panel-title">最近响应 JSON</div>
         <div class="raw">
@@ -564,6 +596,7 @@
       const tokenInput = document.querySelector("#auth-token");
       const messageInput = document.querySelector("#message");
       const sendButton = document.querySelector("#send");
+      const cancelChatButton = document.querySelector("#cancel-chat");
       const messages = document.querySelector("#messages");
       const rawResponse = document.querySelector("#raw-response");
       const health = document.querySelector("#health");
@@ -573,11 +606,16 @@
       const messageRecords = document.querySelector("#message-records");
       const sessionSummary = document.querySelector("#session-summary");
       const memoryStats = document.querySelector("#memory-stats");
-      const memorySearchResults = document.querySelector("#memory-search-results");
+      const preferenceMemoryResults = document.querySelector("#preference-memory-results");
+      const longTermMemoryResults = document.querySelector("#long-term-memory-results");
       const sessionList = document.querySelector("#session-list");
       let pendingApproval = null;
       let cachedSessions = [];
       let memorySearchUserId = "";
+      let chatStreaming = false;
+      let cancelRequested = false;
+      let currentChatTurnId = null;
+      let sessionStoreEnabled = true;
 
       function newSessionId() {
         return globalThis.crypto && crypto.randomUUID
@@ -642,6 +680,11 @@
         sendButton.textContent = busy ? "请求中..." : "发送";
       }
 
+      function setChatStreaming(streaming) {
+        chatStreaming = streaming;
+        cancelChatButton.disabled = !streaming;
+      }
+
       function showRaw(value) {
         rawResponse.textContent = JSON.stringify(value, null, 2);
       }
@@ -651,6 +694,58 @@
           return;
         }
         addMessage("system", `切换到 Agent：${event.agent || "unknown"}`);
+      }
+
+      function formatThinkingCost(cost) {
+        if (typeof cost !== "number" || Number.isNaN(cost)) {
+          return "思考完成";
+        }
+        return `思考耗时：${(cost / 1000).toFixed(1)} 秒`;
+      }
+
+      function parseSseEventBlock(block) {
+        const parsed = {event: "message", data: null};
+        for (const rawLine of block.split("\n")) {
+          const line = rawLine.trimEnd();
+          if (!line) {
+            continue;
+          }
+          if (line.startsWith("event:")) {
+            parsed.event = line.slice("event:".length);
+          } else if (line.startsWith("id:")) {
+            parsed.id = line.slice("id:".length);
+          } else if (line.startsWith("data:")) {
+            parsed.data = JSON.parse(line.slice("data:".length));
+          }
+        }
+        return parsed.data ? parsed : null;
+      }
+
+      async function consumeSseStream(response, onEvent) {
+        if (!response.body) {
+          throw new Error("浏览器未提供流式响应体");
+        }
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let streamEnded = false;
+        while (!streamEnded) {
+          const next = await reader.read();
+          buffer += decoder.decode(next.value || new Uint8Array(), {stream: !next.done});
+          const normalized = buffer.replace(/\r\n/g, "\n");
+          const blocks = normalized.split("\n\n");
+          buffer = blocks.pop() || "";
+          for (const block of blocks) {
+            if (!block.trim()) {
+              continue;
+            }
+            const event = parseSseEventBlock(block);
+            if (event) {
+              await onEvent(event);
+            }
+          }
+          streamEnded = next.done;
+        }
       }
 
 
@@ -665,6 +760,18 @@
           throw new Error(`${url} HTTP ${response.status}: ${text.slice(0, 160)}`);
         }
         return unwrapData(await response.json());
+      }
+
+      function isSessionStoreDisabledError(error) {
+        return String(error?.message || error).includes("SESSION_STORE_ENABLED is false");
+      }
+
+      function renderSessionStoreDisabled() {
+        sessionStoreEnabled = false;
+        cachedSessions = [];
+        sessionList.textContent = "SessionStore 未启用：当前为临时聊天模式，不保存历史会话。";
+        messageRecords.textContent = "SessionStore 未启用：当前消息不会持久化到 chat_messages。";
+        sessionSummary.textContent = "SessionStore 未启用：会话 summary 不可用。";
       }
 
       function renderSessions(items) {
@@ -770,7 +877,8 @@
       function syncLongTermMemoryUser() {
         const currentUserId = userInput.value.trim() || "anonymous";
         if (memorySearchUserId && memorySearchUserId !== currentUserId) {
-          memorySearchResults.textContent = "user_id 已变化，点击“搜索长期记忆”刷新用户级长期记忆";
+          preferenceMemoryResults.textContent = "user_id 已变化，点击“搜索长期记忆”刷新用户级偏好记忆";
+          longTermMemoryResults.textContent = "user_id 已变化，点击“搜索长期记忆”刷新普通长期记忆";
           memorySearchUserId = "";
         }
       }
@@ -785,13 +893,22 @@
         ]);
 
         if (sessions.error) {
-          messageRecords.textContent = "会话记录不可用";
+          if (isSessionStoreDisabledError(sessions.error)) {
+            renderSessionStoreDisabled();
+          } else {
+            messageRecords.textContent = `会话记录不可用：${sessions.error}`;
+          }
         } else {
+          sessionStoreEnabled = true;
           renderSessions(sessions);
           const messages = await fetchJson(`/chat/sessions/${sessionId}/messages?limit=20&recent=true`, {headers: headers()})
             .catch((error) => ({error: error.message}));
           if (messages.error) {
-            messageRecords.textContent = `当前消息不可用：${messages.error}`;
+            if (isSessionStoreDisabledError(messages.error)) {
+              renderSessionStoreDisabled();
+            } else {
+              messageRecords.textContent = `当前消息不可用：${messages.error}`;
+            }
           } else {
             renderMessages(messages);
           }
@@ -801,21 +918,46 @@
           memoryStats.textContent = `记忆状态不可用：${stats.error}`;
           sessionSummary.textContent = `会话 summary 不可用：${stats.error}`;
         } else {
-          renderSessionSummary(stats);
+          if (sessionStoreEnabled) {
+            renderSessionSummary(stats);
+          } else {
+            sessionSummary.textContent = "SessionStore 未启用：会话 summary 不可用。";
+          }
           renderMemoryStats(stats);
         }
       }
 
       async function refreshSessionList() {
         const userId = encodeURIComponent(userInput.value.trim() || "anonymous");
-        const sessions = await fetchJson(`/chat/sessions?limit=20&user_id=${userId}`, {headers: headers()});
+        const sessions = await fetchJson(`/chat/sessions?limit=20&user_id=${userId}`, {headers: headers()})
+          .catch((error) => {
+            if (isSessionStoreDisabledError(error)) {
+              renderSessionStoreDisabled();
+              return null;
+            }
+            throw error;
+          });
+        if (sessions === null) {
+          return [];
+        }
+        sessionStoreEnabled = true;
         renderSessions(sessions);
         return sessions;
       }
 
       async function loadCurrentMessages() {
         const sessionId = encodeURIComponent(sessionInput.value);
-        const loadedMessages = await fetchJson(`/chat/sessions/${sessionId}/messages?limit=100`, {headers: headers()});
+        const loadedMessages = await fetchJson(`/chat/sessions/${sessionId}/messages?limit=100`, {headers: headers()})
+          .catch((error) => {
+            if (isSessionStoreDisabledError(error)) {
+              renderSessionStoreDisabled();
+              return null;
+            }
+            throw error;
+          });
+        if (loadedMessages === null) {
+          return [];
+        }
         renderMessages(loadedMessages);
         return loadedMessages;
       }
@@ -829,6 +971,10 @@
 
       async function deleteSession(sessionId = sessionInput.value) {
         if (!sessionId) {
+          return;
+        }
+        if (!sessionStoreEnabled) {
+          addMessage("system", "SessionStore 未启用，当前会话没有持久化记录需要删除。");
           return;
         }
         if (!confirm("确认删除这个会话及其消息记录吗？")) {
@@ -848,6 +994,11 @@
       }
 
       async function createNewSession() {
+        if (!sessionStoreEnabled) {
+          setSession(newSessionId());
+          startNewSessionView();
+          return;
+        }
         const body = await fetchJson("/chat/sessions", {
           method: "POST",
           headers: headers(),
@@ -866,30 +1017,87 @@
 
       function startNewSessionView() {
         clearPending();
+        currentChatTurnId = null;
         rawResponse.textContent = "等待请求...";
-        messageRecords.textContent = "发送消息后会写入 MySQL";
-        sessionSummary.textContent = "达到 summary 阈值后会在这里展示";
+        messageRecords.textContent = sessionStoreEnabled
+          ? "发送消息后会写入 MySQL"
+          : "SessionStore 未启用：当前消息不会持久化到 chat_messages。";
+        sessionSummary.textContent = sessionStoreEnabled
+          ? "达到 summary 阈值后会在这里展示"
+          : "SessionStore 未启用：会话 summary 不可用。";
         memoryStats.textContent = "发送消息后可查看 Redis 短期记忆";
+        preferenceMemoryResults.textContent = "点击“搜索长期记忆”";
+        longTermMemoryResults.textContent = "点击“搜索长期记忆”";
         clearMessages("新会话已准备好，发送消息开始测试。");
       }
 
       async function searchLongTermMemory() {
         const userId = userInput.value.trim() || "anonymous";
-        const query = "用户偏好 项目 记住 长期记忆";
-        const body = await fetchJson("/memory/search", {
+        preferenceMemoryResults.textContent = "正在读取偏好记忆...";
+        longTermMemoryResults.textContent = "正在读取普通长期记忆...";
+        const body = await fetchJson("/memory/list", {
           method: "POST",
           headers: headers(),
           body: JSON.stringify({
-            query,
             user_id: userId,
-            top_k: 5
+            limit: 50
           })
         });
-        const results = body.results || [];
         memorySearchUserId = userId;
-        memorySearchResults.textContent = results.length
-          ? results.map((item, index) => `[${index + 1}] ${item.content || item.memory || JSON.stringify(item)}`).join("\n\n")
-          : "没有搜索到长期记忆";
+        const allResults = body.results || [];
+        const preferenceResults = allResults.filter(isPreferenceMemory);
+        const normalResults = allResults.filter((item) => !isPreferenceMemory(item));
+        preferenceMemoryResults.textContent = formatMemoryResults(
+          preferenceResults,
+          "没有搜索到偏好记忆"
+        );
+        longTermMemoryResults.textContent = formatMemoryResults(
+          normalResults,
+          "没有普通长期记忆"
+        );
+      }
+
+      async function clearUserLongTermMemory() {
+        const userId = userInput.value.trim() || "anonymous";
+        if (!confirm(`确认删除用户 ${userId} 的全部长期记忆和偏好记忆吗？\n\n会话消息和短期会话记忆不会被此操作删除。`)) {
+          return;
+        }
+        preferenceMemoryResults.textContent = "正在删除用户级偏好记忆...";
+        longTermMemoryResults.textContent = "正在删除用户级长期记忆...";
+        await fetchJson("/memory/clear-user", {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify({
+            user_id: userId
+          })
+        });
+        memorySearchUserId = userId;
+        preferenceMemoryResults.textContent = "偏好记忆已删除";
+        longTermMemoryResults.textContent = "普通长期记忆已删除";
+        await refreshStorage();
+      }
+
+      function isPreferenceMemory(item) {
+        const metadata = item && item.metadata && typeof item.metadata === "object" ? item.metadata : {};
+        return item.memory_category === "preference"
+          || metadata.memory_kind === "preference"
+          || Boolean(metadata.preference_key)
+          || (Array.isArray(metadata.preference_keys) && metadata.preference_keys.length > 0);
+      }
+
+      function formatMemoryResults(results, emptyText) {
+        if (!results.length) {
+          return emptyText;
+        }
+        return results
+          .map((item, index) => {
+            const content = item.content || item.memory || JSON.stringify(item);
+            const metadata = item.metadata && Object.keys(item.metadata).length
+              ? `\nmetadata: ${JSON.stringify(item.metadata)}`
+              : "";
+            return `[${index + 1}] ${content}${metadata}`;
+          })
+          .join("\n\n");
       }
 
       function showPending(data, originalMessage) {
@@ -907,11 +1115,11 @@
 
       async function sendChat(message) {
         const payload = {
-          message,
-          session_id: sessionInput.value,
-          user_id: userInput.value.trim() || null
+          query: message,
+          sessionId: sessionInput.value,
+          userId: userInput.value.trim() || null
         };
-        const response = await fetch("/chat/stream", {
+        const response = await fetch("/chat", {
           method: "POST",
           headers: headers(),
           body: JSON.stringify(payload)
@@ -919,12 +1127,6 @@
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
-        if (!response.body) {
-          throw new Error("浏览器未提供流式响应体");
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
         const events = [];
         let buffer = "";
         let streamedOutput = "";
@@ -932,47 +1134,57 @@
         let assistantBubble = null;
         let reasoningBubble = null;
         let completed = false;
-        let streamEnded = false;
-        while (!streamEnded) {
-          const next = await reader.read();
-          buffer += decoder.decode(next.value || new Uint8Array(), {stream: !next.done});
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
-          for (const line of lines) {
-            if (!line.trim()) {
-              continue;
-            }
-            const event = JSON.parse(line);
+        await consumeSseStream(response, async (event) => {
             events.push(event);
             showRaw(events);
-            if (event.type === "start") {
-              setSession(event.session_id);
-            } else if (event.type === "agent_updated") {
-              showAgentUpdate(event);
-            } else if (event.type === "delta") {
-              if (!assistantBubble) {
-                assistantBubble = addMessage("assistant", "");
-              }
-              streamedOutput += event.delta;
-              updateMessage(assistantBubble, streamedOutput, "streaming...");
-            } else if (event.type === "reasoning_summary_delta") {
+            const data = event.data || {};
+            const protocol = data.protocol || {};
+            if (protocol.sessionId) {
+              setSession(protocol.sessionId);
+            }
+            if (protocol.turnId) {
+              currentChatTurnId = protocol.turnId;
+            }
+            if (event.event === "thinking") {
               if (!reasoningBubble) {
                 reasoningBubble = addMessage("system", "", "推理摘要");
               }
-              reasoningSummary += event.delta;
-              updateMessage(reasoningBubble, reasoningSummary, "推理摘要");
-            } else if (event.type === "error") {
-              throw new Error(event.detail || "流式请求失败");
-            } else if (event.type === "done") {
+              reasoningSummary += data.text || "";
+              updateMessage(reasoningBubble, reasoningSummary, "推理中...");
+            } else if (event.event === "thinkingEnd") {
+              if (reasoningBubble) {
+                updateMessage(reasoningBubble, reasoningSummary || "(无思考文本)", formatThinkingCost(protocol.cost));
+              }
+            } else if (event.event === "content") {
+              if (!assistantBubble) {
+                assistantBubble = addMessage("assistant", "");
+              }
+              streamedOutput += data.text || "";
+              updateMessage(assistantBubble, streamedOutput, "streaming...");
+            } else if (event.event === "replace") {
+              streamedOutput = "";
+              reasoningSummary = "";
+              if (assistantBubble) {
+                updateMessage(assistantBubble, "", "streaming...");
+              }
+              if (reasoningBubble) {
+                updateMessage(reasoningBubble, "", "推理摘要");
+              }
+            } else if (event.event === "error") {
+              throw new Error(data.msg || "流式请求失败");
+            } else if (event.event === "end") {
               completed = true;
-              const data = event.data;
-              setSession(data.session_id);
               if (data.interrupted) {
                 if (assistantBubble && !streamedOutput) {
                   assistantBubble.remove();
                 }
                 addMessage("system", "请求已暂停，等待人工审批。");
-                showPending(data, message);
+                showPending({
+                  ...data,
+                  session_id: protocol.sessionId,
+                  turn_id: protocol.turnId,
+                  run_state: data.runState
+                }, message);
                 await refreshStorage();
               } else {
                 if (!assistantBubble) {
@@ -981,17 +1193,51 @@
                 updateMessage(
                   assistantBubble,
                   data.output || streamedOutput || "(无文本输出)",
-                  `model: ${data.model} · memory: ${data.memory_size}`
+                  `model: ${data.model || "-"} · memory: ${data.memorySize ?? "-"}`
                 );
                 await refreshSessionList();
                 await refreshStorage();
               }
             }
-          }
-          streamEnded = next.done;
-        }
+        });
         if (!completed) {
+          if (cancelRequested) {
+            addMessage("system", "当前对话已中止。");
+            return;
+          }
           throw new Error("流式连接结束，但未收到完成事件");
+        }
+      }
+
+      async function cancelCurrentChat() {
+        if (!chatStreaming || cancelChatButton.disabled) {
+          return;
+        }
+        cancelRequested = true;
+        cancelChatButton.disabled = true;
+        if (!currentChatTurnId) {
+          throw new Error("当前没有可取消的 turnId");
+        }
+        const payload = {
+          sessionId: sessionInput.value,
+          turnId: currentChatTurnId,
+          userId: userInput.value.trim() || null
+        };
+        const response = await fetch("/chat/cancel", {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify(payload)
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const body = await response.json();
+        addMessage("system", body.msg || "已请求中止当前对话");
+        if (body.msg !== "取消成功") {
+          cancelRequested = false;
+          if (chatStreaming) {
+            cancelChatButton.disabled = false;
+          }
         }
       }
 
@@ -1008,6 +1254,7 @@
           interruption_index: interruption.sdk_interruption_index || 0,
           approved,
           session_id: data.session_id,
+          turnId: data.turn_id,
           message: originalMessage,
           model: data.model,
           always: approved ? approvalAlways.checked : false,
@@ -1022,56 +1269,51 @@
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
-        if (!response.body) {
-          throw new Error("浏览器未提供流式响应体");
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
         const events = [];
-        let buffer = "";
         let streamedOutput = "";
         let reasoningSummary = "";
         let assistantBubble = null;
         let reasoningBubble = null;
         let completed = false;
-        let streamEnded = false;
-        while (!streamEnded) {
-          const next = await reader.read();
-          buffer += decoder.decode(next.value || new Uint8Array(), {stream: !next.done});
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
-          for (const line of lines) {
-            if (!line.trim()) {
-              continue;
-            }
-            const event = JSON.parse(line);
+        await consumeSseStream(response, async (event) => {
             events.push(event);
             showRaw(events);
-            if (event.type === "start") {
-              // no-op: resume stream started
-            } else if (event.type === "agent_updated") {
-              showAgentUpdate(event);
-            } else if (event.type === "delta") {
-              if (!assistantBubble) {
-                assistantBubble = addMessage("assistant", "");
-              }
-              streamedOutput += event.delta;
-              updateMessage(assistantBubble, streamedOutput, "streaming...");
-            } else if (event.type === "reasoning_summary_delta") {
+            const data = event.data || {};
+            const protocol = data.protocol || {};
+            if (protocol.sessionId) {
+              setSession(protocol.sessionId);
+            }
+            if (protocol.turnId) {
+              currentChatTurnId = protocol.turnId;
+            }
+            if (event.event === "thinking") {
               if (!reasoningBubble) {
                 reasoningBubble = addMessage("system", "", "推理摘要");
               }
-              reasoningSummary += event.delta;
-              updateMessage(reasoningBubble, reasoningSummary, "推理摘要");
-            } else if (event.type === "error") {
-              throw new Error(event.detail || "审批恢复失败");
-            } else if (event.type === "done") {
+              reasoningSummary += data.text || "";
+              updateMessage(reasoningBubble, reasoningSummary, "推理中...");
+            } else if (event.event === "thinkingEnd") {
+              if (reasoningBubble) {
+                updateMessage(reasoningBubble, reasoningSummary || "(无思考文本)", formatThinkingCost(protocol.cost));
+              }
+            } else if (event.event === "content") {
+              if (!assistantBubble) {
+                assistantBubble = addMessage("assistant", "");
+              }
+              streamedOutput += data.text || "";
+              updateMessage(assistantBubble, streamedOutput, "streaming...");
+            } else if (event.event === "error") {
+              throw new Error(data.msg || "审批恢复失败");
+            } else if (event.event === "end") {
               completed = true;
               clearPending();
-              const resumed = event.data;
-              if (resumed.interrupted) {
-                showPending(resumed, originalMessage);
+              if (data.interrupted) {
+                showPending({
+                  ...data,
+                  session_id: protocol.sessionId,
+                  turn_id: protocol.turnId,
+                  run_state: data.runState
+                }, originalMessage);
                 addMessage("system", "出现新的审批请求。");
               } else {
                 if (!assistantBubble) {
@@ -1079,15 +1321,13 @@
                 }
                 updateMessage(
                   assistantBubble,
-                  resumed.output || streamedOutput || "(无文本输出)",
-                  `model: ${resumed.model} · resumed`
+                  data.output || streamedOutput || "(无文本输出)",
+                  `model: ${data.model || "-"} · resumed`
                 );
                 await refreshStorage();
               }
             }
-          }
-          streamEnded = next.done;
-        }
+        });
         if (!completed) {
           throw new Error("流式连接结束，但未收到完成事件");
         }
@@ -1104,6 +1344,25 @@
         }
       }
 
+      async function withChatFeedback(action) {
+        setBusy(true);
+        setChatStreaming(true);
+        cancelRequested = false;
+        try {
+          await action();
+        } catch (error) {
+          if (cancelRequested && error.message.includes("未收到完成事件")) {
+            addMessage("system", "当前对话已中止。");
+          } else {
+            addMessage("system", `请求失败：${error.message}`);
+          }
+        } finally {
+          setChatStreaming(false);
+          setBusy(false);
+          cancelRequested = false;
+        }
+      }
+
       document.querySelector("#composer").addEventListener("submit", async (event) => {
         event.preventDefault();
         const message = messageInput.value.trim();
@@ -1113,7 +1372,7 @@
         clearPending();
         addMessage("user", message);
         messageInput.value = "";
-        await withFeedback(() => sendChat(message));
+        await withChatFeedback(() => sendChat(message));
       });
 
       messageInput.addEventListener("keydown", (event) => {
@@ -1131,6 +1390,17 @@
         withFeedback(() => resumeChat(false));
       });
 
+      cancelChatButton.addEventListener("click", async () => {
+        try {
+          await cancelCurrentChat();
+        } catch (error) {
+          addMessage("system", `中止失败：${error.message}`);
+          cancelRequested = false;
+          if (chatStreaming) {
+            cancelChatButton.disabled = false;
+          }
+        }
+      });
 
       document.querySelector("#refresh-storage").addEventListener("click", () => {
         withFeedback(() => refreshStorage());
@@ -1146,6 +1416,10 @@
 
       document.querySelector("#search-memory").addEventListener("click", () => {
         withFeedback(() => searchLongTermMemory());
+      });
+
+      document.querySelector("#clear-user-memory").addEventListener("click", () => {
+        withFeedback(() => clearUserLongTermMemory());
       });
 
       userInput.addEventListener("change", () => {

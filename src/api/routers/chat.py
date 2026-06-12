@@ -1,32 +1,70 @@
-import json
 import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 from src.api.middleware.auth.base import Principal
 from src.api.middleware.auth.deps import get_current_principal
 from src.application.orchestration.agent_runtime import AgentSession
-from src.capabilities.session_store import SessionStore
-from src.core.logging import log_event, setup_logger
+from src.core.logging import setup_logger
 from src.harness.builder import Harness
 from src.harness.deps import get_harness
+from src.services.chat_service import (
+    chat_task_key,
+    get_chat_task,
+    resolve_user_id,
+    schedule_cancel_persist,
+    session_store_from_harness,
+    stream_chat_events,
+    stream_resume_events,
+)
 from src.utils.response import create_success_response
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 logger = setup_logger("api.routers.chat")
 
 
-class SessionPersistError(Exception):
-    """会话持久化失败。"""
-
-
 class ChatRequest(BaseModel):
-    message: str = Field(..., description="user input")
-    session_id: str | None = Field(default=None, description="optional session id for memory")
-    user_id: str | None = Field(default=None, description="optional user id")
+    model_config = ConfigDict(populate_by_name=True)
+
+    session_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("sessionId", "session_id"),
+        description="会话 ID；新请求可不传，续传必传",
+    )
+    query: str | None = Field(default=None, description="用户本轮输入")
+    model: str | None = Field(default=None, description="可选模型")
+    turn_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("turnId", "turn_id", "msgId", "msg_id"),
+        description="整轮续传的轮次 ID",
+    )
+    last_event_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("lastEventId", "last_event_id"),
+        description="分片续传游标",
+    )
+    user_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("userId", "user_id"),
+        description="用户唯一 ID",
+    )
+    messages: Any | None = Field(default=None, description="保留字段")
+    options: dict[str, Any] | None = Field(default=None, description="保留字段")
+
+    @model_validator(mode="after")
+    def validate_request(self) -> "ChatRequest":
+        if not self.user_id:
+            raise ValueError("userId is required")
+        if self.last_event_id or self.turn_id:
+            if not self.session_id:
+                raise ValueError("sessionId is required for replay requests")
+            return self
+        if not self.query:
+            raise ValueError("query is required")
+        return self
 
 
 class ChatSessionCreateRequest(BaseModel):
@@ -36,152 +74,118 @@ class ChatSessionCreateRequest(BaseModel):
 
 
 class ChatResumeRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     run_state: dict[str, Any] = Field(..., description="OpenAI Agents SDK 序列化运行状态")
     approval_request_id: str | None = Field(default=None, description="启用 HITL 时返回的审批请求标识")
     interruption_index: int = Field(..., ge=0, description="待批准或拒绝的中断序号")
     approved: bool = Field(..., description="人工审批决策")
     session_id: str = Field(..., description="中断响应返回的会话标识")
+    turn_id: str = Field(
+        ...,
+        validation_alias=AliasChoices("turnId", "turn_id", "msgId", "msg_id"),
+        description="本轮轮次标识",
+    )
     message: str = Field(..., min_length=1, description="中断响应中的原始用户输入")
     model: str = Field(..., description="中断响应中的实际执行模型")
     always: bool = Field(default=False, description="是否对匹配的后续工具调用复用该决策")
     rejection_message: str | None = Field(default=None, description="拒绝工具调用时返回的说明")
     user_id: str | None = Field(default=None, description="可选用户标识")
+    options: dict[str, Any] | None = Field(default=None, description="保留字段")
 
 
-def _resolve_user_id(principal: Principal, requested_user_id: str | None) -> str | None:
-    if principal.is_anonymous:
-        return requested_user_id
-    return principal.user_id
+class ChatCancelRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    session_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("sessionId", "session_id"),
+        description="要取消的会话标识",
+    )
+    turn_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("turnId", "turn_id", "msgId", "msg_id"),
+        description="要取消的轮次标识",
+    )
+    user_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("userId", "user_id"),
+        description="可选用户标识",
+    )
+
+    @model_validator(mode="after")
+    def validate_session_id(self) -> "ChatCancelRequest":
+        if not self.session_id:
+            raise ValueError("sessionId is required")
+        if not self.turn_id:
+            raise ValueError("turnId is required")
+        if not self.user_id:
+            raise ValueError("userId is required")
+        return self
 
 
-def _session_store(harness: Harness) -> SessionStore | None:
-    return getattr(harness, "session_store", None)
+class ChatCancelResponse(BaseModel):
+    code: str
+    msg: str
 
 
-async def _persist_chat_turn(
-    *,
-    store: SessionStore | None,
-    session_id: str,
-    user_id: str | None,
-    user_input: str,
-    result: dict[str, Any],
-    source: str,
-) -> None:
-    if store is None:
-        return
-    try:
-        status = "interrupted" if result.get("interrupted") else "completed"
-        await store.append_turn(
-            session_id=session_id,
-            user_id=user_id,
-            user_input=user_input,
-            assistant_output=result.get("output"),
-            model=result.get("model"),
-            status=status,
-            metadata={
-                "source": source,
-                "tool_calls": result.get("tool_calls", []),
-            },
-        )
-    except Exception as exc:
-        log_event(
-            logger,
-            "session_store_append_turn_failed",
-            level=30,
-            session_id=session_id,
-            error_type=type(exc).__name__,
-            error=str(exc),
-        )
-        raise SessionPersistError(f"session store append turn failed: {exc}") from exc
-
-
-async def _persist_resume_result(
-    *,
-    store: SessionStore | None,
-    session_id: str,
-    user_id: str | None,
-    result: dict[str, Any],
-    source: str,
-) -> None:
-    if store is None:
-        return
-    try:
-        await store.ensure_session(session_id=session_id, user_id=user_id)
-        await store.append_message(
-            session_id=session_id,
-            user_id=user_id,
-            role="assistant",
-            content=result.get("output") or "",
-            model=result.get("model"),
-            status="interrupted" if result.get("interrupted") else "completed",
-            metadata={
-                "source": source,
-                "tool_calls": result.get("tool_calls", []),
-            },
-        )
-    except Exception as exc:
-        log_event(
-            logger,
-            "session_store_append_resume_failed",
-            level=30,
-            session_id=session_id,
-            error_type=type(exc).__name__,
-            error=str(exc),
-        )
-        raise SessionPersistError(f"session store append resume failed: {exc}") from exc
-
-
-@router.post("/stream")
-async def chat_stream(
+@router.post("")
+async def chat(
     request: ChatRequest,
     principal: Principal = Depends(get_current_principal),
     harness: Harness = Depends(get_harness),
 ) -> StreamingResponse:
-    """以 NDJSON 事件流返回 chat 执行过程。"""
-    user_id = _resolve_user_id(principal, request.user_id)
+    """以 SSE 事件流返回 chat 执行过程。"""
+    user_id = resolve_user_id(principal, request.user_id)
     session_id = request.session_id or str(uuid.uuid4())
     session = AgentSession(session_id=session_id, user_id=user_id)
+    session.context["request_context"] = dict(request.options or {})
+    store = session_store_from_harness(harness)
 
     async def events():
-        try:
-            async for event in harness.runtime.run_stream(
-                session=session,
-                user_input=request.message,
-            ):
-                if event.get("type") == "done":
-                    await _persist_chat_turn(
-                        store=_session_store(harness),
-                        session_id=session_id,
-                        user_id=user_id,
-                        user_input=request.message,
-                        result=event.get("data", {}),
-                        source="chat_stream",
-                    )
-                yield json.dumps(event, ensure_ascii=False) + "\n"
-        except SessionPersistError as exc:
-            yield (
-                json.dumps(
-                    {"type": "error", "detail": f"session persist failed: {exc}"},
-                    ensure_ascii=False,
-                )
-                + "\n"
-            )
-        except RuntimeError as exc:
-            yield json.dumps({"type": "error", "detail": str(exc)}, ensure_ascii=False) + "\n"
-        except Exception as exc:  # pragma: no cover
-            yield (
-                json.dumps(
-                    {"type": "error", "detail": f"chat failed: {exc}"},
-                    ensure_ascii=False,
-                )
-                + "\n"
-            )
+        async for chunk in stream_chat_events(
+            runtime=harness.runtime,
+            session=session,
+            session_id=session_id,
+            user_id=user_id,
+            user_input=request.query or "",
+            model=request.model,
+            turn_id=request.turn_id,
+            last_event_id=request.last_event_id,
+            store=store,
+            logger=logger,
+        ):
+            yield chunk
 
     return StreamingResponse(
         events(),
-        media_type="application/x-ndjson",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
     )
+
+
+@router.post("/cancel", response_model=ChatCancelResponse)
+async def cancel_chat(
+    request: ChatCancelRequest,
+    principal: Principal = Depends(get_current_principal),
+    harness: Harness = Depends(get_harness),
+) -> ChatCancelResponse:
+    """取消当前会话正在执行的普通 chat stream。"""
+    session_id = request.session_id or ""
+    turn_id = request.turn_id or ""
+    user_id = resolve_user_id(principal, request.user_id)
+    task = await get_chat_task(chat_task_key(session_id, user_id, turn_id))
+    if task is None:
+        return ChatCancelResponse(code="1", msg="未找到运行中的会话")
+    task.cancel()
+    schedule_cancel_persist(
+        store=session_store_from_harness(harness),
+        session_id=session_id,
+        turn_id=turn_id,
+        user_id=user_id,
+        logger=logger,
+    )
+    return ChatCancelResponse(code="1", msg="取消成功")
 
 
 @router.post("/resume/stream")
@@ -190,56 +194,27 @@ async def resume_chat_stream(
     principal: Principal = Depends(get_current_principal),
     harness: Harness = Depends(get_harness),
 ) -> StreamingResponse:
-    """以 NDJSON 流式返回人工审批后的继续执行结果。"""
-    user_id = _resolve_user_id(principal, request.user_id)
+    """以 SSE 流式返回人工审批后的继续执行结果。"""
+    user_id = resolve_user_id(principal, request.user_id)
     session = AgentSession(session_id=request.session_id, user_id=user_id)
+    session.context["request_context"] = dict(request.options or {})
+    store = session_store_from_harness(harness)
 
     async def events():
-        try:
-            async for event in harness.runtime.resume_stream_with_approval(
-                session=session,
-                run_state=request.run_state,
-                interruption_index=request.interruption_index,
-                approved=request.approved,
-                approval_request_id=request.approval_request_id,
-                reviewer=user_id or "anonymous",
-                model=request.model,
-                user_input=request.message,
-                always=request.always,
-                rejection_message=request.rejection_message,
-            ):
-                if event.get("type") == "done":
-                    await _persist_resume_result(
-                        store=_session_store(harness),
-                        session_id=request.session_id,
-                        user_id=user_id,
-                        result=event.get("data", {}),
-                        source="chat_resume_stream",
-                    )
-                yield json.dumps(event, ensure_ascii=False) + "\n"
-        except SessionPersistError as exc:
-            yield (
-                json.dumps(
-                    {"type": "error", "detail": f"session persist failed: {exc}"},
-                    ensure_ascii=False,
-                )
-                + "\n"
-            )
-        except (RuntimeError, ValueError) as exc:
-            yield json.dumps({"type": "error", "detail": str(exc)}, ensure_ascii=False) + "\n"
-        except Exception as exc:  # pragma: no cover
-            yield (
-                json.dumps(
-                    {"type": "error", "detail": f"chat resume failed: {exc}"},
-                    ensure_ascii=False,
-                )
-                + "\n"
-            )
+        async for chunk in stream_resume_events(
+            runtime=harness.runtime,
+            session=session,
+            request=request,
+            user_id=user_id,
+            store=store,
+            logger=logger,
+        ):
+            yield chunk
 
     return StreamingResponse(
         events(),
-        media_type="application/x-ndjson",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
     )
 
 
@@ -251,10 +226,10 @@ async def list_chat_sessions(
     harness: Harness = Depends(get_harness),
 ):
     """列出当前用户的持久化会话。"""
-    store = _session_store(harness)
+    store = session_store_from_harness(harness)
     if store is None:
         raise HTTPException(status_code=400, detail="SESSION_STORE_ENABLED is false")
-    resolved_user_id = _resolve_user_id(principal, user_id)
+    resolved_user_id = resolve_user_id(principal, user_id)
     return create_success_response(data=await store.list_sessions(user_id=resolved_user_id, limit=limit))
 
 
@@ -265,10 +240,10 @@ async def create_chat_session(
     harness: Harness = Depends(get_harness),
 ):
     """创建一个空会话，便于 UI 先展示在会话列表中。"""
-    store = _session_store(harness)
+    store = session_store_from_harness(harness)
     if store is None:
         raise HTTPException(status_code=400, detail="SESSION_STORE_ENABLED is false")
-    user_id = _resolve_user_id(principal, request.user_id)
+    user_id = resolve_user_id(principal, request.user_id)
     session_id = request.session_id or str(uuid.uuid4())
     session = await store.create_session(
         session_id=session_id,
@@ -288,13 +263,13 @@ async def list_chat_messages(
     harness: Harness = Depends(get_harness),
 ):
     """列出一个会话的持久化消息流水。"""
-    store = _session_store(harness)
+    store = session_store_from_harness(harness)
     if store is None:
         raise HTTPException(status_code=400, detail="SESSION_STORE_ENABLED is false")
     session = await store.get_session(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="session not found")
-    requester = _resolve_user_id(principal, None)
+    requester = resolve_user_id(principal, None)
     if requester is not None and session["user_id"] != requester:
         raise HTTPException(status_code=403, detail="session forbidden")
     if recent:
@@ -312,13 +287,13 @@ async def delete_chat_session(
     harness: Harness = Depends(get_harness),
 ):
     """删除一个会话及其消息流水。"""
-    store = _session_store(harness)
+    store = session_store_from_harness(harness)
     if store is None:
         raise HTTPException(status_code=400, detail="SESSION_STORE_ENABLED is false")
     session = await store.get_session(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="session not found")
-    requester = _resolve_user_id(principal, user_id)
+    requester = resolve_user_id(principal, user_id)
     if requester is not None and session["user_id"] != requester:
         raise HTTPException(status_code=403, detail="session forbidden")
     deleted = await store.delete_session(session_id)

@@ -6,6 +6,8 @@ Memory API Router
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from src.api.middleware.auth.base import Principal
+from src.api.middleware.auth.deps import get_current_principal
 from src.utils.response import create_success_response, create_error_response
 from src.core.logging import service_logger
 from src.harness.builder import Harness
@@ -22,6 +24,13 @@ class MemorySearchRequest(BaseModel):
     top_k: int = Field(default=5, ge=1, le=20, description="返回数量")
 
 
+class MemoryListRequest(BaseModel):
+    """长期记忆列表请求"""
+
+    user_id: str = Field(..., description="用户ID")
+    limit: int = Field(default=20, ge=1, le=100, description="返回数量")
+
+
 class MemoryClearRequest(BaseModel):
     """清空记忆请求"""
 
@@ -34,9 +43,18 @@ class MemoryClearUserRequest(BaseModel):
     user_id: str = Field(..., description="用户ID")
 
 
+def _resolve_memory_user(principal: Principal, requested_user_id: str | None) -> str | None:
+    if principal.is_anonymous:
+        return requested_user_id
+    if requested_user_id and requested_user_id != principal.user_id and not principal.has_scope("memory:admin"):
+        raise HTTPException(status_code=403, detail="memory user forbidden")
+    return requested_user_id or principal.user_id
+
+
 @router.post("/search")
 async def search_memories(
     request: MemorySearchRequest,
+    principal: Principal = Depends(get_current_principal),
     harness: Harness = Depends(get_harness),
 ):
     """
@@ -45,11 +63,12 @@ async def search_memories(
     使用向量检索查找相关的历史记忆
     """
     try:
+        user_id = _resolve_memory_user(principal, request.user_id)
         memory_manager = harness.memory_manager
         results = []
         if memory_manager is not None:
             results = await memory_manager.search_memories(
-                user_id=request.user_id,
+                user_id=user_id,
                 query=request.query,
                 top_k=request.top_k,
             )
@@ -57,15 +76,49 @@ async def search_memories(
         return create_success_response(
             data={
                 "query": request.query,
-                "user_id": request.user_id,
+                "user_id": user_id,
                 "results": results,
                 "count": len(results),
             }
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         service_logger.error(f"Memory search failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Memory search failed: {e}")
+
+
+@router.post("/list")
+async def list_memories(
+    request: MemoryListRequest,
+    principal: Principal = Depends(get_current_principal),
+    harness: Harness = Depends(get_harness),
+):
+    """列出指定用户的长期记忆，不按 query 做语义搜索。"""
+    try:
+        user_id = _resolve_memory_user(principal, request.user_id)
+        memory_manager = harness.memory_manager
+        results = []
+        if memory_manager is not None and hasattr(memory_manager, "list_memories"):
+            results = await memory_manager.list_memories(
+                user_id=user_id,
+                limit=request.limit,
+            )
+
+        return create_success_response(
+            data={
+                "user_id": user_id,
+                "results": results,
+                "count": len(results),
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        service_logger.error(f"Memory list failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Memory list failed: {e}")
 
 
 @router.post("/clear")
@@ -103,24 +156,28 @@ async def clear_session_memory(
 @router.post("/clear-user")
 async def clear_user_memories(
     request: MemoryClearUserRequest,
+    principal: Principal = Depends(get_current_principal),
     harness: Harness = Depends(get_harness),
 ):
     """清空指定用户的 Mem0 长期记忆。"""
     try:
+        user_id = _resolve_memory_user(principal, request.user_id)
         if harness.memory_manager is None:
             return create_error_response(message="MEMORY_LONG_TERM_ENABLED is false")
         clear_user = getattr(harness.memory_manager, "clear_user_memories", None)
         if clear_user is None:
             return create_error_response(message="memory manager does not support user clear")
-        success = await clear_user(request.user_id)
+        success = await clear_user(user_id)
         if not success:
             return create_error_response(message="Failed to clear user memories")
         return create_success_response(
             data={
-                "user_id": request.user_id,
+                "user_id": user_id,
                 "cleared": True,
             }
         )
+    except HTTPException:
+        raise
     except Exception as e:
         service_logger.error(f"Clear user memories failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Clear user memories failed: {e}")
@@ -130,6 +187,7 @@ async def clear_user_memories(
 async def get_memory_stats(
     user_id: str = Query(None, description="用户ID (可选)"),
     session_id: str = Query(None, description="会话ID (可选，用于查看短期会话记忆)"),
+    principal: Principal = Depends(get_current_principal),
     harness: Harness = Depends(get_harness),
 ):
     """
@@ -138,8 +196,9 @@ async def get_memory_stats(
     返回短期和长期记忆的统计数据
     """
     try:
+        resolved_user_id = _resolve_memory_user(principal, user_id)
         if harness.memory_manager is not None:
-            stats = await harness.memory_manager.get_stats(user_id, session_id=session_id)
+            stats = await harness.memory_manager.get_stats(resolved_user_id, session_id=session_id)
         else:
             stats = {
                 "short_term": harness.memory_store.stats(),
@@ -152,6 +211,8 @@ async def get_memory_stats(
 
         return create_success_response(data=stats)
 
+    except HTTPException:
+        raise
     except Exception as e:
         service_logger.error(f"Get memory stats failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Get stats failed: {e}")

@@ -19,6 +19,28 @@ def test_get_settings_builds_database_url_from_split_env(monkeypatch):
     )
 
 
+def test_get_settings_splits_mysql_and_session_store_switches(monkeypatch):
+    monkeypatch.setenv("ENVTYPE", "unit")
+    monkeypatch.setenv("MYSQL_ENABLED", "true")
+    monkeypatch.setenv("SESSION_STORE_ENABLED", "false")
+
+    settings = get_settings()
+
+    assert settings.mysql_enabled is True
+    assert settings.session_store_enabled is False
+
+
+def test_get_settings_keeps_session_store_database_backward_compatible(monkeypatch):
+    monkeypatch.setenv("ENVTYPE", "unit")
+    monkeypatch.delenv("MYSQL_ENABLED", raising=False)
+    monkeypatch.setenv("SESSION_STORE_ENABLED", "true")
+
+    settings = get_settings()
+
+    assert settings.mysql_enabled is True
+    assert settings.session_store_enabled is True
+
+
 def test_get_settings_builds_session_store_postgres_url(monkeypatch):
     monkeypatch.setenv("ENVTYPE", "unit")
     monkeypatch.setenv("SESSION_STORE_DATABASE_SCHEME", "postgresql+asyncpg")

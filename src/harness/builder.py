@@ -229,6 +229,7 @@ class HarnessBuilder:
 
     def _build_tool_registry(self, hitl_config: HITLConfig) -> ToolRegistry:
         registry = ToolRegistry()
+        # 默认简单的工具，业务方可在这里注册自己的工具，
         registry.register_defaults()
         if hitl_config.enabled:
             registry.configure_approval_policy(
@@ -261,11 +262,16 @@ class HarnessBuilder:
         registry.register(ObservabilityCapability.from_settings(self.settings))
 
     def _build_database_resource(self) -> DatabaseResource | None:
-        needs_database = bool(getattr(self.settings, "session_store_enabled", False))
+        needs_database = bool(
+            getattr(self.settings, "mysql_enabled", False)
+            or getattr(self.settings, "session_store_enabled", False)
+        )
         if not needs_database:
             return None
         if not self.settings.database_url:
-            raise ValueError("SESSION_STORE_ENABLED=true requires session store database connection settings")
+            raise ValueError(
+                "MYSQL_ENABLED=true or SESSION_STORE_ENABLED=true requires SESSION_STORE_DATABASE_* settings"
+            )
         return DatabaseResource(DatabaseConfig.from_settings(self.settings))
 
     def _build_session_store(
@@ -275,7 +281,7 @@ class HarnessBuilder:
         if not getattr(self.settings, "session_store_enabled", False):
             return None
         if database_resource is None:
-            raise ValueError("SESSION_STORE_ENABLED=true requires session store database connection settings")
+            raise ValueError("SESSION_STORE_ENABLED=true requires a configured database resource")
         return SessionStore(database_resource.session)
 
     def _build_memory_manager(

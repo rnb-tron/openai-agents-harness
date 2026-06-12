@@ -94,6 +94,7 @@ class SessionStore:
         user_id: str | None,
         role: str,
         content: str,
+        turn_id: str | None = None,
         model: str | None = None,
         status: str = "completed",
         metadata: dict[str, Any] | None = None,
@@ -119,9 +120,10 @@ class SessionStore:
                     user_id=normalized_user_id,
                     role=role,
                     content=content,
+                    turn_id=turn_id,
                     model=model,
                     status=status,
-                    metadata_json=metadata or {},
+                    metadata_json=self._message_metadata(metadata),
                 )
             )
             await db.commit()
@@ -134,6 +136,7 @@ class SessionStore:
         user_id: str | None,
         user_input: str,
         assistant_output: str | None,
+        turn_id: str | None = None,
         model: str | None = None,
         status: str = "completed",
         metadata: dict[str, Any] | None = None,
@@ -151,6 +154,7 @@ class SessionStore:
                 )
             else:
                 existing.updated_at = datetime.now()
+            effective_turn_id = turn_id or self._generate_turn_id()
             db.add(
                 ChatMessageRecord(
                     id=str(uuid.uuid4()),
@@ -158,8 +162,9 @@ class SessionStore:
                     user_id=normalized_user_id,
                     role="user",
                     content=user_input,
+                    turn_id=effective_turn_id,
                     status="completed",
-                    metadata_json=metadata or {},
+                    metadata_json=self._message_metadata(metadata),
                 )
             )
             if assistant_output is not None:
@@ -170,9 +175,10 @@ class SessionStore:
                         user_id=normalized_user_id,
                         role="assistant",
                         content=assistant_output,
+                        turn_id=effective_turn_id,
                         model=model,
                         status=status,
-                        metadata_json=metadata or {},
+                        metadata_json=self._message_metadata(metadata),
                     )
                 )
             await db.commit()
@@ -221,6 +227,7 @@ class SessionStore:
                 .where(ChatMessageRecord.session_id == session_id)
                 .order_by(
                     ChatMessageRecord.created_at.asc(),
+                    func.coalesce(ChatMessageRecord.turn_id, ChatMessageRecord.id).asc(),
                     case(
                         (ChatMessageRecord.role == "user", 0),
                         (ChatMessageRecord.role == "assistant", 1),
@@ -244,6 +251,7 @@ class SessionStore:
                 .where(ChatMessageRecord.session_id == session_id)
                 .order_by(
                     ChatMessageRecord.created_at.desc(),
+                    func.coalesce(ChatMessageRecord.turn_id, ChatMessageRecord.id).desc(),
                     case(
                         (ChatMessageRecord.role == "assistant", 0),
                         (ChatMessageRecord.role == "user", 1),
@@ -334,15 +342,17 @@ class SessionStore:
 
     @staticmethod
     def _message_to_dict(row: ChatMessageRecord) -> dict[str, Any]:
+        metadata = row.metadata_json or {}
         return {
             "id": row.id,
             "session_id": row.session_id,
             "user_id": row.user_id,
             "role": row.role,
             "content": row.content,
+            "turn_id": row.turn_id or metadata.get("turn_id") or metadata.get("msg_id"),
             "model": row.model,
             "status": row.status,
-            "metadata": row.metadata_json or {},
+            "metadata": metadata,
             "created_at": row.created_at.isoformat() if row.created_at else None,
         }
 
@@ -359,3 +369,14 @@ class SessionStore:
             "created_at": row.created_at.isoformat() if row.created_at else None,
             "updated_at": row.updated_at.isoformat() if row.updated_at else None,
         }
+
+    @staticmethod
+    def _message_metadata(metadata: dict[str, Any] | None) -> dict[str, Any]:
+        cleaned = dict(metadata or {})
+        cleaned.pop("msg_id", None)
+        cleaned.pop("turn_id", None)
+        return cleaned
+
+    @staticmethod
+    def _generate_turn_id() -> str:
+        return f"turn_{datetime.now().strftime('%Y%m%d%H%M%S%f')}_{uuid.uuid4().hex}"

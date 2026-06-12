@@ -5,7 +5,7 @@ from typing import Any
 
 from agents import Runner, RunState
 
-from src.application.orchestration.stream_events import iter_stream_events
+from src.application.orchestration.stream_events import iter_chat_events
 from src.capabilities.plugin import RunContext, RunPhase
 from src.core.agents_result_parser import parse_tool_calls_from_result
 
@@ -41,8 +41,8 @@ class AgentResumeRuntime:
         """审批后恢复 SDK 中断，并流式返回最终响应。
 
         外层负责 observation 包装，内部 ``_resume_stream_with_approval`` 负责实际
-        恢复。这里保持和普通 ``run_stream`` 类似的事件形态：先 ``start``，中间
-        产出 ``delta`` / ``agent_updated``，最后产出 ``done``。
+        恢复。对外统一返回聊天领域事件：``init`` / ``thinking`` / ``content`` /
+        ``end`` / ``error``。
         """
         with self.owner.observer.observe(
             session_id=session.session_id,
@@ -63,7 +63,7 @@ class AgentResumeRuntime:
                     always=always,
                     rejection_message=rejection_message,
                 ):
-                    if event["type"] == "done":
+                    if event["event"] == "end":
                         self.owner.observer.update(observation, event["data"])
                     yield event
             except Exception as exc:
@@ -160,28 +160,34 @@ class AgentResumeRuntime:
                 tool_args=rejected_tool_args,
             )
             yield {
-                "type": "start",
-                "session_id": session.session_id,
-                "model": result["model"],
+                "event": "init",
+                "data": {
+                    "model": result["model"],
+                    "userId": session.user_id,
+                },
             }
-            for delta in (
+            for chunk in (
                 "操作已被拒绝，",
                 f"未执行工具 {result['tool_calls'][0]['name']}。",
                 "因此无法基于该工具的查询结果提供信息或建议。",
             ):
-                yield {"type": "delta", "delta": delta}
-            yield {"type": "done", "data": result}
+                yield {"event": "content", "data": {"text": chunk}}
+            yield {
+                "event": "end",
+                "data": self.owner._result_to_chat_end_data(result),
+            }
             return
 
-        agent_path = ["MinimalChatAgent"]
         yield {
-            "type": "start",
-            "session_id": session.session_id,
-            "model": run.selected_model,
+            "event": "init",
+            "data": {
+                "model": run.selected_model,
+                "userId": session.user_id,
+            },
         }
         try:
             result = Runner.run_streamed(starting_agent=run.agent, input=sdk_state)
-            async for event in iter_stream_events(result, agent_path=agent_path):
+            async for event in iter_chat_events(result):
                 yield event
         except Exception as exc:
             await self.owner.registry.dispatch(RunPhase.ON_ERROR, run.ctx, error=exc)
@@ -190,23 +196,27 @@ class AgentResumeRuntime:
         interruptions = list(getattr(result, "interruptions", []) or [])
         if interruptions:
             yield {
-                "type": "done",
-                "data": await self.owner._build_interrupted_result(
-                    session=session,
-                    user_input=user_input,
-                    run=run,
-                    run_result=result,
+                "event": "end",
+                "data": self.owner._result_to_chat_end_data(
+                    await self.owner._build_interrupted_result(
+                        session=session,
+                        user_input=user_input,
+                        run=run,
+                        run_result=result,
+                    )
                 ),
             }
             return
 
         yield {
-            "type": "done",
-            "data": await self._complete_successful_resume(
-                session=session,
-                user_input=user_input,
-                run=run,
-                run_result=result,
+            "event": "end",
+            "data": self.owner._result_to_chat_end_data(
+                await self._complete_successful_resume(
+                    session=session,
+                    user_input=user_input,
+                    run=run,
+                    run_result=result,
+                )
             ),
         }
 

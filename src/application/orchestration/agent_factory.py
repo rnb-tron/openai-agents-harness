@@ -108,7 +108,7 @@ class AgentFactory:
         if self.settings.prompt_enabled and self.prompt_manager is not None:
             try:
                 rendered = await self.prompt_manager.get(
-                    "agents.main_chat",
+                    "agents.main_system_chat",
                     task_type=task_type,
                     extra_instructions="",
                 )
@@ -118,7 +118,7 @@ class AgentFactory:
                 self.logger.warning(
                     "prompt_get_failed_using_fallback",
                     extra={
-                        "prompt_name": "agents.main_chat",
+                        "prompt_name": "agents.main_system_chat",
                         "error_type": type(exc).__name__,
                         "error": str(exc),
                     },

@@ -35,7 +35,6 @@ flowchart TD
     B --> G["运行态能力目录<br/>CapabilityManifest / Config / Resources"]
 ```
 
-
 核心原则：
 
 - **轻量化**：默认关闭可选能力，未启用能力不进入运行路径。
@@ -50,25 +49,26 @@ flowchart TD
 
 下表列出 Harness 内置的通用能力。业务方 fork 后通过 env 开关启用需要的能力，并在这些能力之上实现自己的业务逻辑。
 
-| 能力域 | 能力项 | 类型 / 状态 | 技术选型 | 当前技术实现方案 | 装配入口 |
-| --- | --- | --- | --- | --- | --- |
-| 工具执行 | `tool_registry` | runtime / 已实现，基础必选 | OpenAI Agents SDK `function_tool` | `ToolRegistry` 注册工具元数据并转换为 SDK Tool；审批策略可附加到工具定义 | Harness 默认创建 |
-| 模型访问 | `model_router` | runtime / 已实现，基础必选 | OpenAI Agents SDK + OpenAI-compatible API | `ModelRouter` 按任务选择默认或推理模型，并由 `AgentOrchestrator` 调用 SDK `Runner` | Harness 默认创建 |
-| 模型稳定性 | `model_resilience` | runtime / 部分实现 | 自研 Retry / Timeout / Fallback | 按弹性配置构建 runner 包装与 fallback 模型链，隔离模型调用故障 | `MODEL_RESILIENCE_ENABLED` |
-| 会话记录 | `session_store` | resource / 已实现 | MySQL/PostgreSQL + SQLAlchemy Async | 持久化用户会话、完整消息流水和后续事件扩展，供 UI 历史会话与审计使用 | `SESSION_STORE_ENABLED` |
-| 会话记忆 | `memory_session` | runtime / 已实现 | Redis ShortTermMemory + session_store 回源 | 在 Agent 执行前后读取当前会话最近上下文；Redis 承载短期缓存，Redis 未启用或 miss 时读取会话存储最近消息，不使用进程内兜底 | `MEMORY_SHORT_TERM_ENABLED` |
-| 会话摘要 | `session_summary` | runtime / 已实现 | LLM Summary + session_store + Redis Cache | `after_run` 后台滚动生成摘要，会话存储持久化、Redis 可缓存；当前轮消息可直接触发 summary，不依赖路由层先落库 | `MEMORY_SESSION_SUMMARY_ENABLED` |
-| 长期记忆 | `long_term_memory` | runtime / 已实现 | Mem0 | 由 Mem0 负责用户偏好与长期记忆抽取、写入和搜索；删除会话不会删除长期记忆，用户级长期记忆需显式清理 | `MEMORY_LONG_TERM_ENABLED` |
-| 长期记忆资源 | `memory_manager` | resource / 已实现，依赖自动引入 | Mem0 SDK | 持有 Mem0 适配器和 Redis 短期会话缓存；长期向量存储可选 Mem0 默认、pgvector 或 Elasticsearch；读取偏好时同一维度只注入最新生效项；提供显式用户级清理接口 | 启用长期记忆时自动装配 |
-| 语义召回 | `vector_search` | runtime / 已实现 | Mem0 Search + pgvector/ES 可选 | 由 Mem0 搜索返回偏好和长期记忆；偏好类查询会做冲突消解；向量后端通过 `MEMORY_LONG_TERM_VECTOR_STORE` 选择 | `MEMORY_LONG_TERM_ENABLED` |
-| Prompt 管理 | `prompt` | runtime / 已实现 | Langfuse Prompt + Local YAML | `PromptManager` 负责拉取、TTL 缓存与渲染；`CompositeStore` 支持远端失败时本地降级 | `PROMPT_ENABLED` |
-| 上下文治理 | `context_compression` | runtime / 已实现 | tiktoken + 可配置 LLM Summary | 提供 token budget 截断、rolling summary 与 hybrid 策略，在执行前压缩上下文 | `COMPRESSION_ENABLED` |
-| 人工审批 | `hitl` | runtime / 部分实现 | OpenAI Agents SDK 原生 HITL | 工具标记 `needs_approval` 触发中断；`/chat/resume/stream` 处理同意或拒绝 | `HITL_ENABLED` |
-| 状态快照 | `checkpoint` | runtime / 部分实现 | 进程内 Checkpoint Manager | 保存执行摘要与状态展示信息，当前不等同于持久化 SDK `RunState` | `CHECKPOINT_ENABLED` |
-| Agent 协作 | `handoff` | runtime / 部分实现 | OpenAI Agents SDK 原生 Handoff | 按配置构建目标 Agent，并注入主 Agent 的 `handoffs` 列表完成专家转交 | `HANDOFF_ENABLED` |
-| 身份认证 | `auth` | protocol / 已实现 | PyJWT | `AuthPlugin` 在 HTTP 请求链解析 JWT，并写入 `request.state.principal` | `AUTH_ENABLED` |
-| 用户限流 | `rate_limit` | protocol / 已实现 | Token Bucket + Redis / Memory backend | `RateLimitPlugin` 默认使用 Auth 产生的 principal 作为限流键；可显式选择 IP 兼容策略 | `RATE_LIMIT_ENABLED` |
-| 可观测性 | `observability` | resource + protocol adapter / 已实现 | Langfuse + OpenTelemetry + OpenInference | `ObservabilityCapability` 由 Harness 管理 tracer 生命周期；HTTP plugin 只贡献请求 span 入口 | `LANGFUSE_ENABLED` |
+| 能力域       | 能力项                   | 类型 / 状态                           | 技术选型                                       | 当前技术实现方案                                                                                          | 装配入口                             |
+| --------- | --------------------- | --------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------- | -------------------------------- |
+| 工具执行      | `tool_registry`       | runtime / 已实现，基础必选                | OpenAI Agents SDK `function_tool`          | `ToolRegistry` 注册工具元数据并转换为 SDK Tool；审批策略可附加到工具定义                                                  | Harness 默认创建                     |
+| 模型访问      | `model_router`        | runtime / 已实现，基础必选                | OpenAI Agents SDK + OpenAI-compatible API  | `ModelRouter` 按任务选择默认或推理模型，并由 `AgentOrchestrator` 调用 SDK `Runner`                                 | Harness 默认创建                     |
+| 模型稳定性     | `model_resilience`    | runtime / 组件实现，主流式链路待接入      | 自研 Retry / Timeout / Fallback              | 已提供弹性 runner 组件与示例；当前 `AgentOrchestrator.run_stream()` 仍直接调用 SDK streaming runner                         | `MODEL_RESILIENCE_ENABLED`       |
+| 数据库资源      | `database`            | resource / 已实现                    | MySQL/PostgreSQL + SQLAlchemy Async        | 持有共享关系数据库连接池，可独立于会话存储启用，供业务方或可选能力复用                                                       | `MYSQL_ENABLED`                  |
+| 会话记录      | `session_store`       | resource / 已实现                    | MySQL/PostgreSQL + SQLAlchemy Async        | 持久化用户会话、完整消息流水和后续事件扩展，消息使用 `turn_id` 标识一轮对话，供 UI 历史会话与审计使用                             | `SESSION_STORE_ENABLED`          |
+| 会话记忆      | `memory_session`      | runtime / 已实现                     | Redis ShortTermMemory + session\_store 回源  | 在 Agent 执行前后读取当前会话最近上下文；Redis 承载短期缓存，Redis 未启用或 miss 时读取会话存储最近消息，不使用进程内兜底                         | `MEMORY_SHORT_TERM_ENABLED`      |
+| 会话摘要      | `session_summary`     | runtime / 已实现                     | LLM Summary + session\_store + Redis Cache | `after_run` 后台滚动生成摘要，会话存储持久化、Redis 可缓存；当前轮消息可直接触发 summary，不依赖路由层先落库                               | `MEMORY_SESSION_SUMMARY_ENABLED` |
+| 长期记忆      | `long_term_memory`    | runtime / 已实现                     | Mem0                                       | 由 Mem0 负责用户偏好与长期记忆抽取、写入和搜索；删除会话不会删除长期记忆，用户级长期记忆需显式清理                                              | `MEMORY_LONG_TERM_ENABLED`       |
+| 长期记忆资源    | `memory_manager`      | resource / 已实现，依赖自动引入             | Mem0 SDK                                   | 持有 Mem0 适配器和 Redis 短期会话缓存；长期向量存储可选 Mem0 默认、pgvector 或 Elasticsearch；读取偏好时同一维度只注入最新生效项；提供显式用户级清理接口 | 启用长期记忆时自动装配                      |
+| 语义召回      | `vector_search`       | runtime / 已实现                     | Mem0 Search + pgvector/ES 可选               | 由 Mem0 搜索返回偏好和长期记忆；偏好类查询会做冲突消解；向量后端通过 `MEMORY_LONG_TERM_VECTOR_STORE` 选择                          | `MEMORY_LONG_TERM_ENABLED`       |
+| Prompt 管理 | `prompt`              | runtime / 已实现                     | Langfuse Prompt + Local YAML               | `PromptManager` 负责拉取、TTL 缓存与渲染；`CompositeStore` 支持远端失败时本地降级                                       | `PROMPT_ENABLED`                 |
+| 上下文治理     | `context_compression` | runtime / 已实现                     | tiktoken + 可配置 LLM Summary                 | 提供 token budget 截断、rolling summary 与 hybrid 策略，在执行前压缩上下文                                          | `COMPRESSION_ENABLED`            |
+| 人工审批      | `hitl`                | runtime / 部分实现                    | OpenAI Agents SDK 原生 HITL                  | 工具标记 `needs_approval` 触发中断；`/chat/resume/stream` 处理同意或拒绝                                          | `HITL_ENABLED`                   |
+| 状态快照      | `checkpoint`          | runtime / 部分实现                    | 进程内 Checkpoint Manager                     | 保存执行摘要与状态展示信息，当前不等同于持久化 SDK `RunState`                                                            | `CHECKPOINT_ENABLED`             |
+| Agent 协作  | `handoff`             | runtime / 部分实现                    | OpenAI Agents SDK 原生 Handoff               | 按配置构建目标 Agent，并注入主 Agent 的 `handoffs` 列表完成专家转交                                                    | `HANDOFF_ENABLED`                |
+| 身份认证      | `auth`                | protocol / 已实现                    | PyJWT                                      | `AuthPlugin` 在 HTTP 请求链解析 JWT，并写入 `request.state.principal`                                       | `AUTH_ENABLED`                   |
+| 用户限流      | `rate_limit`          | protocol / 已实现                    | Token Bucket + Redis / Memory backend      | `RateLimitPlugin` 默认使用 Auth 产生的 principal 作为限流键；可显式选择 IP 兼容策略                                     | `RATE_LIMIT_ENABLED`             |
+| 可观测性      | `observability`       | resource + protocol adapter / 已实现 | Langfuse + OpenTelemetry + OpenInference   | `ObservabilityCapability` 由 Harness 管理 tracer 生命周期；HTTP plugin 只贡献请求 span 入口                      | `LANGFUSE_ENABLED`               |
 
 装配边界：
 
@@ -93,30 +93,30 @@ CapabilityManifest(
 
 能力类型：
 
-| 类型           | 说明 | 示例 |
-|--------------| --- | --- |
+| 类型           | 说明              | 示例                                             |
+| ------------ | --------------- | ---------------------------------------------- |
 | `runtime`    | 参与 Agent 执行生命周期 | `Memory`、`Prompt`、`Compression`、`Model Router` |
-| `protocol`   | 参与 HTTP 请求生命周期 | Auth、RateLimit |
-| `governance` | 平台治理、策略、审计、评估 | Observability |
+| `protocol`   | 参与 HTTP 请求生命周期  | Auth、RateLimit                                 |
+| `governance` | 平台治理、策略、审计、评估   | Observability                                  |
 
 当前能力状态：
 
-| 能力 | 类型 | 状态 | 说明 |
-| --- | --- | --- | --- |
-| `tool_registry` | runtime | ✅ 已实现 | 工具注册、元数据、OpenAI Agents SDK 工具适配 |
-| `model_router` | runtime | ✅ 已实现 | 模型选择、任务类型推断 |
-| `model_resilience` | runtime | 🟡 部分实现 | 降级、重试、超时 runner 已具备 |
-| `memory_session` | runtime | ✅ 已实现 | 短期会话记忆 |
-| `long_term_memory` | runtime | ✅ 已实现 | Mem0 后端已接入 |
-| `vector_search` | runtime | ✅ 已实现 | Mem0 Search |
-| `prompt` | runtime | ✅ 已实现 | Harness 构建 PromptManager，并注入 Runtime |
-| `context_compression` | runtime | ✅ 已实现 | 支持 token budget、rolling summary、hybrid |
-| `auth` | protocol | ✅ 已实现 | JWT 中间件插件 |
-| `rate_limit` | protocol | ✅ 已实现 | Redis/内存限流中间件插件 |
-| `observability` | governance | ✅ 已实现 | Langfuse/OpenTelemetry 生命周期，并向 HTTP 链路贡献追踪入口 |
-| `hitl` | runtime | 🟡 部分实现 | 配置驱动装配，已接入 SDK 原生中断与 `POST /chat/resume/stream` |
-| `checkpoint` | runtime | 🟡 部分实现 | 配置驱动的进程内执行快照，不等同于 SDK `RunState` 存储 |
-| `handoff` | runtime | 🟡 部分实现 | 配置驱动装配，主 Agent 已接入 SDK 原生 `handoffs` |
+| 能力                    | 类型         | 状态      | 说明                                              |
+| --------------------- | ---------- | ------- | ----------------------------------------------- |
+| `tool_registry`       | runtime    | ✅ 已实现   | 工具注册、元数据、OpenAI Agents SDK 工具适配                 |
+| `model_router`        | runtime    | ✅ 已实现   | 模型选择、任务类型推断                                     |
+| `model_resilience`    | runtime    | 🟡 组件实现，主流式链路待接入 | 降级、重试、超时 runner 已具备；默认 `/chat` streaming 路径尚未包裹该 runner |
+| `memory_session`      | runtime    | ✅ 已实现   | 短期会话记忆                                          |
+| `long_term_memory`    | runtime    | ✅ 已实现   | Mem0 后端已接入                                      |
+| `vector_search`       | runtime    | ✅ 已实现   | Mem0 Search                                     |
+| `prompt`              | runtime    | ✅ 已实现   | Harness 构建 PromptManager，并注入 Runtime            |
+| `context_compression` | runtime    | ✅ 已实现   | 支持 token budget、rolling summary、hybrid          |
+| `auth`                | protocol   | ✅ 已实现   | JWT 中间件插件                                       |
+| `rate_limit`          | protocol   | ✅ 已实现   | Redis/内存限流中间件插件                                 |
+| `observability`       | governance | ✅ 已实现   | Langfuse/OpenTelemetry 生命周期，并向 HTTP 链路贡献追踪入口    |
+| `hitl`                | runtime    | 🟡 部分实现 | 配置驱动装配，已接入 SDK 原生中断与 `POST /chat/resume/stream` |
+| `checkpoint`          | runtime    | 🟡 部分实现 | 配置驱动的进程内执行快照，不等同于 SDK `RunState` 存储             |
+| `handoff`             | runtime    | 🟡 部分实现 | 配置驱动装配，主 Agent 已接入 SDK 原生 `handoffs`            |
 
 ## 🏗️ 当前目录结构
 
@@ -164,49 +164,49 @@ examples/
 
 基础运行环境：
 
-| 依赖 | 版本要求 | 用途 |
-| --- | --- | --- |
-| Python | `>=3.11` | 运行 FastAPI、OpenAI Agents SDK 和异步资源 |
-| pip / venv | 随 Python 3.11+ 提供 | 本地虚拟环境与依赖安装 |
-| OpenAI-compatible API | 需兼容 OpenAI Chat/Responses 能力 | Agent 模型调用、摘要、embedding |
+| 依赖                    | 版本要求                         | 用途                                 |
+| --------------------- | ---------------------------- | ---------------------------------- |
+| Python                | `>=3.11`                     | 运行 FastAPI、OpenAI Agents SDK 和异步资源 |
+| pip / venv            | 随 Python 3.11+ 提供            | 本地虚拟环境与依赖安装                        |
+| OpenAI-compatible API | 需兼容 OpenAI Chat/Responses 能力 | Agent 模型调用、摘要、embedding            |
 
 核心 Python 依赖：
 
-| 依赖 | 当前要求 | 用途 |
-| --- | --- | --- |
-| `openai-agents` | `>=0.8.0` | Agent、Runner、HITL、Handoff 等 SDK 原生能力 |
-| `openai` | `>=2.26.0` | OpenAI / 兼容网关客户端 |
-| `fastapi` | `~=0.116.0` | HTTP API |
-| `uvicorn` | `~=0.35.0` | ASGI 服务 |
-| `pydantic` | `~=2.12.2` | API 与配置数据模型 |
-| `sqlalchemy` | `~=2.0.36` | 会话存储、数据库连接池 |
-| `httpx` | `~=0.27.0` | 通用异步 HTTP 客户端 |
-| `python-dotenv` | `~=1.0.0` | 加载 `config/{ENVTYPE}.env` |
+| 依赖              | 当前要求        | 用途                                   |
+| --------------- | ----------- | ------------------------------------ |
+| `openai-agents` | `>=0.8.0`   | Agent、Runner、HITL、Handoff 等 SDK 原生能力 |
+| `openai`        | `>=2.26.0`  | OpenAI / 兼容网关客户端                     |
+| `fastapi`       | `~=0.116.0` | HTTP API                             |
+| `uvicorn`       | `~=0.35.0`  | ASGI 服务                              |
+| `pydantic`      | `~=2.12.2`  | API 与配置数据模型                          |
+| `sqlalchemy`    | `~=2.0.36`  | 会话存储、数据库连接池                          |
+| `httpx`         | `~=0.27.0`  | 通用异步 HTTP 客户端                        |
+| `python-dotenv` | `~=1.0.0`   | 加载 `config/{ENVTYPE}.env`            |
 
 可选能力依赖会随 `requirements.txt` 一起安装，但只有启用对应配置后才进入运行路径：
 
-| 能力域 | Python 依赖 | 外部资源 |
-| --- | --- | --- |
-| 会话存储 | `aiomysql~=0.2.0` | MySQL 兼容数据库 |
-| PostgreSQL / pgvector | `asyncpg>=0.29.0`、`psycopg[binary,pool]>=3.2.0` | PostgreSQL 与 pgvector 扩展 |
-| Redis 缓存 / 限流 | `redis[hiredis]>=5.0.0` | Redis |
-| 长期记忆 | `mem0ai>=0.1.0` | Mem0 local 或 Mem0 Platform |
-| Elasticsearch 向量后端 | `elasticsearch>=8.0.0` | Elasticsearch |
-| 上下文压缩 | `tiktoken>=0.7.0` | 无额外服务，摘要策略会调用模型 |
-| Prompt 本地后端 | `PyYAML>=6.0` | 本地 YAML 文件 |
-| 可观测性 | `langfuse>=2.50.0`、`openinference-instrumentation-openai-agents>=0.1.0`、`opentelemetry-*>=1.27.0` | Langfuse / OTLP endpoint |
-| Kafka 集成 | `aiokafka~=0.11.0` | Kafka，可选 |
-| 协议认证 | `PyJWT>=2.8.0` | JWT issuer / key，可选 |
+| 能力域                   | Python 依赖                                                                                         | 外部资源                       |
+| --------------------- | ------------------------------------------------------------------------------------------------- | -------------------------- |
+| 会话存储                  | `aiomysql~=0.2.0`                                                                                 | MySQL 兼容数据库                |
+| PostgreSQL / pgvector | `asyncpg>=0.29.0`、`psycopg[binary,pool]>=3.2.0`                                                   | PostgreSQL 与 pgvector 扩展   |
+| Redis 缓存 / 限流         | `redis[hiredis]>=5.0.0`                                                                           | Redis                      |
+| 长期记忆                  | `mem0ai>=0.1.0`                                                                                   | Mem0 local 或 Mem0 Platform |
+| Elasticsearch 向量后端    | `elasticsearch>=8.0.0`                                                                            | Elasticsearch              |
+| 上下文压缩                 | `tiktoken>=0.7.0`                                                                                 | 无额外服务，摘要策略会调用模型            |
+| Prompt 本地后端           | `PyYAML>=6.0`                                                                                     | 本地 YAML 文件                 |
+| 可观测性                  | `langfuse>=2.50.0`、`openinference-instrumentation-openai-agents>=0.1.0`、`opentelemetry-*>=1.27.0` | Langfuse / OTLP endpoint   |
+| Kafka 集成              | `aiokafka~=0.11.0`                                                                                | Kafka，可选                   |
+| 协议认证                  | `PyJWT>=2.8.0`                                                                                    | JWT issuer / key，可选        |
 
 开发与测试依赖：
 
-| 依赖 | 版本要求 | 用途 |
-| --- | --- | --- |
-| `pytest` | `>=8.0.0` | 单元、集成、E2E 测试 |
-| `pytest-asyncio` | `>=0.23.0` | 异步测试 |
-| `pytest-cov` | `>=5.0.0` | 覆盖率 |
-| `ruff` | `>=0.3.0` | lint、自动修复和格式化 |
-| `mypy` | `>=1.8.0` | 类型检查 |
+| 依赖               | 版本要求       | 用途            |
+| ---------------- | ---------- | ------------- |
+| `pytest`         | `>=8.0.0`  | 单元、集成、E2E 测试  |
+| `pytest-asyncio` | `>=0.23.0` | 异步测试          |
+| `pytest-cov`     | `>=5.0.0`  | 覆盖率           |
+| `ruff`           | `>=0.3.0`  | lint、自动修复和格式化 |
+| `mypy`           | `>=1.8.0`  | 类型检查          |
 
 ## 🔄 请求运行流程
 
@@ -219,7 +219,7 @@ sequenceDiagram
     participant C as CapabilityRegistry
     participant SDK as OpenAI Agents SDK
 
-    U->>API: POST /chat/stream
+    U->>API: POST /chat
     API->>H: 获取 app.state.harness
     API->>R: runtime.run_stream(session, input)
     R->>C: BEFORE_RUN
@@ -229,16 +229,16 @@ sequenceDiagram
     alt 运行完成
         R->>C: AFTER_RUN
         C-->>R: 持久化 memory / checkpoint 等结果
-        R-->>API: NDJSON done event
+        R-->>API: SSE end event
     else 工具等待审批
         R-->>API: interruptions + run_state
-        API-->>U: 待审批 done event
+        API-->>U: 待审批 end event
         U->>API: POST /chat/resume/stream + 审批决策
         API->>R: resume_stream_with_approval(run_state)
         R->>SDK: Runner.run_streamed(agent, RunState)
         SDK-->>R: 恢复后 stream events
     end
-    API-->>U: NDJSON
+    API-->>U: SSE
 ```
 
 ## 🚀 快速开始
@@ -278,7 +278,10 @@ docker compose -f docker-compose.storage.yml up -d elasticsearch
 # 查看健康状态
 docker compose -f docker-compose.storage.yml ps
 ```
+
 config/test.env.example的连接信息即是本地 Docker 默认连接信息。
+
+首次创建空的 MySQL volume 时，Docker 会自动执行 `docker/mysql/initdb/` 下的初始化 SQL。
 
 - 使用已有外部依赖：
 
@@ -291,6 +294,8 @@ make run
 curl http://localhost:8080/health/ok
 ```
 
+服务启动后，可以在浏览器打开 `http://localhost:8080/ui` 使用内置调试页面做简单聊天。
+
 ### 4. 运行测试
 
 ```bash
@@ -302,11 +307,11 @@ make test-all
 
 开发代码后建议先执行 `make format`，它会运行 `ruff check --fix src/ tests/` 和 `ruff format src/ tests/`，再运行对应测试。
 
-当前本地测试状态：
+当前默认回归入口：
 
 ```text
-make test      -> 74 passed
-make test-all  -> 146 passed, 10 skipped
+make test      # runs tests/unit
+make test-all  # runs unit, integration, and e2e suites
 ```
 
 依赖外部模型服务的 E2E 测试默认跳过；`tests/e2e/test_langfuse.py` 当前会随全量测试执行。如需显式运行外部模型用例：
@@ -346,9 +351,11 @@ HTTP_FOLLOW_REDIRECTS=true
 HTTP_VERIFY_TLS=true
 ```
 
-会话存储数据库：
+MySQL / 会话存储数据库：
 
 ```bash
+MYSQL_ENABLED=true
+SESSION_STORE_ENABLED=false
 SESSION_STORE_DATABASE_SCHEME=mysql+aiomysql
 SESSION_STORE_DATABASE_HOST=localhost
 SESSION_STORE_DATABASE_PORT=3306
@@ -363,7 +370,7 @@ SESSION_STORE_DATABASE_POOL_RECYCLE_SECONDS=1800
 SESSION_STORE_DATABASE_POOL_PRE_PING=true
 ```
 
-会话存储数据库统一使用拆分字段配置，服务启动时会自动组装 SQLAlchemy URL；密码里包含 `%`、`@`、`!` 等特殊字符时也可以直接写原始值。MySQL 使用 `SESSION_STORE_DATABASE_SCHEME=mysql+aiomysql`，PostgreSQL 使用 `SESSION_STORE_DATABASE_SCHEME=postgresql+asyncpg`，并按需设置 `SESSION_STORE_DATABASE_PORT=5432`、`SESSION_STORE_DATABASE_SSLMODE=require`。
+数据库资源由 `MYSQL_ENABLED` 控制，会话存储由 `SESSION_STORE_ENABLED` 控制。需要 MySQL 连接池但不持久化聊天记录时，可以设置 `MYSQL_ENABLED=true`、`SESSION_STORE_ENABLED=false`。会话存储数据库统一使用拆分字段配置，服务启动时会自动组装 SQLAlchemy URL；密码里包含 `%`、`@`、`!` 等特殊字符时也可以直接写原始值。MySQL 使用 `SESSION_STORE_DATABASE_SCHEME=mysql+aiomysql`，PostgreSQL 使用 `SESSION_STORE_DATABASE_SCHEME=postgresql+asyncpg`，并按需设置 `SESSION_STORE_DATABASE_PORT=5432`、`SESSION_STORE_DATABASE_SSLMODE=require`。
 
 PostgreSQL 会话存储示例：
 
@@ -423,7 +430,7 @@ REASONING_EFFORT=low
 REASONING_CHAT_ENABLE_THINKING=true
 ```
 
-开启后，`AGENT_MODEL_API=auto` 默认优先使用 Responses 模型，这是 OpenAI reasoning summary 的标准路径。服务端会将 `response.reasoning_summary_text.delta`、`response.reasoning_text.delta` 转成 `reasoning_summary_delta` 事件，UI 会展示为“推理摘要”。对只在 Chat Completions 扩展字段返回 thinking 的 OpenAI-compatible 服务，需要显式设置 `AGENT_MODEL_API=chat_completions`；此时 `REASONING_CHAT_ENABLE_THINKING=true` 会额外传入 `extra_body.enable_thinking=true`。
+开启后，`AGENT_MODEL_API=auto` 默认优先使用 Responses 模型，这是 OpenAI reasoning summary 的标准路径。服务端会将 `response.reasoning_summary_text.delta`、`response.reasoning_text.delta` 直接映射为 SSE `thinking` 事件，UI 会展示为“推理摘要”。对只在 Chat Completions 扩展字段返回 thinking 的 OpenAI-compatible 服务，需要显式设置 `AGENT_MODEL_API=chat_completions`；此时 `REASONING_CHAT_ENABLE_THINKING=true` 会额外传入 `extra_body.enable_thinking=true`。
 
 ### 记忆管理
 
@@ -432,6 +439,7 @@ REASONING_CHAT_ENABLE_THINKING=true
 ```bash
 SESSION_STORE_ENABLED=false
 SESSION_STORE_AUTO_CREATE=true
+MYSQL_ENABLED=true
 SESSION_STORE_DATABASE_SCHEME=mysql+aiomysql
 SESSION_STORE_DATABASE_HOST=localhost
 SESSION_STORE_DATABASE_PORT=3306
@@ -553,7 +561,7 @@ HITL_REQUIRE_APPROVAL_TOOLS=get_weather
 HITL_AUTO_APPROVE_TOOLS=
 ```
 
-启用后，命中配置工具的 `/chat/stream` 的 `done` 事件会包含 `input`、`model`、`interruptions` 与 `run_state`。人工决策通过 `POST /chat/resume/stream` 恢复执行，需原样回传 `message=input`、`model` 和 `run_state`；已装配 HITL manager 时，还必须携带 `interruptions[].id` 作为 `approval_request_id`。
+启用后，命中配置工具的 `POST /chat` 返回的 `end` 事件会包含 `interrupted`、`interruptions` 与 `runState`。人工决策通过 `POST /chat/resume/stream` 以 SSE 继续执行，需原样回传 `message=input`、`model`、`run_state` 以及当前轮次的 `turn_id`；已装配 HITL manager 时，还必须携带 `interruptions[].id` 作为 `approval_request_id`。
 
 Checkpoint 执行快照：
 

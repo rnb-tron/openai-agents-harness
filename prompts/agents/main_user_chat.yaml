@@ -1,0 +1,19 @@
+name: agents.main_user_chat
+version: "1.0.0"
+label: prod
+template: |-
+  {memory_block}{request_context}
+  User:
+  {user_input}
+metadata:
+  description: "Main user prompt template for enriched_input"
+  variables:
+    - name: memory_block
+      default: ""
+      description: "Optional memory section prefix ending with a blank line"
+    - name: request_context
+      default: ""
+      description: "Optional request context block rendered from generic request options"
+    - name: user_input
+      default: ""
+      description: "Current user input"

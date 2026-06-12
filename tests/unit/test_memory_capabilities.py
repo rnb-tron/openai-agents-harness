@@ -1,6 +1,9 @@
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
-from src.application.orchestration.agent_runtime import AgentOrchestrator
+import pytest
+
+from src.application.orchestration.agent_runtime import AgentOrchestrator, AgentSession
 from src.capabilities.memory.capability import (
     LongTermMemoryCapability,
     MemoryCapability,
@@ -8,6 +11,7 @@ from src.capabilities.memory.capability import (
 )
 from src.capabilities.memory.store import MemoryStore
 from src.capabilities.model_routing.router import ModelRouter
+from src.capabilities.plugin import RunContext
 from src.capabilities.tools import ToolRegistry
 
 
@@ -57,7 +61,7 @@ def test_orchestrator_registers_only_memory_session_when_manager_absent():
 
     enabled_names = [manifest.name for manifest in orchestrator.registry.enabled]
 
-    assert enabled_names == ["memory_session"]
+    assert enabled_names == ["memory_session", "user_prompt"]
 
 
 def test_orchestrator_registers_mem0_memory_without_embedding_provider():
@@ -78,3 +82,51 @@ def test_orchestrator_registers_mem0_memory_without_embedding_provider():
 
     assert manifests["long_term_memory"].depends_on == ("memory_manager",)
     assert manifests["vector_search"].depends_on == ("long_term_memory",)
+
+
+@pytest.mark.asyncio
+async def test_memory_capability_writes_memory_context_metadata_without_touching_enriched_input():
+    manager = SimpleNamespace(get_context=AsyncMock(return_value="user: hi\nassistant: hello"))
+    cap = MemoryCapability(
+        memory_store=MemoryStore(),
+        memory_manager=manager,
+        long_term_enabled=True,
+    )
+    ctx = RunContext(
+        session_id="session-1",
+        user_id="user-1",
+        user_input="follow-up",
+        enriched_input="follow-up",
+    )
+
+    await cap.before_run(ctx)
+
+    assert ctx.metadata["memory_context"] == "user: hi\nassistant: hello"
+    assert ctx.enriched_input == "follow-up"
+
+
+@pytest.mark.asyncio
+async def test_prepare_agent_run_injects_request_context_metadata(monkeypatch):
+    orchestrator = AgentOrchestrator(
+        tool_registry=ToolRegistry(),
+        memory_store=MemoryStore(),
+        model_router=ModelRouter(),
+        settings=_settings(memory_short_term_enabled=True, prompt_enabled=False, openai_api_key="sk-test"),
+    )
+    monkeypatch.setattr(orchestrator, "_create_openai_client", lambda: object())
+    monkeypatch.setattr(orchestrator, "_build_agent", lambda **kwargs: object())
+
+    async def _resolve_instructions(task_type, ctx):
+        assert ctx.metadata["request_context"] == {"scene": "ticket_dispatch", "tenant_id": "tenant-1"}
+        return "ok"
+
+    monkeypatch.setattr(orchestrator, "_resolve_instructions", _resolve_instructions)
+    session = AgentSession(
+        session_id="session-1",
+        user_id="user-1",
+        context={"request_context": {"scene": "ticket_dispatch", "tenant_id": "tenant-1"}},
+    )
+
+    run = await orchestrator._prepare_agent_run(session, "follow-up")
+
+    assert run.ctx.metadata["request_context"] == {"scene": "ticket_dispatch", "tenant_id": "tenant-1"}

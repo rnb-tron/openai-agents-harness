@@ -36,15 +36,15 @@ class MemoryCapability(Capability):
     ) -> None:
         self._store = memory_store
         self._manager = memory_manager
-        self._long_term_enabled = long_term_enabled and memory_manager is not None
+        self._memory_context_enabled = long_term_enabled and memory_manager is not None
 
     def is_enabled(self) -> bool:
         return True
 
     async def before_run(self, ctx: RunContext) -> None:
-        """构建携带记忆上下文的 ``ctx.enriched_input``。"""
+        """读取记忆上下文并写入 ``ctx.metadata``，由后续能力统一渲染输入。"""
         memory_context = ""
-        if self._long_term_enabled and self._manager is not None:
+        if self._memory_context_enabled:
             try:
                 memory_context = await self._manager.get_context(
                     session_id=ctx.session_id,
@@ -61,15 +61,11 @@ class MemoryCapability(Capability):
                         "error": str(e),
                     },
                 )
-
-        if memory_context:
-            ctx.enriched_input = f"Conversation memory:\n{memory_context}\n\nUser:\n{ctx.user_input}"
-        else:
-            ctx.enriched_input = ctx.user_input
+        ctx.metadata["memory_context"] = memory_context
 
     async def after_run(self, ctx: RunContext) -> None:
         """写入 Mem0 manager；失败时不做进程内兜底。"""
-        if self._long_term_enabled and self._manager is not None:
+        if self._memory_context_enabled:
             try:
                 await self._manager.add_memory(
                     session_id=ctx.session_id,
