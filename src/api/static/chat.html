@@ -443,6 +443,16 @@
         padding: 7px 9px;
       }
 
+      .storage-danger {
+        color: #a13e36;
+        background: #fcefed;
+        grid-column: 1 / -1;
+      }
+
+      .storage-danger:hover {
+        background: #f8deda;
+      }
+
       .storage h3 {
         margin: 10px 0 6px;
         color: var(--ink);
@@ -561,6 +571,7 @@
           <div class="storage-actions">
             <button id="refresh-storage" class="secondary" type="button">刷新存储状态</button>
             <button id="search-memory" class="secondary" type="button">搜索长期记忆</button>
+            <button id="clear-user-memory" class="storage-danger" type="button">删除长期/偏好记忆</button>
           </div>
           <h3>当前消息</h3>
           <div id="message-records" class="storage-list">尚未刷新</div>
@@ -604,6 +615,7 @@
       let chatStreaming = false;
       let cancelRequested = false;
       let currentChatTurnId = null;
+      let sessionStoreEnabled = true;
 
       function newSessionId() {
         return globalThis.crypto && crypto.randomUUID
@@ -750,6 +762,18 @@
         return unwrapData(await response.json());
       }
 
+      function isSessionStoreDisabledError(error) {
+        return String(error?.message || error).includes("SESSION_STORE_ENABLED is false");
+      }
+
+      function renderSessionStoreDisabled() {
+        sessionStoreEnabled = false;
+        cachedSessions = [];
+        sessionList.textContent = "SessionStore 未启用：当前为临时聊天模式，不保存历史会话。";
+        messageRecords.textContent = "SessionStore 未启用：当前消息不会持久化到 chat_messages。";
+        sessionSummary.textContent = "SessionStore 未启用：会话 summary 不可用。";
+      }
+
       function renderSessions(items) {
         cachedSessions = Array.isArray(items) ? items : [];
         if (!Array.isArray(items) || items.length === 0) {
@@ -869,13 +893,22 @@
         ]);
 
         if (sessions.error) {
-          messageRecords.textContent = "会话记录不可用";
+          if (isSessionStoreDisabledError(sessions.error)) {
+            renderSessionStoreDisabled();
+          } else {
+            messageRecords.textContent = `会话记录不可用：${sessions.error}`;
+          }
         } else {
+          sessionStoreEnabled = true;
           renderSessions(sessions);
           const messages = await fetchJson(`/chat/sessions/${sessionId}/messages?limit=20&recent=true`, {headers: headers()})
             .catch((error) => ({error: error.message}));
           if (messages.error) {
-            messageRecords.textContent = `当前消息不可用：${messages.error}`;
+            if (isSessionStoreDisabledError(messages.error)) {
+              renderSessionStoreDisabled();
+            } else {
+              messageRecords.textContent = `当前消息不可用：${messages.error}`;
+            }
           } else {
             renderMessages(messages);
           }
@@ -885,21 +918,46 @@
           memoryStats.textContent = `记忆状态不可用：${stats.error}`;
           sessionSummary.textContent = `会话 summary 不可用：${stats.error}`;
         } else {
-          renderSessionSummary(stats);
+          if (sessionStoreEnabled) {
+            renderSessionSummary(stats);
+          } else {
+            sessionSummary.textContent = "SessionStore 未启用：会话 summary 不可用。";
+          }
           renderMemoryStats(stats);
         }
       }
 
       async function refreshSessionList() {
         const userId = encodeURIComponent(userInput.value.trim() || "anonymous");
-        const sessions = await fetchJson(`/chat/sessions?limit=20&user_id=${userId}`, {headers: headers()});
+        const sessions = await fetchJson(`/chat/sessions?limit=20&user_id=${userId}`, {headers: headers()})
+          .catch((error) => {
+            if (isSessionStoreDisabledError(error)) {
+              renderSessionStoreDisabled();
+              return null;
+            }
+            throw error;
+          });
+        if (sessions === null) {
+          return [];
+        }
+        sessionStoreEnabled = true;
         renderSessions(sessions);
         return sessions;
       }
 
       async function loadCurrentMessages() {
         const sessionId = encodeURIComponent(sessionInput.value);
-        const loadedMessages = await fetchJson(`/chat/sessions/${sessionId}/messages?limit=100`, {headers: headers()});
+        const loadedMessages = await fetchJson(`/chat/sessions/${sessionId}/messages?limit=100`, {headers: headers()})
+          .catch((error) => {
+            if (isSessionStoreDisabledError(error)) {
+              renderSessionStoreDisabled();
+              return null;
+            }
+            throw error;
+          });
+        if (loadedMessages === null) {
+          return [];
+        }
         renderMessages(loadedMessages);
         return loadedMessages;
       }
@@ -913,6 +971,10 @@
 
       async function deleteSession(sessionId = sessionInput.value) {
         if (!sessionId) {
+          return;
+        }
+        if (!sessionStoreEnabled) {
+          addMessage("system", "SessionStore 未启用，当前会话没有持久化记录需要删除。");
           return;
         }
         if (!confirm("确认删除这个会话及其消息记录吗？")) {
@@ -932,6 +994,11 @@
       }
 
       async function createNewSession() {
+        if (!sessionStoreEnabled) {
+          setSession(newSessionId());
+          startNewSessionView();
+          return;
+        }
         const body = await fetchJson("/chat/sessions", {
           method: "POST",
           headers: headers(),
@@ -952,8 +1019,12 @@
         clearPending();
         currentChatTurnId = null;
         rawResponse.textContent = "等待请求...";
-        messageRecords.textContent = "发送消息后会写入 MySQL";
-        sessionSummary.textContent = "达到 summary 阈值后会在这里展示";
+        messageRecords.textContent = sessionStoreEnabled
+          ? "发送消息后会写入 MySQL"
+          : "SessionStore 未启用：当前消息不会持久化到 chat_messages。";
+        sessionSummary.textContent = sessionStoreEnabled
+          ? "达到 summary 阈值后会在这里展示"
+          : "SessionStore 未启用：会话 summary 不可用。";
         memoryStats.textContent = "发送消息后可查看 Redis 短期记忆";
         preferenceMemoryResults.textContent = "点击“搜索长期记忆”";
         longTermMemoryResults.textContent = "点击“搜索长期记忆”";
@@ -984,6 +1055,26 @@
           normalResults,
           "没有普通长期记忆"
         );
+      }
+
+      async function clearUserLongTermMemory() {
+        const userId = userInput.value.trim() || "anonymous";
+        if (!confirm(`确认删除用户 ${userId} 的全部长期记忆和偏好记忆吗？\n\n会话消息和短期会话记忆不会被此操作删除。`)) {
+          return;
+        }
+        preferenceMemoryResults.textContent = "正在删除用户级偏好记忆...";
+        longTermMemoryResults.textContent = "正在删除用户级长期记忆...";
+        await fetchJson("/memory/clear-user", {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify({
+            user_id: userId
+          })
+        });
+        memorySearchUserId = userId;
+        preferenceMemoryResults.textContent = "偏好记忆已删除";
+        longTermMemoryResults.textContent = "普通长期记忆已删除";
+        await refreshStorage();
       }
 
       function isPreferenceMemory(item) {
@@ -1325,6 +1416,10 @@
 
       document.querySelector("#search-memory").addEventListener("click", () => {
         withFeedback(() => searchLongTermMemory());
+      });
+
+      document.querySelector("#clear-user-memory").addEventListener("click", () => {
+        withFeedback(() => clearUserLongTermMemory());
       });
 
       userInput.addEventListener("change", () => {

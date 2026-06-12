@@ -281,10 +281,7 @@ docker compose -f docker-compose.storage.yml ps
 
 config/test.env.example的连接信息即是本地 Docker 默认连接信息。
 
-首次创建空的 MySQL volume 时，Docker 会自动执行 `docker/mysql/initdb/` 下的初始化 SQL，
-创建会话存储表并包含 `chat_messages.turn_id` 字段。已经用旧版本 Docker 初始化过
-MySQL 的环境，请参考 [`docs/usage/SESSION_STORE_MIGRATION.md`](docs/usage/SESSION_STORE_MIGRATION.md)
-执行增量迁移和历史数据回填。
+首次创建空的 MySQL volume 时，Docker 会自动执行 `docker/mysql/initdb/` 下的初始化 SQL。
 
 - 使用已有外部依赖：
 
@@ -296,6 +293,8 @@ MySQL 的环境，请参考 [`docs/usage/SESSION_STORE_MIGRATION.md`](docs/usage
 make run
 curl http://localhost:8080/health/ok
 ```
+
+服务启动后，可以在浏览器打开 `http://localhost:8080/ui` 使用内置调试页面做简单聊天。
 
 ### 4. 运行测试
 
